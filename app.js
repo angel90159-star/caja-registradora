@@ -1,4 +1,5 @@
 // === CATÁLOGOS Y CONFIGURACIÓN ===
+    const GOOGLE_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxenozEiAlIfKmab4P-uLQ-DP7t5J0jF92U_koqYzjrPtAlYAleq0YOLau5kHgqedx-/exec";
     const ADMIN_PIN = '02'; // Miguel — PIN de administrador
     const DEFAULT_OPERATORS = {
       "20": "Ingrid", "64": "Leticia", "02": "Miguel",
@@ -252,6 +253,7 @@
       cargarDropdownOperadores();
       construirInputsDesglose();
       refrescarPantallas();
+      intentarSubirCierresPendientes();
       initCalcDragging();
       setupGlobalInputOverrides();
       
@@ -5636,6 +5638,35 @@
         const currentInventory = DB.get('inventory', {});
         registrarMovimientoBitacora(opName, "Cierre", 0, `Turno cerrado y firmado. Total Contado: ${fmt.format(totalContado)}. Diferencia: ${fmt.format(diffTotal)}`, currentInventory);
 
+        // --- PREPARAR PAYLOAD PARA GOOGLE SHEETS ---
+        const payloadNube = {
+          fecha: dateKey,
+          hora: now.toLocaleTimeString(),
+          operador: opName,
+          efectivo_esperado: expectedCajon,
+          efectivo_real: totalContado,
+          diferencia: diffTotal,
+          boveda: expectedBoveda,
+          yastas_terminal: balances.yastasTerminal || 0,
+          meli_terminal: balances.capitalTerminal || 0,
+          tconecta_efectivo: balances.tconecta || 0,
+          banamex_terminal: balances.banamex || 0,
+          bbva: balances.bbva || 0,
+          banorte: balances.banorte || 0,
+          banamex_banco: balances.banamex || 0,
+          bitacora: logs // Toda la lista de transacciones en la bitácora
+        };
+
+        // Enviar asíncronamente a Google Sheets con fallback local en cola
+        guardarCierreEnNube(payloadNube).then(exito => {
+          if (exito) {
+            mostrarToast("Reporte guardado en Google Sheets con éxito.", "success");
+          } else {
+            encolarCierrePendiente(payloadNube);
+            mostrarToast("Sin conexión a Google Sheets. Guardado localmente en cola de espera.", "warning");
+          }
+        });
+
         // RESETEAR SALDOS A CERO
         balances.yastasTerminal = 0;
         balances.yastasEfectivo = 0;
@@ -6490,4 +6521,59 @@
         sumaRapidaSeleccionados.push(key);
       }
       actualizarSumaRapidaCierre();
+    }
+
+    // === INTEGRACIÓN CON GOOGLE SHEETS ===
+    async function guardarCierreEnNube(payload, silent = false) {
+      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
+        console.warn("URL de Google Sheets no configurada.");
+        return false;
+      }
+      
+      try {
+        if (!silent) mostrarToast("Guardando reporte en Google Sheets...", "info");
+        const response = await fetch(GOOGLE_WEB_APP_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8' // Evita CORS preflight OPTIONS en Google Apps Script
+          }
+        });
+        const resJson = await response.json();
+        return (resJson && resJson.status === "success");
+      } catch (e) {
+        console.error("Error al conectar con Google Sheets:", e);
+        return false;
+      }
+    }
+
+    function encolarCierrePendiente(payload) {
+      const pending = DB.get('caja_pending_closures', []);
+      pending.push(payload);
+      DB.set('caja_pending_closures', pending);
+    }
+
+    async function intentarSubirCierresPendientes() {
+      const pending = DB.get('caja_pending_closures', []);
+      if (!pending || pending.length === 0) return;
+      
+      const remaining = [];
+      let subidosCount = 0;
+      
+      for (let i = 0; i < pending.length; i++) {
+        const payload = pending[i];
+        const success = await guardarCierreEnNube(payload, true); // silent = true para no molestar con toasts
+        if (success) {
+          subidosCount++;
+        } else {
+          remaining.push(payload);
+        }
+      }
+      
+      DB.set('caja_pending_closures', remaining);
+      if (subidosCount > 0) {
+        setTimeout(() => {
+          mostrarToast(`Se respaldaron ${subidosCount} cierres pendientes en Google Sheets.`, "success");
+        }, 1500);
+      }
     }
