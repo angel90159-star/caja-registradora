@@ -1,0 +1,1980 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>La Central - Sistema de Caja</title>
+  
+  <!-- Tailwind CSS para el diseño responsivo y moderno -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+  <!-- Iconos Lucide para una interfaz profesional -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-slate-50 text-slate-800 dark:text-white min-h-screen flex flex-col transition-colors duration-200" id="body-el">
+
+  <!-- ==========================================
+       CABECERA DEL SISTEMA (NAVBAR)
+       ========================================== -->
+  <header class="bg-white dark:bg-slate-905 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-40 shadow-sm dark:shadow-slate-950/20 transition-colors duration-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-indigo-100">
+          <i data-lucide="wallet" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-extrabold text-slate-900 dark:text-white tracking-tight">LA CENTRAL</h1>
+          <p class="text-[10px] text-slate-500 dark:text-slate-400 font-semibold tracking-wider uppercase">Caja Registradora & Control</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <!-- Botones de Utilidades (Calculadora y Conteo de Caja) -->
+        <div class="flex items-center gap-1.5">
+          <button id="btn-header-calc" onclick="toggleCalculadora()" class="p-2 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 rounded-xl transition duration-150 flex items-center gap-1 text-xs font-bold" title="Abrir Calculadora">
+            <i data-lucide="calculator" class="w-4.5 h-4.5"></i>
+            <span class="hidden md:inline">Calculadora</span>
+          </button>
+
+          <button id="btn-header-iva" onclick="abrirModalIvaComision()" class="p-2 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 rounded-xl transition duration-150 flex items-center gap-1 text-xs font-bold" title="Calcular IVA y Comisión Terminal">
+            <i data-lucide="percent" class="w-4.5 h-4.5"></i>
+            <span class="hidden md:inline">IVA / Comisión</span>
+          </button>
+          
+          <button id="btn-ver-piezas" onclick="abrirModalPiezas()" class="hidden p-2 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 rounded-xl transition duration-150 flex items-center gap-1 text-xs font-bold relative" title="Ver Piezas en Caja">
+            <i data-lucide="coins" class="w-4.5 h-4.5"></i>
+            <span class="hidden md:inline">Ver Caja</span>
+            <span id="low-stock-badge" class="hidden ml-1 px-1.5 py-0.5 text-[9px] font-black rounded-full bg-rose-500 text-white animate-pulse">0</span>
+          </button>
+          
+          <button id="btn-abrir-bitacora" onclick="mostrarSubvista('bitacora')" class="p-2 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 rounded-xl transition duration-150 flex items-center gap-1 text-xs font-bold" title="Ver Bitácora de Movimientos">
+            <i data-lucide="file-text" class="w-4.5 h-4.5"></i>
+            <span class="hidden md:inline">Bitácora</span>
+          </button>
+
+          <button id="btn-header-users" onclick="solicitarAccesoAdmin()" class="p-2 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 rounded-xl transition duration-150 flex items-center gap-1 text-xs font-bold" title="Gestión de Usuarios (Admin)">
+            <i data-lucide="settings" class="w-4.5 h-4.5"></i>
+            <span class="hidden md:inline">Usuarios</span>
+          </button>
+        </div>
+
+        <!-- Badge de Caja Activa -->
+        <div id="cajero-badge" class="hidden sm:flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950 border border-emerald-100 dark:border-emerald-800 px-3.5 py-1.5 rounded-full">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span id="cajero-nombre" class="text-xs font-bold text-emerald-700">Turno Activo</span>
+        </div>
+
+        <button onclick="toggleTheme()" class="p-2 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 rounded-xl transition duration-150" title="Cambiar Tema">
+          <i data-lucide="moon" class="w-5 h-5" id="theme-icon"></i>
+        </button>
+
+        <button id="btn-cargar-simulacion" onclick="cargarSimulacion()" class="bg-indigo-50 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 px-4 py-2 rounded-xl text-xs font-bold transition duration-150 flex items-center gap-1.5" title="Cargar Simulación de Turno">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Simular Turno
+        </button>
+
+        <button id="btn-cerrar-turno" onclick="cerrarTurno()" class="hidden bg-rose-50 dark:bg-rose-950 hover:bg-rose-100 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 px-4 py-2 rounded-xl text-xs font-bold transition duration-150 flex items-center gap-1.5">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i> Cerrar Turno
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==========================================
+       CONTENIDO PRINCIPAL
+       ========================================== -->
+  <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- VISTA PRINCIPAL (Siempre visible, el control de acceso se maneja por bloques) -->    <!-- ==========================================
+         VISTA APERTURA DE TURNO (PÁGINA 1)
+         ========================================== -->
+    <div id="vista-apertura" class="max-w-4xl mx-auto bg-white dark:bg-slate-900 rounded-2xl shadow-sm dark:shadow-slate-950/20 border border-slate-100 dark:border-slate-800 p-6 md:p-8 space-y-6 hidden">
+      <!-- Encabezado de la Apertura -->
+      <div class="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-2">
+        <div class="w-10 h-10 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
+          <i data-lucide="lock" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h2 class="text-base font-extrabold text-slate-900 uppercase tracking-wide">Apertura de Turno</h2>
+          <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">Ingrese los saldos iniciales y declare las piezas de efectivo físico para iniciar el turno.</p>
+        </div>
+      </div>
+
+      <!-- Cuerpo de la Apertura: 2 Columnas -->
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+        
+        <!-- Columna Izquierda (Apertura): Datos de Turno y Resumen -->
+        <div class="md:col-span-5 space-y-5">
+          <div class="bg-slate-50 dark:bg-slate-800 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700 space-y-4">
+            <h3 class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Configuración de Entrada</h3>
+            
+
+
+            <div>
+              <label class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Saldo Inicial Terminal Yastas</label>
+              <div class="relative">
+                <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 dark:text-slate-500 font-semibold text-xs">$</span>
+                <input type="number" id="apertura-yastas" oninput="calcularTotalLocal()" placeholder="0.00" step="0.01" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-4 py-3 text-sm font-bold text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white dark:focus:bg-slate-900 transition duration-150">
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
+            <h3 class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Resumen de Caja</h3>
+            
+            <div class="space-y-2">
+              <div class="flex justify-between items-center bg-slate-950/40 p-3 rounded-xl border border-slate-800/80">
+                <span class="text-[9px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Efectivo Físico Inicial:</span>
+                <span id="apertura-total-caja" class="text-xs font-bold text-emerald-400">$0.00</span>
+              </div>
+              
+              <div class="flex justify-between items-center bg-slate-950/40 p-3 rounded-xl border border-slate-800/80">
+                <span class="text-[9px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Saldo Inicial Yastas:</span>
+                <span id="apertura-total-yastas-val" class="text-xs font-bold text-purple-400">$0.00</span>
+              </div>
+
+              <div class="flex justify-between items-center bg-slate-950/80 p-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20">
+                <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Total Inicial Operativo:</span>
+                <span id="apertura-total-operativo" class="text-base font-black text-emerald-300">$0.00</span>
+              </div>
+            </div>
+
+            <button onclick="intentarIniciarTurno()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl text-xs transition shadow-lg flex items-center justify-center gap-1.5">
+              <i data-lucide="play" class="w-4 h-4"></i>
+              <span>CONFIRMAR E INICIAR TURNO</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Columna Derecha (Apertura): Charola de Conteo Físico -->
+        <div class="md:col-span-7 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 space-y-5">
+          <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <span class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Desglose de Efectivo de Apertura</span>
+            <div class="flex gap-2">
+              <button onclick="cargarBilletesAyer()" class="text-[10px] bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 px-2 py-1 rounded-lg font-bold transition flex items-center gap-1">
+                <i data-lucide="history" class="w-3 h-3"></i> Usar Billetes de Ayer
+              </button>
+              <button onclick="limpiarDesglose()" class="text-[10px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-850 font-bold transition">Limpiar Campos</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <!-- Billetes Apertura -->
+            <div class="space-y-3">
+              <span class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block border-b border-slate-100 dark:border-slate-800 pb-1">Billetes</span>
+              <div id="apertura-billetes-container" class="space-y-2 pr-1">
+                <!-- Se cargará dinámicamente -->
+              </div>
+            </div>
+
+            <!-- Monedas Apertura -->
+            <div class="space-y-3">
+              <span class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block border-b border-slate-100 dark:border-slate-800 pb-1">Monedas</span>
+              <div id="apertura-monedas-container" class="space-y-2 pr-1">
+                <!-- Se cargará dinámicamente -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ==========================================
+         VISTA TABLERO PRINCIPAL (PÁGINA 2)
+         ========================================== -->
+    <div id="vista-dashboard" class="hidden">
+      <!-- Sub-vista A: Tablero Operativo de Trabajo -->
+      <div id="dash-main-view" class="space-y-6">
+      
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3">
+        <!-- Yastas Card (Morado) -->
+        <div id="card-yastas" onclick="seleccionarServicioCard('yastas')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-purple-600 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <span class="text-[10px] font-bold text-purple-600 dark:text-purple-400 tracking-wider uppercase text-center">Yastas</span>
+          <div class="hidden">
+            <span id="dash-bal-yastas-terminal">$0.00</span>
+            <span id="dash-bal-yastas-efectivo">$0.00</span>
+          </div>
+        </div>
+
+        <!-- Banorte Card (Rojo) -->
+        <div id="card-banorte" onclick="seleccionarServicioCard('banorte')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-rose-500 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <div class="absolute top-2.5 right-2.5">
+            <button onclick="event.stopPropagation(); solicitarEdicionMonto('banorte')" class="text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 transition" title="Editar Saldo"><i data-lucide="edit-3" class="w-3.5 h-3.5"></i></button>
+          </div>
+          <span class="text-[10px] font-bold text-rose-600 dark:text-rose-400 tracking-wider uppercase text-center">Banorte</span>
+          <span id="dash-bal-banorte" class="hidden text-base font-black text-slate-800 dark:text-white mt-2">$0.00</span>
+        </div>
+
+        <!-- Mercado Libre Card / Meli (Amarillo) -->
+        <div id="card-meli" onclick="seleccionarServicioCard('meli')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-amber-500 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <div class="absolute top-2.5 right-2.5">
+            <button onclick="event.stopPropagation(); solicitarEdicionMonto('meli')" class="text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 transition cursor-pointer" title="Editar Saldo"><i data-lucide="edit-3" class="w-3.5 h-3.5"></i></button>
+          </div>
+          <span class="text-[10px] font-bold text-amber-600 dark:text-amber-400 tracking-wider uppercase text-center">Meli</span>
+          <div class="hidden space-y-1 mt-2">
+            <span id="dash-bal-meli-terminal">$0.00</span>
+            <span id="dash-bal-meli-diff">$0.00</span>
+          </div>
+        </div>
+
+        <!-- BBVA Card (Azul Marino) -->
+        <div id="card-bbva" onclick="seleccionarServicioCard('bbva')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-blue-900 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <div class="absolute top-2.5 right-2.5">
+            <button onclick="event.stopPropagation(); abrirRetirosBBVA()" class="text-slate-300 hover:text-blue-700 dark:hover:text-blue-300 transition" title="Ver retiros del día">
+              <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+          <span class="text-[10px] font-bold text-blue-900 dark:text-blue-400 tracking-wider uppercase text-center">BBVA</span>
+          <span id="dash-bal-bbva" class="hidden text-base font-black text-slate-800 dark:text-white mt-2">$0.00</span>
+        </div>
+
+        <!-- T-Conecta Card (Azul Cielo) -->
+        <div id="card-tconecta" onclick="seleccionarServicioCard('tconecta')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-sky-500 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <span class="text-[10px] font-bold text-sky-500 dark:text-sky-400 tracking-wider uppercase text-center">T-Conecta</span>
+          <span id="dash-bal-tconecta" class="hidden text-base font-black text-slate-800 dark:text-white mt-2">$0.00</span>
+        </div>
+
+        <!-- Capital / Fondo Card → Ahora es Sistema Híbrido -->
+        <div id="card-capital" onclick="seleccionarServicioCard('capital')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-teal-500 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <div class="absolute top-2.5 right-2.5">
+            <button onclick="event.stopPropagation(); abrirMovimientosCapital()" class="text-slate-300 hover:text-teal-600 dark:hover:text-teal-300 transition" title="Ver movimientos de capital">
+              <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+          <span class="text-[10px] font-bold text-teal-600 dark:text-teal-400 tracking-wider uppercase text-center">Sistema Híbrido</span>
+          <span id="dash-bal-capital" class="hidden text-base font-black text-slate-800 dark:text-white mt-2">$0.00</span>
+        </div>
+
+
+        <!-- Caja Fuerte / Bóveda Card -->
+        <div id="card-caja" onclick="seleccionarServicioCard('caja')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-slate-700 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <span class="text-[10px] font-bold text-slate-700 dark:text-slate-300 tracking-wider uppercase text-center">Bóveda</span>
+          <span id="dash-bal-boveda" class="hidden">$0.00</span>
+        </div>
+
+        <!-- Cambio de Efectivo Card -->
+        <div id="card-cambio" onclick="seleccionarServicioCard('cambio')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-orange-500 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <span class="text-[10px] font-bold text-orange-600 dark:text-orange-400 tracking-wider uppercase text-center">Cambio</span>
+        </div>
+      </div>
+
+      <!-- Barra de Total Operativo (Efectivo en charola + Terminal Yastas) -->
+      <div id="dash-total-bar-container" class="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 rounded-2xl shadow-md flex flex-col sm:flex-row items-center justify-between gap-3 transition-all duration-300">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
+            <i data-lucide="landmark" class="w-5 h-5 text-white"></i>
+          </div>
+          <div>
+            <span id="dash-total-bar-title" class="text-[9px] font-bold text-indigo-200 uppercase tracking-wider block">Total Operativo del Día</span>
+            <span id="dash-total-bar-desc" class="text-[10px] text-indigo-100">Efectivo en charola + Terminal Yastas</span>
+          </div>
+        </div>
+        <div id="dash-total-bar-details" class="flex items-center gap-6">
+          <div id="dash-total-col1" class="text-center">
+            <span id="dash-total-bar-label1" class="text-[9px] font-bold text-indigo-200 uppercase tracking-wider block">Charola</span>
+            <span id="dash-total-charola" class="text-lg font-black text-white">$0.00</span>
+          </div>
+          <span id="dash-total-bar-operator" class="text-indigo-300 text-lg font-bold">+</span>
+          <div id="dash-total-col2" class="text-center">
+            <span id="dash-total-bar-label2" class="text-[9px] font-bold text-indigo-200 uppercase tracking-wider block">Terminal</span>
+            <span id="dash-total-terminal" class="text-lg font-black text-white">$0.00</span>
+          </div>
+          <span id="dash-total-bar-operator-retiro" class="hidden text-indigo-300 text-lg font-bold">-</span>
+          <div id="dash-total-col-retiro" class="hidden text-center">
+            <span id="dash-total-bar-label-retiro" class="text-[9px] font-bold text-rose-200 uppercase tracking-wider block">Retiros</span>
+            <span id="dash-total-retiro" class="text-lg font-black text-white">$0.00</span>
+          </div>
+          <span id="dash-total-bar-equals" class="text-indigo-300 text-lg font-bold">=</span>
+          <div class="text-center">
+            <span id="dash-total-bar-label3" class="text-[9px] font-bold text-yellow-300 uppercase tracking-wider block">Total</span>
+            <span id="dash-total-operativo" class="text-xl font-black text-yellow-300">$0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Area de Trabajo Principal -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        
+        <!-- Columna Izquierda (8 cols): Charola de Efectivo y Calculadora -->
+        <div id="charola-section" class="lg:col-span-6 bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100" style="position: relative;">
+          <div class="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div class="flex items-center gap-2">
+              <div class="p-1.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                <i data-lucide="calculator" class="w-4 h-4"></i>
+              </div>
+              <h3 id="dash-charola-titulo" class="font-bold text-slate-800 dark:text-white text-sm uppercase tracking-wider">Charola de Efectivo (Ingresa Piezas)</h3>
+            </div>
+            
+            <div id="dash-charola-limpiar-btn" class="flex gap-2">
+              <button onclick="limpiarDesglose()" class="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-100 dark:border-indigo-800 px-3 py-1 rounded-lg font-bold transition">Limpiar Campos</button>
+            </div>
+          </div>
+
+          <!-- Panel de Charola de Efectivo Físico -->
+          <div id="dash-charola-fisica-seccion" class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <!-- Billetes -->
+            <div id="dash-billetes-seccion" class="space-y-3">
+              <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1">
+                <span class="text-xs font-bold text-slate-400 dark:text-slate-300 uppercase tracking-wider">Billetes</span>
+                <span class="text-[10px] text-slate-400 dark:text-slate-300">Stock en caja</span>
+              </div>
+              <div id="dash-billetes-container" class="space-y-2">
+                <!-- Generado dinámicamente -->
+              </div>
+            </div>
+
+            <!-- Monedas -->
+            <div id="dash-monedas-seccion" class="space-y-3">
+              <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1">
+                <span class="text-xs font-bold text-slate-400 dark:text-slate-300 uppercase tracking-wider">Monedas</span>
+                <span class="text-[10px] text-slate-400 dark:text-slate-300">Stock en caja</span>
+              </div>
+              <div id="dash-monedas-container" class="space-y-2">
+                <!-- Generado dinámicamente -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Panel de Operación Digital / Transferencia (Placeholder en Charola) -->
+          <div id="dash-charola-placeholder" class="hidden flex flex-col items-center justify-center py-16 px-6 text-center space-y-4 border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50/50 dark:bg-slate-800/50">
+            <div class="w-16 h-16 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-full flex items-center justify-center shadow-inner">
+              <i data-lucide="smartphone" class="w-8 h-8"></i>
+            </div>
+            <div class="space-y-1 max-w-sm">
+              <h4 id="charola-placeholder-title" class="font-bold text-slate-800 dark:text-white text-sm">Operación Electrónica</h4>
+              <p id="charola-placeholder-desc" class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Esta cuenta no maneja efectivo físico en la charola. Ingrese el importe de forma manual en el formulario de la derecha.
+              </p>
+            </div>
+          </div>
+
+
+
+          <!-- Panel de Últimos 5 Movimientos (Reactivo al servicio activo) -->
+          <div id="dash-ultimos-movimientos-seccion" class="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Últimos 5 Movimientos</span>
+              <span class="text-[9px] text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Historial Reciente</span>
+            </div>
+            <div id="dash-ultimos-movimientos-container" class="space-y-2">
+              <!-- Cargado dinámicamente -->
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Columna Derecha (5 cols): Panel de Operación Diaria -->
+        <div class="lg:col-span-6 bg-white dark:bg-slate-900 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 overflow-hidden relative min-h-[360px]">
+          <!-- Bloque A: Formulario de Operación Diaria (Visible si el turno está abierto) -->
+          <div id="op-form-container" class="block">
+            <!-- Pestañas de Ingreso / Salida -->
+            <div id="op-tabs-container" class="flex border-b border-slate-100">
+              <button id="tab-ingreso" onclick="setOpType('ingreso')" class="flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-emerald-500 dark:border-emerald-600 text-emerald-600 dark:text-emerald-400 bg-emerald-50/20 dark:bg-emerald-950/30">
+                <i data-lucide="plus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Ingreso (+)
+              </button>
+              <button id="tab-salida" onclick="setOpType('salida')" class="flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 dark:bg-slate-800/50">
+                <i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Salida (-)
+              </button>
+              <button id="tab-redeposito" onclick="setOpType('redeposito')" class="hidden flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 dark:bg-slate-800/50">
+                <i data-lucide="refresh-cw" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Re-depósito
+              </button>
+              <button id="tab-recarga" onclick="setOpType('recarga')" class="hidden flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 dark:bg-slate-800/50">
+                <i data-lucide="smartphone" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Recarga (📱)
+              </button>
+            </div>
+
+            <!-- Formulario de Operación -->
+            <div class="p-6 space-y-5">
+              <div class="hidden">
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Cuenta de Destino / Servicio</label>
+                <select id="op-service" onchange="actualizarFormularioOperacion()" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white dark:focus:bg-slate-900 transition duration-150">
+                  <option value="yastas" selected>Yastas (Morado)</option>
+                  <option value="meli">Mercado Libre (Amarillo)</option>
+                  <option value="bbva">BBVA N6 (Azul Marino)</option>
+                  <option value="tconecta">T-Conecta (Azul Cielo)</option>
+                  <option value="caja">Caja Fuerte (Bóveda)</option>
+                  <option value="capital">Sistema Híbrido (Capital)</option>
+                  <option value="banorte">Banorte (Terminal Electrónica)</option>
+                  <option value="cambio">Cambio de Efectivo (Naranja)</option>
+                </select>
+              </div>
+
+              <!-- Panel de Calculadora de Cambio en Depósitos -->
+              <div id="panel-calculadora-cambio" class="hidden bg-amber-50/40 border border-amber-200 rounded-2xl p-5 space-y-4">
+                <div class="flex items-center justify-between border-b border-amber-100 pb-2">
+                  <span class="text-[10px] font-black text-amber-700 uppercase tracking-wider block">Calculadora de Cambio (Depósitos)</span>
+                  <span class="text-[9px] bg-rose-600 text-white px-2 py-0.5 rounded-md font-bold uppercase tracking-wider animate-pulse">Requerido</span>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Monto del Depósito ($)</label>
+                    <input type="number" id="op-cambio-deposito" placeholder="Ej. 1400" min="0" step="0.01" oninput="calcularCambioOperacion()" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 shadow-sm dark:shadow-slate-950/30 transition">
+                  </div>
+                  <div>
+                    <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Efectivo Recibido ($)</label>
+                    <span id="op-cambio-recibido-label" class="block w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-black text-slate-700 dark:text-slate-300 text-center select-none shadow-sm dark:shadow-slate-950/30 h-[38px] flex items-center justify-center">$0.00</span>
+                  </div>
+                </div>
+                
+                <div id="op-cambio-resultado-wrapper" class="hidden pt-1 flex flex-col gap-3">
+                  <!-- El contenido dinámico de Casos A, B y C se inyectará aquí -->
+                </div>
+              </div>
+
+              <!-- Panel de Asistente de Retiros -->
+              <div id="panel-calculadora-retiro" class="hidden bg-indigo-50/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl p-5 space-y-4">
+                <div class="flex items-center justify-between border-b border-indigo-100 dark:border-indigo-800 pb-2">
+                  <span class="text-[10px] font-black text-indigo-700 uppercase tracking-wider block">Asistente de Retiros</span>
+                  <span class="text-[9px] bg-rose-600 text-white px-2 py-0.5 rounded-md font-bold uppercase tracking-wider animate-pulse">Requerido</span>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                  <div class="col-span-2">
+                    <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Monto a Retirar ($)</label>
+                    <input type="number" id="op-retiro-monto" placeholder="Ej. 8000" min="0" step="0.01" oninput="calcularRetiroOperacion()" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 shadow-sm dark:shadow-slate-950/30 transition">
+                  </div>
+                </div>
+
+                <!-- Selector de Modo: Sugerido vs Manual -->
+                <div class="space-y-1.5">
+                  <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Modo de Entrega</label>
+                  <div class="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200">
+                    <button type="button" id="btn-retiro-sugerido" onclick="setRetiroModo('sugerido')" class="py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-indigo-600 text-white border border-indigo-500">
+                      Sugerido (Auto)
+                    </button>
+                    <button type="button" id="btn-retiro-manual" onclick="setRetiroModo('manual')" class="py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent">
+                      Manual (Charola)
+                    </button>
+                  </div>
+                  <input type="hidden" id="op-retiro-modo-val" value="sugerido">
+                </div>
+                
+                <div id="op-retiro-resultado-wrapper" class="hidden pt-1 flex flex-col gap-3">
+                  <!-- El contenido dinámico de Casos A, B y C se inyectará aquí -->
+                </div>
+              </div>
+
+              <!-- Panel informativo de origen del dinero -->
+              <div id="panel-origen-efectivo" class="bg-indigo-50/60 border border-indigo-100 dark:border-indigo-800 rounded-xl p-4 space-y-1">
+                <span class="text-[9px] font-bold text-indigo-500 uppercase tracking-wider block">Importe de la Operación</span>
+                <p class="text-xs text-slate-600">
+                  El monto se calculará automáticamente a partir de las piezas que ingresó en la charola izquierda.
+                </p>
+                <div class="pt-2 flex justify-between items-center">
+                  <span class="text-xs font-bold text-slate-700">Monto desglosado:</span>
+                  <span id="op-monto-desglosado" class="text-lg font-black text-indigo-700">$0.00</span>
+                </div>
+              </div>
+
+              <!-- Panel para Monto Manual (Banorte / Transferencia) -->
+              <div id="panel-monto-manual" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
+                <span id="label-monto-manual" class="text-[9px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider block">Operación Electrónica</span>
+                <p id="desc-monto-manual" class="text-xs text-slate-500">
+                  Esta operación no requiere desglose físico. Escriba el monto directamente.
+                </p>
+                <div>
+                  <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Monto exacto ($)</label>
+                  <input type="number" id="op-monto-manual" placeholder="0.00" step="0.01" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+              </div>
+
+              <!-- Método de Pago Banorte (Solo visible en Ingreso de Banorte) -->
+              <div id="panel-metodo-pago-banorte" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
+                <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Método de Depósito</label>
+                <div class="grid grid-cols-2 gap-2">
+                  <button type="button" id="btn-metodo-terminal" onclick="setBanorteMetodo('terminal')" class="py-2.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 border-rose-500 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950">
+                    <i data-lucide="credit-card" class="w-4 h-4"></i> Terminal (Tarjeta)
+                  </button>
+                  <button type="button" id="btn-metodo-transferencia" onclick="setBanorteMetodo('transferencia')" class="py-2.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <i data-lucide="send" class="w-4 h-4"></i> Transferencia
+                  </button>
+                </div>
+                <input type="hidden" id="op-metodo-banorte-val" value="terminal">
+              </div>
+
+              <!-- Modo de Operación Mercado Libre (Meli) -->
+              <div id="panel-modo-meli" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
+                <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Modo de Operación (Meli)</label>
+                <div class="grid grid-cols-2 gap-2">
+                  <button type="button" id="btn-meli-tienda" onclick="setMeliModo('tienda')" class="py-2.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 border-amber-500 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950">
+                    <i data-lucide="store" class="w-4 h-4"></i> Tienda Express (Charola)
+                  </button>
+                  <button type="button" id="btn-meli-negocio" onclick="setMeliModo('negocio')" class="py-2.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <i data-lucide="building" class="w-4 h-4"></i> Venta Negocio (Terminal)
+                  </button>
+                </div>
+                <input type="hidden" id="op-modo-meli-val" value="tienda">
+              </div>
+
+              <!-- Panel para Cambio de Efectivo (Salida de piezas) -->
+              <div id="panel-cambio-salida" class="hidden space-y-4 !mt-0">
+                <div class="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <div class="flex items-center gap-2">
+                    <div class="p-1.5 bg-orange-50 text-orange-600 dark:text-orange-400 rounded-lg">
+                      <i data-lucide="arrow-up-right" class="w-4 h-4"></i>
+                    </div>
+                    <span id="dash-cambio-salida-titulo" class="font-black text-orange-600 dark:text-orange-400 text-sm uppercase tracking-wider flex items-center">EFECTIVO ENTREGADO (AL CLIENTE)</span>
+                  </div>
+                </div>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Ingrese las piezas de billetes y monedas que le está entregando al cliente en el cambio.
+                </p>
+
+                <button type="button" id="btn-sugerir-cambio" onclick="sugerirCambioEfectivo()" class="w-full py-2.5 px-3 rounded-xl border border-orange-200 text-xs font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 transition flex items-center justify-center gap-1.5" title="Sugerir desglose de cambio automáticamente">
+                  <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                  <span>Sugerir Cambio</span>
+                </button>
+
+                <!-- Grid de Desglose de Salida -->
+                <div class="grid grid-cols-2 gap-6">
+                  <!-- Billetes a entregar -->
+                  <div class="space-y-3">
+                    <span class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block border-b border-slate-100 dark:border-slate-800 pb-1">Billetes</span>
+                    <div class="space-y-2">
+                      <!-- $1000 -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-indigo-600 text-white select-none">$1000</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-1000" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                      <!-- $500 -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-indigo-600 text-white select-none">$500</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-500" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                      <!-- $200 -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-indigo-600 text-white select-none">$200</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-200" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                      <!-- $100 -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-indigo-600 text-white select-none">$100</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-100" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                      <!-- $50 -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-indigo-600 text-white select-none">$50</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-50" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                      <!-- $20 -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-indigo-600 text-white select-none">$20</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-20" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Monedas a entregar -->
+                  <div class="space-y-3">
+                    <span class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block border-b border-slate-100 dark:border-slate-800 pb-1">Monedas</span>
+                    <div class="space-y-2">
+                      <!-- $10 Moneda -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">$10</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-m10" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                      <!-- $5 Moneda -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">$5</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-m5" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                      <!-- $2 Moneda -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">$2</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-m2" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                      <!-- $1 Moneda -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">$1</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-m1" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                      <!-- 50¢ Moneda -->
+                      <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">50¢</div>
+                        <div class="flex-grow flex flex-col min-w-0">
+                          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
+                          <input type="number" id="cambio-out-m05" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Comparador de Totales -->
+                <div class="pt-2 border-t border-slate-200 dark:border-slate-700 flex flex-col gap-1.5">
+                  <div class="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <span>Recibido (Entrada):</span>
+                    <span id="cambio-total-entrada" class="text-slate-700 font-black">$0.00</span>
+                  </div>
+                  <div class="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    <span>Entregado (Salida):</span>
+                    <span id="cambio-total-salida" class="text-orange-600 font-black">$0.00</span>
+                  </div>
+                  <div id="cambio-status-badge" class="mt-1.5 p-2 rounded-lg text-center text-xs font-bold bg-rose-50 dark:bg-rose-950 border border-rose-100 text-rose-600 dark:text-rose-400 transition-colors duration-150">
+                    ❌ Ingrese piezas
+                  </div>
+                </div>
+              </div>
+
+              <!-- Panel de Re-depósito Yastas -->
+              <div id="panel-yastas-redeposito" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
+                <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <div class="p-1.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                  </div>
+                  <span class="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">Operación Combinada (Re-depósito)</span>
+                </div>
+                
+                <!-- Sección de Retiros Virtuales -->
+                <div class="space-y-2">
+                  <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Retiros del Cliente (Digitales)</label>
+                  <div class="flex gap-2">
+                    <input type="number" id="redep-monto-retiro" placeholder="Monto del retiro" class="flex-grow bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <button type="button" onclick="agregarRetiroVirtual()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-xs flex items-center gap-1">
+                      <i data-lucide="plus" class="w-3 h-3"></i>
+                      <span>Agregar</span>
+                    </button>
+                  </div>
+                  
+                  <!-- Lista de Retiros -->
+                  <div id="redep-lista-retiros" class="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                    <div class="text-[10px] text-slate-400 dark:text-slate-500 italic">No hay retiros agregados</div>
+                  </div>
+                  
+                  <div class="flex justify-between items-center text-xs bg-slate-100 dark:bg-slate-800 p-2 rounded-lg font-bold text-slate-700">
+                    <span>Total Retiros (Digital):</span>
+                    <span id="redep-total-retiros" class="font-black font-mono">$0.00</span>
+                  </div>
+                </div>
+
+                <!-- Diferencia Operativa -->
+                <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex flex-col gap-2">
+                  <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Balance de Caja</div>
+                  
+                  <div id="redep-diferencia-container" class="p-3.5 rounded-2xl border flex flex-col gap-0.5 items-center justify-center text-center transition duration-150 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-650">
+                    <span class="text-[9px] uppercase font-bold tracking-wider text-slate-500">Efectivo Adicional en Charola</span>
+                    <span id="redep-diferencia-valor" class="text-base font-black font-mono">$0.00</span>
+                    <span id="redep-diferencia-mensaje" class="text-[9px] font-bold">Configure los montos</span>
+                  </div>
+
+                  <div id="redep-status-badge" class="p-2.5 rounded-xl text-center text-xs font-bold bg-rose-50 dark:bg-rose-950 border border-rose-100 text-rose-600">
+                    ❌ Ingrese montos
+                  </div>
+                </div>
+
+                <!-- Sección de Depósito -->
+                <div class="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3">
+                  <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Depósito Contable (Yastas)</div>
+                  <div class="p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950 border border-indigo-150 flex flex-col gap-0.5 items-center justify-center text-center">
+                    <span class="text-[9px] uppercase font-bold tracking-wider text-indigo-500">Depósito a Realizar (Digital)</span>
+                    <span id="redep-monto-deposito-display" class="text-lg font-black font-mono text-indigo-700">$0.00</span>
+                    <input type="hidden" id="redep-monto-deposito" value="0">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Panel de Recargas Telefónicas Yastas -->
+              <div id="panel-yastas-recarga" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
+                <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <div class="p-1.5 bg-teal-50 dark:bg-teal-950 text-teal-650 rounded-lg">
+                    <i data-lucide="smartphone" class="w-4 h-4"></i>
+                  </div>
+                  <span id="recarga-panel-titulo" class="text-xs font-black text-teal-700 uppercase tracking-wider block">Recarga Telefónica (Yastas)</span>
+                </div>
+
+                <!-- Monto de la Recarga -->
+                <div class="space-y-1.5">
+                  <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Monto de la Recarga</label>
+                  <input type="number" id="op-recarga-monto" placeholder="0.00" oninput="actualizarMontoRecarga()" step="0.01" min="0"
+                    class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition">
+                </div>
+
+                <!-- Toggle Método de Pago -->
+                <div class="space-y-1.5">
+                  <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Método de Pago</label>
+                  <div class="flex gap-2">
+                    <button id="btn-recarga-metodo-efectivo" type="button" onclick="setRecargaMetodo('efectivo')"
+                      class="flex-grow py-2.5 rounded-xl text-xs font-bold border-2 border-teal-500 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950 transition">
+                      💵 Efectivo (Caja)
+                    </button>
+                    <button id="btn-recarga-metodo-terminal" type="button" onclick="setRecargaMetodo('terminal')"
+                      class="flex-grow py-2.5 rounded-xl text-xs font-bold border-2 border-transparent text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 transition">
+                      📱 Pago a Terminal
+                    </button>
+                  </div>
+                  <input type="hidden" id="op-metodo-recarga-val" value="efectivo">
+                  <p id="desc-recarga-metodo" class="text-[10px] text-slate-450 mt-1">El cliente paga con efectivo. El efectivo ingresa a caja y el saldo de la terminal disminuye.</p>
+                </div>
+              </div>
+
+              <!-- Panel de Concepto de Transferencia -->
+              <div id="panel-concepto-transferencia" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
+                <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Concepto de la Transferencia</label>
+                <input type="text" id="op-concepto-transferencia" placeholder="Ej. Pago a proveedor" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              </div>
+
+              <!-- Panel de Motivo de Operación de Capital -->
+              <div id="panel-motivo-capital" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
+                <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Motivo de la Operación</label>
+                <input type="text" id="op-motivo-capital" placeholder="Ej. Retiro para cambio, Ingreso de fondo" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              </div>
+
+              <!-- Panel de Ubicación Física de la Bóveda -->
+              <div id="panel-monto-boveda" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
+                <label id="label-monto-boveda" class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Monto de la Operación ($)</label>
+                <input type="number" id="op-monto-boveda" oninput="calcularBovedaOperacion()" placeholder="Ej. 1000" min="0" step="0.01" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <!-- Helper de Doble Confirmación Visual de Bóveda -->
+                <div id="op-boveda-helper-wrapper" class="hidden pt-2 flex flex-col gap-2"></div>
+              </div>
+
+              <div id="panel-ubicacion-boveda" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
+                <label id="label-ubicacion-boveda" class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Ubicación de Bóveda</label>
+                <input type="text" id="op-ubicacion-boveda" placeholder="Ej. Caja fuerte principal, Sobre de depósito" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              </div>
+
+
+              <!-- Panel Anexar Capital (Terminal / Efectivo en pantalla grande) -->
+              <div id="panel-anexar-capital" class="hidden space-y-4">
+                <!-- Toggle -->
+                <div class="flex gap-2">
+                  <button id="btn-cap-main-terminal" onclick="setModoAnexarCapital('terminal')"
+                    class="flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-teal-500 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950 transition">
+                    📱 Terminal Yastas
+                  </button>
+                  <button id="btn-cap-main-efectivo" onclick="setModoAnexarCapital('efectivo')"
+                    class="flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-transparent text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 transition">
+                    💵 Efectivo
+                  </button>
+                </div>
+
+                <!-- Panel Terminal -->
+                <div id="cap-main-panel-terminal">
+                  <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Monto a anexar a Terminal Yastas</label>
+                  <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 dark:text-slate-500 font-semibold text-sm">$</span>
+                    <input type="number" id="cap-monto-terminal" oninput="calcularTotalAnexarCapital()" placeholder="0.00" step="0.01" min="0"
+                      class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-4 py-3 text-base font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white dark:focus:bg-slate-900 transition">
+                  </div>
+                  <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5">Se suma directamente al saldo de Terminal Yastas.</p>
+                </div>
+
+
+
+                <!-- Motivo/Concepto del Anexo -->
+                <div class="bg-slate-55/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
+                  <label class="block text-[9px] font-bold text-slate-450 uppercase tracking-wider mb-1">Motivo / Origen del Recurso</label>
+                  <input type="text" id="cap-motivo" placeholder="Ej. Aportación de socio, Fondo inicial, Préstamo, etc." class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                </div>
+
+                <!-- Total -->
+                <div class="bg-teal-50 border border-teal-100 rounded-xl px-4 py-2.5 flex items-center justify-between">
+                  <span class="text-xs font-bold text-teal-700 uppercase tracking-wider">Total a Anexar</span>
+                  <span id="cap-total-display" class="text-lg font-black text-teal-700">$0.00</span>
+                </div>
+
+                <!-- Botón Confirmar Anexar Capital -->
+                <button onclick="procesarAnexarCapital()" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md flex items-center justify-center gap-2">
+                  <i data-lucide="plus-circle" class="w-4.5 h-4.5"></i> Confirmar Anexo de Capital
+                </button>
+              </div>
+
+              <!-- Botón de Envío (operaciones normales) -->
+              <button id="btn-procesar-operacion" onclick="abrirModalPIN()" class="w-full bg-emerald-500 dark:bg-emerald-600 hover:bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-emerald-900/10 flex items-center justify-center gap-2">
+                <i data-lucide="check-circle" class="w-4.5 h-4.5"></i> Autorizar Operación
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div> <!-- Cierre de dash-main-view -->
+
+    <!-- Sub-vista B: Bitácora de Pantalla Completa -->
+    <div id="dash-bitacora-view" class="hidden space-y-6">
+      <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm dark:shadow-slate-950/20 border border-slate-100 dark:border-slate-800 p-6 flex flex-col sm:flex-row items-center justify-between gap-4 transition-colors duration-200">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
+            <i data-lucide="list" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h2 class="text-base font-extrabold text-slate-900 uppercase tracking-wide">Bitácora de Movimientos del Día</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">Historial completo de depósitos, retiros y ajustes registrados en la sesión actual.</p>
+          </div>
+        </div>
+        
+        <div class="flex gap-2 w-full sm:w-auto">
+          <button onclick="exportarBitacora()" class="flex-1 sm:flex-initial bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5">
+            <i data-lucide="download" class="w-4 h-4"></i> Exportar Historial
+          </button>
+          
+          <button onclick="mostrarSubvista('tablero')" class="flex-1 sm:flex-initial bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md">
+            <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Volver al Tablero
+          </button>
+        </div>
+      </div>
+
+      <!-- Barra de Filtros de la Bitácora (Fecha/Calendario, Tipo, Cuenta y Operador) -->
+      <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm dark:shadow-slate-950/20 border border-slate-100 dark:border-slate-800 p-5 grid grid-cols-1 sm:grid-cols-4 gap-4 transition-colors duration-200">
+        <!-- Filtro: Fecha -->
+        <div>
+          <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Fecha de Consulta</label>
+          <input type="date" id="filtro-fecha" onchange="alCambiarFechaFiltro()" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition">
+        </div>
+
+        <!-- Filtro: Tipo de Movimiento -->
+        <div>
+          <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Tipo de Movimiento</label>
+          <select id="filtro-tipo" onchange="cargarBitacora()" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition">
+            <option value="todos">Todos los movimientos</option>
+            <option value="ingreso">Ingresos</option>
+            <option value="egreso">Egresos / Salidas</option>
+            <option value="apertura">Aperturas de Turno</option>
+            <option value="cierre">Cierres de Turno</option>
+            <option value="ajuste">Ajustes / Borrados</option>
+            <option value="cambio">Cambios de Efectivo</option>
+          </select>
+        </div>
+
+        <!-- Filtro: Cuenta Destino -->
+        <div>
+          <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Cuenta Destino</label>
+          <select id="filtro-cuenta" onchange="cargarBitacora()" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition">
+            <option value="todas">Todas las cuentas</option>
+            <option value="YASTAS">Yastas</option>
+            <option value="BANORTE">Banorte</option>
+            <option value="MELI">Mercado Libre (Meli)</option>
+            <option value="TCONECTA">T-Conecta</option>
+            <option value="BBVA">BBVA</option>
+            <option value="CAPITAL">Sistema Híbrido (Capital)</option>
+            <option value="CAJA">Caja Fuerte</option>
+            <option value="CAMBIO">Cambio de Efectivo</option>
+          </select>
+        </div>
+
+        <!-- Filtro: Operador -->
+        <div>
+          <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Operador</label>
+          <select id="filtro-operador" onchange="cargarBitacora()" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition">
+            <option value="todos">Todos los operadores</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Barra de Pestañas de la Bitácora (Para alternar entre Vista de Saldos y Vista de Piezas Excel) -->
+      <div class="flex border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-t-2xl shadow-sm dark:shadow-slate-950/20 border border-b-0 border-slate-100 dark:border-slate-800 overflow-hidden shrink-0 mt-6">
+        <button id="tab-bitacora-saldos" onclick="setBitacoraTab('saldos')" class="flex-1 py-4 text-center font-bold text-xs tracking-wider uppercase transition border-b-2 border-indigo-500 text-indigo-650 bg-indigo-50/20 cursor-pointer">
+          <i data-lucide="list" class="inline w-3.5 h-3.5 mr-1 align-middle"></i> Vista de Saldos
+        </button>
+        <button id="tab-bitacora-piezas" onclick="setBitacoraTab('piezas')" class="flex-1 py-4 text-center font-bold text-xs tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-650 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 cursor-pointer">
+          <i data-lucide="grid" class="inline w-3.5 h-3.5 mr-1 align-middle"></i> Vista de Piezas (Excel)
+        </button>
+        <button id="tab-bitacora-corte" onclick="setBitacoraTab('corte')" class="flex-1 py-4 text-center font-bold text-xs tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-650 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 cursor-pointer">
+          <i data-lucide="award" class="inline w-3.5 h-3.5 mr-1 align-middle"></i> Resumen de Caja (Corte)
+        </button>
+      </div>
+
+      <!-- Contenedor Principal de Tablas a Ancho Completo -->
+      <div class="bg-white dark:bg-slate-800 rounded-b-2xl shadow-sm dark:shadow-slate-950/20 border border-t-0 border-slate-100 dark:border-slate-800 overflow-hidden transition-colors duration-200">
+        
+        <!-- A: TABLA DE VISTA DE SALDOS (Historial Clásico) -->
+        <div id="container-bitacora-saldos" class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-50 border-b border-slate-100 dark:border-slate-800 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                <th class="py-3.5 px-6 w-24">Hora</th>
+                <th class="py-3.5 px-4 w-32">Operador</th>
+                <th class="py-3.5 px-4 w-32">Cuenta</th>
+                <th class="py-3.5 px-4 w-28">Tipo</th>
+                <th class="py-3.5 px-4 w-32 text-right">Monto</th>
+                <th class="py-3.5 px-4 w-24 text-center">Físico</th>
+                <th class="py-3.5 px-6">Detalles del Movimiento</th>
+              </tr>
+            </thead>
+            <tbody id="bitacora-tbody" class="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+              <!-- Cargado dinámicamente -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- B: TABLA DE VISTA DE PIEZAS (Excel-like Grid) -->
+        <div id="container-bitacora-piezas" class="overflow-x-auto hidden">
+          <table class="w-full text-left border-collapse min-w-[900px]">
+            <thead>
+              <tr class="bg-slate-50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider text-center">
+                <th class="py-3 px-4 text-left w-20">Hora</th>
+                <th class="py-3 px-2 w-12">$1000</th>
+                <th class="py-3 px-2 w-12">$500</th>
+                <th class="py-3 px-2 w-12">$200</th>
+                <th class="py-3 px-2 w-12">$100</th>
+                <th class="py-3 px-2 w-12">$50</th>
+                <th class="py-3 px-2 w-12">$20</th>
+                <th class="py-3 px-2 w-12">$10</th>
+                <th class="py-3 px-2 w-12">$5</th>
+                <th class="py-3 px-2 w-12">$2</th>
+                <th class="py-3 px-2 w-12">$1</th>
+                <th class="py-3 px-2 w-12">50¢</th>
+                <th class="py-3 px-3 w-28 text-left">Usuario</th>
+                <th class="py-3 px-4 text-left">Detalles</th>
+              </tr>
+            </thead>
+            <tbody id="bitacora-piezas-tbody" class="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 text-center">
+              <!-- Cargado dinámicamente -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- C: VISTA DE RESUMEN DE CAJA (Tablero Visual de Cierre) -->
+        <div id="container-bitacora-corte" class="p-6 space-y-6 hidden bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-3xl border border-slate-150 dark:border-slate-800 shadow-xl">
+          <!-- Mensaje cuando no hay reporte para la fecha -->
+          <div id="corte-no-report-msg" class="flex flex-col items-center justify-center py-16 text-center text-slate-400">
+            <i data-lucide="file-warning" class="w-16 h-16 mb-4 text-slate-500"></i>
+            <h3 class="text-lg font-bold">No hay reporte de cierre guardado</h3>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">No se ha registrado un corte de caja firmado para la fecha seleccionada.</p>
+          </div>
+
+          <!-- Tablero de Reporte (Visible si hay reporte) -->
+          <div id="corte-report-dashboard" class="space-y-6 hidden">
+            <!-- KPIs Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <!-- KPI: Efectivo Cajón -->
+              <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
+                <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Efectivo en Cajón</span>
+                <span id="kpi-corte-efectivo" class="text-2xl font-black font-mono text-emerald-600 dark:text-teal-400">$0.00</span>
+                <p id="kpi-corte-efectivo-diff" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">Caja cuadrada</p>
+                <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
+                  <i data-lucide="banknote" class="w-8 h-8"></i>
+                </div>
+              </div>
+
+              <!-- KPI: Saldos Operativos -->
+              <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
+                <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Saldos Operativos</span>
+                <span id="kpi-corte-digital" class="text-2xl font-black font-mono text-indigo-600 dark:text-indigo-400">$0.00</span>
+                <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Terminales virtuales</p>
+                <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
+                  <i data-lucide="smartphone" class="w-8 h-8"></i>
+                </div>
+              </div>
+
+              <!-- KPI: Valor del Negocio -->
+              <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
+                <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Valor del Negocio</span>
+                <span id="kpi-corte-total" class="text-2xl font-black font-mono text-amber-600 dark:text-amber-400">$0.00</span>
+                <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Efectivo + Terminal Yastas</p>
+                <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
+                  <i data-lucide="landmark" class="w-8 h-8"></i>
+                </div>
+              </div>
+
+              <!-- KPI: Operador / Firma -->
+              <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
+                <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Cerrado Por</span>
+                <span id="kpi-corte-firma" class="text-base font-extrabold text-slate-800 dark:text-white truncate block mt-1">Miguel Angel</span>
+                <p id="kpi-corte-duracion" class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">Turno de 12 horas</p>
+                <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
+                  <i data-lucide="shield-check" class="w-8 h-8"></i>
+                </div>
+              </div>
+            </div>
+
+            <!-- Dos Columnas -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <!-- Columna Izquierda: Comparativa de Arqueo y Bóveda -->
+              <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
+                <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">1. Comparativa de Piezas (Físico)</h3>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs">
+                    <thead>
+                      <tr class="text-slate-500 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800">
+                        <th class="py-2">Denominación</th>
+                        <th class="py-2 text-center">Esperado</th>
+                        <th class="py-2 text-center">Contado</th>
+                        <th class="py-2 text-center">Diferencia</th>
+                      </tr>
+                    </thead>
+                    <tbody id="corte-comparativa-tbody" class="divide-y divide-slate-200 dark:divide-slate-800/50 font-bold font-mono text-slate-700 dark:text-slate-300">
+                      <!-- Cargado dinámicamente -->
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Resumen de Efectivo Físico -->
+                <div class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-2">
+                  <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">2. Dinero en Efectivo Físico (Identificado)</h3>
+                  <div class="space-y-1.5 text-xs">
+                    <div class="flex justify-between items-center text-slate-600 dark:text-slate-400 font-medium">
+                      <span>Efectivo esperado en Cajón (Cambio):</span>
+                      <span id="corte-resumen-cajon-esperado" class="font-bold font-mono text-slate-800 dark:text-slate-300">$0.00</span>
+                    </div>
+                    <div class="flex justify-between items-center text-slate-600 dark:text-slate-400 font-medium">
+                      <span>Efectivo esperado en Bóveda (Caja fuerte):</span>
+                      <span id="corte-resumen-boveda-esperado" class="font-bold font-mono text-slate-800 dark:text-slate-300">$0.00</span>
+                    </div>
+                    <div class="border-t border-slate-200 dark:border-slate-800 my-1 pt-1.5 flex justify-between items-center text-slate-900 dark:text-white font-extrabold text-sm">
+                      <span>TOTAL FÍSICO ESPERADO:</span>
+                      <span id="corte-resumen-total-esperado" class="font-black font-mono">$0.00</span>
+                    </div>
+                    <div class="flex justify-between items-center text-emerald-600 dark:text-teal-400 font-extrabold text-sm">
+                      <span>TOTAL FÍSICO CONTADO (REAL):</span>
+                      <span id="corte-resumen-total-contado" class="font-black font-mono">$0.00</span>
+                    </div>
+                    <div class="border-t border-slate-200 dark:border-slate-800 pt-1.5 flex justify-between items-center font-bold text-xs">
+                      <span class="text-slate-500 dark:text-slate-400">Diferencia en Efectivo:</span>
+                      <span id="corte-resumen-diferencia" class="font-black font-mono">$0.00</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Movimientos de Bóveda -->
+                <div class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-2">
+                  <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">3. Movimientos de Bóveda (Caja Fuerte)</h3>
+                  <div class="grid grid-cols-2 gap-3 text-xs bg-white dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800/30">
+                    <div>
+                      <span class="text-slate-500 dark:text-slate-450 block text-[9px] uppercase font-bold mb-0.5">Entradas a Caja</span>
+                      <span id="corte-boveda-in" class="font-bold text-emerald-600 dark:text-teal-400">$0.00</span>
+                    </div>
+                    <div>
+                      <span class="text-slate-500 dark:text-slate-450 block text-[9px] uppercase font-bold mb-0.5">Envíos a Bóveda</span>
+                      <span id="corte-boveda-out" class="font-bold text-rose-600 dark:text-rose-400">$0.00</span>
+                    </div>
+                  </div>
+                  <div class="flex justify-between items-center bg-white dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                    <span class="text-slate-650 dark:text-slate-400 font-bold">Efectivo a recoger de Bóveda:</span>
+                    <span id="corte-boveda-recoger" class="font-black text-emerald-600 dark:text-teal-400">$0.00</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Columna Derecha: Gráfica y Bancos -->
+              <div class="space-y-6">
+                <!-- Gráfica de Dona -->
+                <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
+                  <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">4. Saldos en Terminales (Operativo Digital)</h3>
+                  <div class="flex flex-col sm:flex-row items-center justify-between gap-6">
+                    <!-- SVG Donut Chart -->
+                    <div class="relative w-36 h-36 flex items-center justify-center">
+                      <svg width="100%" height="100%" viewBox="0 0 42 42" class="donut">
+                        <circle class="donut-hole" cx="21" cy="21" r="15.91549430918954" fill="transparent"></circle>
+                        <circle class="donut-ring" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#e2e8f0" class="dark:stroke-slate-800" stroke-width="4.5"></circle>
+                        <!-- Segmentos SVG -->
+                        <g id="corte-donut-segments"></g>
+                      </svg>
+                      <div class="absolute flex flex-col items-center justify-center text-center">
+                        <span class="text-[9px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-400">Total</span>
+                        <span id="corte-donut-total-label" class="text-[11px] font-black text-slate-900 dark:text-white">$0.00</span>
+                      </div>
+                    </div>
+
+                    <!-- Leyendas -->
+                    <div id="corte-donut-legends" class="flex-grow space-y-2 text-xs font-bold w-full sm:w-auto">
+                      <!-- Cargado dinámicamente -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Depósitos Bancarios -->
+                <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
+                  <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">5. Control de Depósitos Bancarios (Informativo)</h3>
+                  <div class="divide-y divide-slate-200 dark:divide-slate-800">
+                    <div class="py-2.5 flex justify-between items-center text-xs">
+                      <div>
+                        <span class="font-extrabold text-slate-800 dark:text-white">BBVA (Recuperación Yastas)</span>
+                        <p class="text-[9px] text-slate-550 dark:text-slate-400 mt-0.5">Dinero físico depositado para fonear terminal</p>
+                      </div>
+                      <span id="corte-banco-bbva" class="font-black text-emerald-600 dark:text-teal-400 font-mono text-sm">$0.00</span>
+                    </div>
+                    <div class="py-2.5 flex justify-between items-center text-xs">
+                      <div>
+                        <span class="font-extrabold text-slate-800 dark:text-white">Cuenta Banorte</span>
+                        <p class="text-[9px] text-slate-550 dark:text-slate-400 mt-0.5">Ventas con tarjeta cobradas en Banorte</p>
+                      </div>
+                      <span id="corte-banco-banorte" class="font-black text-emerald-600 dark:text-teal-400 font-mono text-sm">$0.00</span>
+                    </div>
+                    <div class="py-2.5 flex justify-between items-center text-xs">
+                      <div>
+                        <span class="font-extrabold text-slate-800 dark:text-white">Cuenta Banamex</span>
+                        <p class="text-[9px] text-slate-550 dark:text-slate-400 mt-0.5">Recargas y retiros T-Conecta con tarjeta</p>
+                      </div>
+                      <span id="corte-banco-banamex" class="font-black text-emerald-600 dark:text-teal-400 font-mono text-sm">$0.00</span>
+                    </div>
+                  </div>
+                  <p class="text-[9px] font-semibold text-slate-500 dark:text-slate-450 italic mt-1">* Nota: Estos montos no se suman al total general para evitar duplicar saldos.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vacío general -->
+        <div id="bitacora-vacia" class="hidden p-16 text-center text-slate-400">
+          <i data-lucide="history" class="w-12 h-12 mx-auto mb-3 text-slate-300"></i>
+          <p class="font-bold text-sm text-slate-700">Aún no hay movimientos registrados hoy</p>
+          <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Las operaciones que realice se listarán en esta tabla de auditoría.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-vista C: Cierre de Turno Completo (Dashboard) -->
+    <div id="dash-cierre-view" class="hidden space-y-6 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 p-6 rounded-3xl border border-slate-150 dark:border-slate-800 shadow-xl">
+      <!-- Banner de Reporte Histórico (Oculto por defecto) -->
+      <div id="cierre-historico-banner" class="hidden p-4 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-650 dark:text-indigo-400 flex items-center justify-center">
+            <i data-lucide="archive" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h4 class="text-xs font-black text-indigo-900 dark:text-indigo-300 uppercase tracking-wide">Visualizando Reporte de Cierre Guardado</h4>
+            <p id="cierre-historico-info" class="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">Este es un registro histórico firmado. Los campos están bloqueados.</p>
+          </div>
+        </div>
+        <button onclick="regresarAlTurnoActivoDespuesDeVerHistorico()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition uppercase tracking-wider">
+          Volver a Turno Activo
+        </button>
+      </div>
+
+      <!-- Encabezado -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-slate-150 dark:border-slate-800 pb-5">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 bg-rose-500/20 text-rose-600 dark:text-rose-450 rounded-xl flex items-center justify-center">
+            <i data-lucide="award" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h2 id="cierre-header-titulo" class="text-base font-black text-slate-900 dark:text-white uppercase tracking-wide">Corte de Caja de Turno Activo</h2>
+            <p id="cierre-header-subtitulo" class="text-xs text-slate-500 dark:text-slate-400 font-medium">Capture el conteo de efectivo y verifique los balances antes de firmar.</p>
+          </div>
+        </div>
+        
+        <div class="flex gap-2 w-full sm:w-auto">
+          <button id="btn-cancelar-cierre" onclick="cancelarCierreTurno()" class="flex-1 sm:flex-initial bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
+            <i data-lucide="x" class="w-4 h-4"></i> Cancelar Cierre
+          </button>
+        </div>
+      </div>
+
+      <!-- KPIs Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <!-- KPI: Efectivo Contado -->
+        <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
+          <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Efectivo Real Contado</span>
+          <span id="cierre-kpi-efectivo" class="text-2xl font-black font-mono text-emerald-600 dark:text-teal-400">$0.00</span>
+          <p id="cierre-kpi-efectivo-diff" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">Caja cuadrada</p>
+          <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
+            <i data-lucide="banknote" class="w-8 h-8"></i>
+          </div>
+        </div>
+
+        <!-- KPI: Saldos Operativos -->
+        <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
+          <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Saldos Operativos</span>
+          <span id="cierre-kpi-digital" class="text-2xl font-black font-mono text-indigo-600 dark:text-indigo-400">$0.00</span>
+          <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Yastas, Meli, T-Conecta</p>
+          <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
+            <i data-lucide="smartphone" class="w-8 h-8"></i>
+          </div>
+        </div>
+
+        <!-- KPI: Valor del Negocio -->
+        <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
+          <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Valor Total del Negocio</span>
+          <span id="cierre-kpi-total" class="text-2xl font-black font-mono text-amber-600 dark:text-amber-400">$0.00</span>
+          <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Efectivo + Terminal Yastas</p>
+          <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
+            <i data-lucide="landmark" class="w-8 h-8"></i>
+          </div>
+        </div>
+
+        <!-- KPI: Operador -->
+        <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
+          <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Responsable</span>
+          <span id="cierre-kpi-operador" class="text-base font-extrabold text-slate-800 dark:text-white truncate block mt-1">Administrador</span>
+          <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">Firma con PIN requerida</p>
+          <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
+            <i data-lucide="shield-check" class="w-8 h-8"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dos Columnas -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Columna Izquierda: Captura y Arqueo Comparativo (7 cols) -->
+        <div class="lg:col-span-7 bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
+          <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">1. Captura de Piezas Físicas (Arqueo Comparativo)</h3>
+          
+          <!-- Encabezado de columnas -->
+          <div class="grid grid-cols-4 gap-2 text-[9px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 px-2 pb-1">
+            <span>Denom.</span>
+            <span class="text-center">Esperadas</span>
+            <span class="text-center">Contadas</span>
+            <span class="text-right">Diferencia</span>
+          </div>
+
+          <!-- Billetes -->
+          <div class="space-y-1.5">
+            <span class="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider block border-b border-dashed border-slate-200 dark:border-slate-800 pb-0.5 mb-1">💵 Billetes</span>
+            <!-- $1,000 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$1,000</span>
+              <span id="cierre-cmp-1000-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-1000" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-1000-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+            <!-- $500 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$500</span>
+              <span id="cierre-cmp-500-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-500" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-500-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+            <!-- $200 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$200</span>
+              <span id="cierre-cmp-200-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-200" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-200-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+            <!-- $100 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$100</span>
+              <span id="cierre-cmp-100-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-100" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-100-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+            <!-- $50 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$50</span>
+              <span id="cierre-cmp-50-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-50" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-50-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+            <!-- $20 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$20</span>
+              <span id="cierre-cmp-20-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-20" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-20-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+          </div>
+
+          <!-- Monedas -->
+          <div class="space-y-1.5">
+            <span class="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider block border-b border-dashed border-slate-200 dark:border-slate-800 pb-0.5 mb-1">🪙 Monedas</span>
+            <!-- $10 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$10</span>
+              <span id="cierre-cmp-10-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-10" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-10-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+            <!-- $5 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$5</span>
+              <span id="cierre-cmp-5-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-5" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-5-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+            <!-- $2 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$2</span>
+              <span id="cierre-cmp-2-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-2" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-2-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+            <!-- $1 -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">$1</span>
+              <span id="cierre-cmp-1-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-1" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-1-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+            <!-- 50¢ -->
+            <div class="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300">50¢</span>
+              <span id="cierre-cmp-05-esp" class="text-xs font-bold text-slate-500 dark:text-slate-400 text-center font-mono">0</span>
+              <input type="number" id="cierre-pz-05" oninput="calcularTotalCierre()" min="0" placeholder="0" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-center text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <span id="cierre-cmp-05-dif" class="text-xs font-black text-right font-mono text-slate-400">0</span>
+            </div>
+          </div>
+
+
+          <div class="border-t border-slate-200 dark:border-slate-800 pt-4 space-y-3">
+            <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">2. Dinero en Efectivo Físico (Identificado)</h3>
+            <div class="space-y-2 text-xs">
+              <div class="flex justify-between items-center text-slate-650 dark:text-slate-400 font-medium">
+                <span>Efectivo esperado en Cajón (Cambio):</span>
+                <span id="cierre-resumen-cajon-val" class="font-bold font-mono">$0.00</span>
+              </div>
+              <div class="flex justify-between items-center text-slate-650 dark:text-slate-400 font-medium">
+                <div>
+                  <span>Efectivo esperado en Bóveda (Caja fuerte):</span>
+                  <p class="text-[9px] text-slate-500 dark:text-slate-450 italic mt-0.5">* Nota: El saldo de la bóveda quedará reseteado en ceros al confirmar.</p>
+                </div>
+                <span id="cierre-resumen-boveda-val" class="font-bold font-mono">$0.00</span>
+              </div>
+              <div class="border-t border-slate-200 dark:border-slate-800 my-1 pt-2 flex justify-between items-center text-slate-900 dark:text-white font-black text-sm">
+                <span>TOTAL FÍSICO ESPERADO:</span>
+                <span id="cierre-resumen-total-val" class="font-black font-mono">$0.00</span>
+              </div>
+              <div class="flex justify-between items-center text-emerald-600 dark:text-teal-400 font-black text-sm">
+                <span>TOTAL FÍSICO CONTADO (REAL):</span>
+                <span id="cierre-resumen-real-val" class="font-black font-mono">$0.00</span>
+              </div>
+              <div class="border-t border-slate-200 dark:border-slate-800 pt-2 flex justify-between items-center font-bold text-xs">
+                <span class="text-slate-500 dark:text-slate-400">Diferencia en Efectivo:</span>
+                <span id="cierre-resumen-diff-val" class="font-black font-mono">$0.00</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Columna Derecha: Gráfica, Bancos y Firma (5 cols) -->
+        <div class="lg:col-span-5 space-y-6">
+          <!-- Gráfica de Dona -->
+          <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
+            <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">4. Saldos en Terminales (Operativo Digital)</h3>
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-6">
+              <!-- SVG Donut Chart -->
+              <div class="relative w-36 h-36 flex items-center justify-center mx-auto sm:mx-0">
+                <svg width="100%" height="100%" viewBox="0 0 42 42" class="donut">
+                  <circle class="donut-hole" cx="21" cy="21" r="15.91549430918954" fill="transparent"></circle>
+                  <circle class="donut-ring" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#e2e8f0" class="dark:stroke-slate-800" stroke-width="4.5"></circle>
+                  <g id="cierre-donut-segments-live"></g>
+                </svg>
+                <div class="absolute flex flex-col items-center justify-center text-center">
+                  <span class="text-[9px] uppercase font-bold tracking-wider text-slate-500 dark:text-slate-450">Total</span>
+                  <span id="cierre-donut-total-live" class="text-[11px] font-black text-slate-900 dark:text-white">$0.00</span>
+                </div>
+              </div>
+
+              <!-- Leyendas -->
+              <div id="cierre-donut-legends-live" class="flex-grow space-y-2 text-xs font-bold w-full sm:w-auto">
+                <!-- Leyendas dinámicas -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Depósitos Bancarios -->
+          <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
+            <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">5. Control de Depósitos Bancarios (Informativo)</h3>
+            <div class="divide-y divide-slate-200 dark:divide-slate-800">
+              <div class="py-2.5 flex justify-between items-center text-xs">
+                <div>
+                  <span class="font-extrabold text-slate-800 dark:text-white">BBVA (Recuperación Yastas)</span>
+                  <p class="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">Depósitos realizados acumulados</p>
+                </div>
+                <span id="cierre-banco-bbva-live" class="font-black text-emerald-600 dark:text-teal-400 font-mono text-sm">$0.00</span>
+              </div>
+              <div class="py-2.5 flex justify-between items-center text-xs">
+                <div>
+                  <span class="font-extrabold text-slate-800 dark:text-white">Cuenta Banorte</span>
+                  <p class="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">Ventas con tarjeta del día</p>
+                </div>
+                <span id="cierre-banco-banorte-live" class="font-black text-emerald-600 dark:text-teal-400 font-mono text-sm">$0.00</span>
+              </div>
+              <div class="py-2.5 flex justify-between items-center text-xs">
+                <div>
+                  <span class="font-extrabold text-slate-800 dark:text-white">Cuenta Banamex</span>
+                  <p class="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">Recargas y retiros T-Conecta con tarjeta</p>
+                </div>
+                <span id="cierre-banco-banamex-live" class="font-black text-emerald-600 dark:text-teal-400 font-mono text-sm">$0.00</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Calculadora de Suma Rápida -->
+          <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+              <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i data-lucide="calculator" class="w-4 h-4 text-indigo-500"></i>
+                Calculadora de Suma Rápida
+              </h3>
+              <span class="text-[9px] bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 px-2 py-0.5 rounded-md font-extrabold uppercase tracking-wider select-none">Herramienta</span>
+            </div>
+            <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">Selecciona los conceptos que deseas sumar para calcular un total personalizado al instante:</p>
+            
+            <div id="cierre-suma-rapida-list" class="space-y-2 select-none">
+              <!-- Se generarán dinámicamente las filas interactivas -->
+            </div>
+            
+            <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center bg-indigo-50/50 dark:bg-indigo-950/20 p-3 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
+              <span class="text-xs font-black text-indigo-900 dark:text-indigo-300 uppercase tracking-wider">Total Suma Seleccionada:</span>
+              <span id="cierre-suma-rapida-total" class="text-lg font-black font-mono text-indigo-650 dark:text-indigo-400">$0.00</span>
+            </div>
+          </div>
+
+          <!-- Firma y Cierre -->
+          <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
+            <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2">6. Firmar y Guardar Reporte</h3>
+            <p class="text-xs text-slate-555 dark:text-slate-400 leading-relaxed">Para registrar de forma inalterable este corte de caja en el sistema, es necesario ingresar la firma digital del operador.</p>
+            <button onclick="firmarYCerrarTurno()" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-xl text-xs transition shadow-lg shadow-rose-950/20 flex items-center justify-center gap-1.5 cursor-pointer">
+              <i data-lucide="shield-check" class="w-4.5 h-4.5"></i>
+              <span>FIRMAR Y CERRAR TURNO CON PIN</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    </div>
+
+  </main>
+
+  <!-- ==========================================
+       WIDGET FLOTANTE: CALCULADORA WINDOWS GRANDE CON HISTORIAL
+       ========================================== -->
+  <div id="calc-widget" class="fixed bottom-10 right-6 w-full max-w-[580px] bg-slate-900 border border-slate-700 text-white rounded-2xl overflow-hidden flex flex-col hidden transition-all duration-150">
+    <!-- Encabezado de la calculadora (Draggable) -->
+    <div id="calc-header" class="bg-slate-950 px-4 py-3 flex items-center justify-between select-none shrink-0 border-b border-slate-800">
+      <div id="calc-drag-handle" class="flex items-center gap-2 text-slate-300 text-xs font-bold flex-grow cursor-move py-1">
+        <i data-lucide="calculator" class="w-4.5 h-4.5 text-indigo-400 pointer-events-none"></i>
+        <span class="pointer-events-none">Calculadora con Historial</span>
+      </div>
+      <button onclick="toggleCalcSize()" class="w-8 h-8 flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-indigo-400 hover:bg-slate-800/80 rounded-xl transition shrink-0 ml-2 cursor-pointer" title="Cambiar tamaño de calculadora">
+        <i id="calc-size-icon" data-lucide="maximize-2" class="w-4 h-4 pointer-events-none"></i>
+      </button>
+      <button onclick="toggleCalculadora()" class="w-8 h-8 flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-rose-400 hover:bg-slate-800/80 rounded-xl transition shrink-0 ml-1 cursor-pointer" title="Cerrar Calculadora">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Cuerpo principal en 2 columnas (Lado izquierdo calculadora, Lado derecho historial) -->
+    <div class="flex flex-row divide-x divide-slate-800 h-[460px]">
+      
+      <!-- Lado Izquierdo: Calculadora (Teclado y Pantalla) -->
+      <div class="w-[320px] flex flex-col justify-between p-3 bg-slate-900 shrink-0">
+        <!-- Pantalla de la calculadora -->
+        <div id="calc-display-container" class="bg-slate-950/45 p-3 text-right flex flex-col justify-end rounded-xl mb-2 h-20">
+          <div id="calc-history" class="text-slate-500 text-[10px] font-mono tracking-wide h-5 overflow-hidden"></div>
+          <div id="calc-display" class="text-white text-2xl font-bold font-mono tracking-wider truncate">0</div>
+        </div>
+
+        <!-- Botones de la calculadora -->
+        <div class="grid grid-cols-4 gap-1 text-xs flex-grow">
+          <!-- Fila 1 -->
+          <button data-calc-btn="CE" onclick="pressCalc('CE')" class="py-2.5 bg-slate-850 hover:bg-slate-800 font-bold transition text-indigo-400 rounded-lg">CE</button>
+          <button data-calc-btn="C" onclick="pressCalc('C')" class="py-2.5 bg-slate-850 hover:bg-slate-800 font-bold transition text-indigo-400 rounded-lg">C</button>
+          <button data-calc-btn="Backspace" onclick="pressCalc('Backspace')" class="py-2.5 bg-slate-850 hover:bg-slate-800 font-bold transition flex items-center justify-center text-indigo-400 rounded-lg"><i data-lucide="delete" class="w-4 h-4 pointer-events-none"></i></button>
+          <button data-calc-btn="/" onclick="pressCalc('/')" class="py-2.5 bg-slate-800 hover:bg-slate-750 font-bold transition text-indigo-400 rounded-lg">/</button>
+
+          <!-- Fila 2 -->
+          <button data-calc-btn="7" onclick="pressCalc('7')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">7</button>
+          <button data-calc-btn="8" onclick="pressCalc('8')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">8</button>
+          <button data-calc-btn="9" onclick="pressCalc('9')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">9</button>
+          <button data-calc-btn="*" onclick="pressCalc('*')" class="py-2.5 bg-slate-800 hover:bg-slate-750 font-bold transition text-indigo-400 rounded-lg">*</button>
+
+          <!-- Fila 3 -->
+          <button data-calc-btn="4" onclick="pressCalc('4')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">4</button>
+          <button data-calc-btn="5" onclick="pressCalc('5')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">5</button>
+          <button data-calc-btn="6" onclick="pressCalc('6')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">6</button>
+          <button data-calc-btn="-" onclick="pressCalc('-')" class="py-2.5 bg-slate-800 hover:bg-slate-750 font-bold transition text-indigo-400 rounded-lg">-</button>
+
+          <!-- Fila 4 -->
+          <button data-calc-btn="1" onclick="pressCalc('1')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">1</button>
+          <button data-calc-btn="2" onclick="pressCalc('2')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">2</button>
+          <button data-calc-btn="3" onclick="pressCalc('3')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">3</button>
+          <button data-calc-btn="+" onclick="pressCalc('+')" class="py-2.5 bg-slate-800 hover:bg-slate-750 font-bold transition text-indigo-400 rounded-lg">+</button>
+
+          <!-- Fila 5 -->
+          <button data-calc-btn="+/-" onclick="pressCalc('+/-')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">+/-</button>
+          <button data-calc-btn="0" onclick="pressCalc('0')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">0</button>
+          <button data-calc-btn="." onclick="pressCalc('.')" class="py-2.5 bg-slate-850/50 hover:bg-slate-800 font-bold transition rounded-lg">.</button>
+          <button data-calc-btn="=" onclick="pressCalc('=')" class="py-2.5 bg-indigo-600 hover:bg-indigo-700 font-extrabold transition text-white text-sm rounded-lg">=</button>
+        </div>
+      </div>
+
+      <!-- Lado Derecho: Historial de Operaciones Realizadas -->
+      <div class="flex-grow flex flex-col bg-slate-900/60 p-3 h-full overflow-hidden w-[260px]">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 shrink-0">
+          <span class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Historial</span>
+          <button onclick="limpiarHistorialCalculadora()" class="text-[9px] text-slate-500 dark:text-slate-400 hover:text-rose-400 font-bold transition flex items-center gap-1">
+            <i data-lucide="trash-2" class="w-3 h-3"></i> Limpiar
+          </button>
+        </div>
+        
+        <!-- Lista de operaciones -->
+        <div id="calc-history-list" class="flex-grow overflow-y-auto space-y-2 text-right text-[11px] font-mono pr-1">
+          <!-- Dinámico -->
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL: CONTEO DE PIEZAS EN CAJA
+       ========================================== -->
+  <div id="modal-piezas" class="fixed inset-0 bg-slate-950/45 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100 dark:border-slate-800 flex flex-col max-h-[85vh]">
+      <!-- Header -->
+      <div class="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-indigo-900 text-indigo-100">
+        <div class="flex items-center gap-2">
+          <i data-lucide="coins" class="w-5 h-5 text-emerald-400"></i>
+          <h3 class="font-extrabold text-sm tracking-wide uppercase text-white">Piezas Totales en Caja</h3>
+        </div>
+        <button onclick="cerrarModalPiezas()" class="w-8 h-8 flex items-center justify-center rounded-full bg-white dark:bg-slate-900 text-indigo-900 shadow-sm dark:shadow-slate-950/20 hover:bg-indigo-50 transition-all duration-150 hover:scale-105 active:scale-95" title="Cerrar modal">
+          <i data-lucide="x" class="w-4.5 h-4.5 stroke-[2.5]"></i>
+        </button>
+      </div>
+
+      <!-- Contenido / Tabla de conteo -->
+      <div class="p-6 overflow-y-auto space-y-4">
+        <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+          Este panel muestra el arqueo teórico de las piezas físicas que deberían estar físicamente resguardadas dentro del cajón de la caja registradora en este momento.
+        </p>
+
+        <div class="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-50 dark:bg-slate-850 text-[10px] font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                <th class="py-2.5 px-4">Denominación</th>
+                <th class="py-2.5 px-4 text-center">Cant. Piezas</th>
+                <th class="py-2.5 px-4 text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody id="conteo-caja-tbody" class="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200">
+              <!-- Cargado dinámicamente -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+        <div class="text-center sm:text-left mr-auto">
+          <span class="text-[9px] font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider block">Fondo Físico Total</span>
+          <span id="conteo-total-caja" class="text-xl font-black text-slate-900 dark:text-white">$0.00</span>
+        </div>
+        <div class="flex gap-2 w-full sm:w-auto">
+          <button onclick="cerrarModalPiezas()" class="flex-grow sm:flex-grow-0 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL: DESGLOSE DE PIEZAS POR MOVIMIENTO
+       ========================================== -->
+  <div id="modal-desglose-piezas" class="fixed inset-0 bg-slate-950/45 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100 dark:border-slate-800 flex flex-col max-h-[85vh]">
+      <!-- Header -->
+      <div class="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-indigo-900 text-indigo-100">
+        <div class="flex items-center gap-2">
+          <i data-lucide="banknote" class="w-5 h-5 text-emerald-400"></i>
+          <h3 id="modal-desglose-titulo" class="font-extrabold text-sm tracking-wide uppercase text-white">Desglose de Movimiento</h3>
+        </div>
+        <button onclick="cerrarModalDesglose()" class="w-8 h-8 flex items-center justify-center rounded-full bg-white dark:bg-slate-900 text-indigo-900 shadow-sm dark:shadow-slate-950/20 hover:bg-indigo-50 transition-all duration-150 hover:scale-105 active:scale-95 cursor-pointer" title="Cerrar modal">
+          <i data-lucide="x" class="w-4.5 h-4.5 stroke-[2.5]"></i>
+        </button>
+      </div>
+
+      <!-- Contenido -->
+      <div class="p-6 overflow-y-auto space-y-4">
+        <!-- Ficha de Datos del Movimiento -->
+        <div class="bg-slate-50 dark:bg-slate-800/40 border border-slate-100/50 dark:border-slate-850 rounded-xl p-4 grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <span class="text-[9px] font-bold text-slate-400 dark:text-slate-400 uppercase block">Operador</span>
+            <span id="modal-desglose-op" class="font-bold text-slate-700 dark:text-slate-200">-</span>
+          </div>
+          <div>
+            <span class="text-[9px] font-bold text-slate-400 dark:text-slate-400 uppercase block">Hora de Registro</span>
+            <span id="modal-desglose-hora" class="font-bold text-slate-700 dark:text-slate-200">-</span>
+          </div>
+          <div class="col-span-2 border-t border-slate-200/60 pt-2 flex justify-between items-center">
+            <div class="pr-2">
+              <span class="text-[9px] font-bold text-slate-400 dark:text-slate-400 uppercase block">Detalles</span>
+              <span id="modal-desglose-desc" class="font-medium text-slate-600 dark:text-slate-300">-</span>
+            </div>
+            <div class="text-right shrink-0">
+              <span class="text-[9px] font-bold text-slate-400 dark:text-slate-400 uppercase block">Monto Neto</span>
+              <span id="modal-desglose-monto" class="font-black text-slate-800 dark:text-white">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabla de Desglose de Billetes y Monedas -->
+        <div id="desglose-tabla-container" class="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-50 dark:bg-slate-850 text-[10px] font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                <th class="py-2.5 px-4">Denominación</th>
+                <th class="py-2.5 px-4 text-center">Cant. Piezas</th>
+                <th class="py-2.5 px-4 text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody id="desglose-mov-tbody" class="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200">
+              <!-- Cargado dinámicamente -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Vista cuando no hay piezas (Operación electrónica / Ajuste digital) -->
+        <div id="desglose-vacio" class="hidden p-8 text-center text-slate-400 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-xl">
+          <i data-lucide="credit-card" class="w-10 h-10 mx-auto mb-2 text-slate-300"></i>
+          <p class="font-bold text-xs text-slate-700 dark:text-slate-200">Operación sin piezas físicas</p>
+          <p class="text-[10px] text-slate-400 dark:text-slate-400 mt-0.5">Esta transacción se realizó en formato digital y no afecta el arqueo físico de efectivo.</p>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 flex justify-end shrink-0">
+        <button onclick="cerrarModalDesglose()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition cursor-pointer">
+          Cerrar Desglose
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: PIN / CÓDIGO DE OPERADOR -->
+  <div id="modal-pin" class="fixed inset-0 bg-slate-950/45 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100 dark:border-slate-800 p-6 space-y-4">
+      <div class="text-center">
+        <div class="w-12 h-12 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="shield-check" class="w-6 h-6"></i>
+        </div>
+        <h3 id="pin-modal-titulo" class="text-base font-bold text-slate-900">Autorización Necesaria</h3>
+        <p id="pin-modal-desc" class="text-xs text-slate-500 dark:text-slate-400 mt-1">Escriba su PIN de Cajero (2 dígitos) para validar la operación.</p>
+      </div>
+
+      <div class="relative max-w-[140px] mx-auto">
+        <input type="password" id="pin-input" placeholder="••" maxlength="2" class="w-full text-center text-3xl font-black tracking-[12px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+
+      <div class="flex gap-2 pt-2">
+        <button onclick="cerrarModalPIN()" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition">Cancelar</button>
+        <button onclick="validarPIN()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AJUSTE DE SALDO MANUAL -->
+  <div id="modal-edicion" class="fixed inset-0 bg-slate-950/45 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100 dark:border-slate-800 p-6 space-y-4">
+      <div class="text-center">
+        <div class="w-12 h-12 bg-amber-50 dark:bg-amber-950 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="edit-3" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-base font-bold text-slate-900">Modificar Saldo Digital</h3>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1" id="edicion-modal-desc">Modificar el valor acumulado.</p>
+      </div>
+
+      <input type="hidden" id="edicion-cuenta-nombre">
+      <div>
+        <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Nuevo saldo acumulado ($)</label>
+        <div class="relative">
+          <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 dark:text-slate-500 font-semibold text-sm">$</span>
+          <input type="number" id="edicion-monto-input" placeholder="0.00" step="0.01" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white">
+        </div>
+      </div>
+
+      <!-- Campo opcional para Meli Base, ocultable -->
+      <div id="edicion-meli-base-container" class="hidden">
+        <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Saldo Base Asignado (Fondo de Referencia) ($)</label>
+        <div class="relative">
+          <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 dark:text-slate-500 font-semibold text-sm">$</span>
+          <input type="number" id="edicion-meli-base-input" placeholder="0.00" step="0.01" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white">
+        </div>
+      </div>
+
+      <div class="flex gap-2 pt-2">
+        <button onclick="cerrarModalEdicion()" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition">Cancelar</button>
+        <button onclick="guardarEdicionMonto()" class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition">Ajustar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: GESTIÓN DE USUARIOS (Solo Admin) -->
+  <div id="modal-usuarios" class="fixed inset-0 bg-slate-950/45 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-100">
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-indigo-600 to-purple-600 p-5 text-white">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <i data-lucide="users" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold">Gestión de Usuarios</h3>
+              <p class="text-[10px] text-indigo-200 font-semibold uppercase tracking-wider">Solo Administrador</p>
+            </div>
+          </div>
+          <button onclick="cerrarModalUsuarios()" class="w-8 h-8 flex items-center justify-center rounded-full bg-white dark:bg-slate-900 text-indigo-900 shadow-sm dark:shadow-slate-950/20 hover:bg-indigo-50 transition-all duration-150 hover:scale-105 active:scale-95" title="Cerrar modal">
+            <i data-lucide="x" class="w-4.5 h-4.5 stroke-[2.5]"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+        <!-- Lista de Usuarios -->
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-2">Usuarios Registrados</span>
+          <div id="lista-usuarios" class="space-y-2">
+            <!-- Se llena dinámicamente -->
+          </div>
+        </div>
+
+        <!-- Separador -->
+        <hr class="border-slate-100">
+
+        <!-- Formulario Agregar Usuario -->
+        <div class="bg-slate-50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
+          <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">Agregar Nuevo Usuario</span>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Nombre</label>
+              <input type="text" id="nuevo-usuario-nombre" placeholder="Nombre" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">PIN (2 dígitos)</label>
+              <input type="text" id="nuevo-usuario-pin" placeholder="00" maxlength="2" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+          </div>
+          <button onclick="agregarUsuario()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5">
+            <i data-lucide="user-plus" class="w-4 h-4"></i> Agregar Usuario
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: GESTIÓN DE IVA Y COMISIÓN -->
+  <div id="modal-iva-comision" class="fixed inset-0 bg-slate-950/45 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-indigo-600 to-indigo-850 p-5 text-white">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <i data-lucide="percent" class="w-5 h-5 text-white"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold text-white">Calculadora IVA / Comisión</h3>
+              <p class="text-[10px] text-indigo-200 font-semibold uppercase tracking-wider">Cálculo de cobros al cliente</p>
+            </div>
+          </div>
+          <button onclick="cerrarModalIvaComision()" class="w-8 h-8 flex items-center justify-center rounded-full bg-white dark:bg-slate-900 text-indigo-900 shadow-sm dark:shadow-slate-950/20 hover:bg-indigo-50 transition-all duration-150 hover:scale-105 active:scale-95" title="Cerrar modal">
+            <i data-lucide="x" class="w-4.5 h-4.5 stroke-[2.5]"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="p-6 space-y-5">
+        <div>
+          <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Valor de la Tienda (Base)</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 dark:text-slate-500 font-semibold text-sm">$</span>
+            <input type="number" id="calc-base-val" oninput="calcularIvaComision()" placeholder="0.00" step="0.01" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-4 py-3 text-base font-bold text-slate-850 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white dark:focus:bg-slate-900 transition duration-150">
+          </div>
+        </div>
+
+
+
+        <div class="grid grid-cols-1 gap-3.5 pt-2">
+          <!-- Con IVA (16%) -->
+          <div class="bg-slate-50 border border-slate-150 rounded-xl p-4 flex justify-between items-center">
+            <div class="space-y-0.5">
+              <span id="calc-iva-label" class="text-[10px] font-bold text-slate-450 uppercase tracking-wider block">Con IVA (16%)</span>
+              <span id="calc-iva-exact" class="text-[10px] font-mono text-slate-400 dark:text-slate-500 block">$0.00 exacto</span>
+            </div>
+            <div class="text-right">
+              <span id="calc-iva-rounded" class="text-xl font-black text-indigo-700 block">$0</span>
+              <span class="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Redondeado</span>
+            </div>
+          </div>
+
+          <!-- Con IVA + Comisión Terminal (2.32%) -->
+          <div class="bg-indigo-50/50 border border-indigo-100 dark:border-indigo-800 rounded-xl p-4 flex justify-between items-center">
+            <div class="space-y-0.5">
+              <span id="calc-com-label" class="text-[10px] font-bold text-indigo-500 uppercase tracking-wider block">Con IVA + Terminal (2.32%)</span>
+              <span id="calc-com-exact" class="text-[10px] font-mono text-indigo-400 block">$0.00 exacto</span>
+            </div>
+            <div class="text-right">
+              <span id="calc-com-rounded" class="text-xl font-black text-indigo-700 block">$0</span>
+              <span class="text-[8px] font-bold text-indigo-400 uppercase tracking-wider">Redondeado</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RETIROS BBVA DEL DÍA -->
+  <div id="modal-retiros-bbva" class="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-blue-900 to-blue-700 p-5 text-white">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <i data-lucide="landmark" class="w-5 h-5 text-white"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold">Retiros BBVA del Día</h3>
+              <p class="text-[10px] text-blue-200 font-semibold uppercase tracking-wider">Historial de salidas registradas hoy</p>
+            </div>
+          </div>
+          <button onclick="cerrarRetirosBBVA()" class="w-8 h-8 flex items-center justify-center rounded-full bg-white dark:bg-slate-900 text-blue-900 dark:text-blue-400 shadow-sm dark:shadow-slate-950/20 hover:bg-blue-50 transition-all duration-150 hover:scale-105 active:scale-95" title="Cerrar">
+            <i data-lucide="x" class="w-4.5 h-4.5 stroke-[2.5]"></i>
+          </button>
+        </div>
+        <!-- Resumen total -->
+        <div class="mt-4 bg-white/10 rounded-xl px-4 py-3 flex items-center justify-between">
+          <span class="text-[11px] font-bold text-blue-100 uppercase tracking-wider">Total retirado hoy</span>
+          <span id="bbva-retiros-total" class="text-xl font-black text-white">$0.00</span>
+        </div>
+      </div>
+
+      <!-- Lista de retiros -->
+      <div class="p-5">
+        <div id="bbva-retiros-lista" class="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+          <!-- Se llena dinámicamente -->
+        </div>
+        <div id="bbva-retiros-vacio" class="hidden py-12 text-center">
+          <div class="w-14 h-14 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
+            <i data-lucide="inbox" class="w-6 h-6 text-slate-400"></i>
+          </div>
+          <p class="text-sm font-bold text-slate-500">Sin retiros registrados hoy</p>
+          <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">No hay salidas de BBVA en el día de hoy.</p>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="px-5 pb-5">
+        <button onclick="cerrarRetirosBBVA()" class="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: MOVIMIENTOS CAPITAL DEL DÍA -->
+  <div id="modal-movimientos-capital" class="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-teal-800 to-emerald-700 p-5 text-white">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <i data-lucide="landmark" class="w-5 h-5 text-white"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold">Movimientos de Capital</h3>
+              <p class="text-[10px] text-teal-200 font-semibold uppercase tracking-wider">Historial de depósitos y retiros de hoy</p>
+            </div>
+          </div>
+          <button onclick="cerrarMovimientosCapital()" class="w-8 h-8 flex items-center justify-center rounded-full bg-white dark:bg-slate-900 text-teal-700 shadow-sm dark:shadow-slate-950/20 hover:bg-teal-50 transition-all duration-150 hover:scale-105 active:scale-95" title="Cerrar">
+            <i data-lucide="x" class="w-4.5 h-4.5 stroke-[2.5]"></i>
+          </button>
+        </div>
+        <!-- Resumen total -->
+        <div class="mt-4 bg-white/10 rounded-xl px-4 py-3 flex items-center justify-between">
+          <span class="text-[11px] font-bold text-teal-100 uppercase tracking-wider">Flujo Neto Hoy</span>
+          <span id="capital-movs-total-modal" class="text-xl font-black text-white">$0.00</span>
+        </div>
+      </div>
+
+      <!-- Lista de movimientos -->
+      <div class="p-5">
+        <div id="capital-movs-lista-modal" class="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+          <!-- Se llena dinámicamente -->
+        </div>
+        <div id="capital-movs-vacio-modal" class="hidden py-12 text-center">
+          <div class="w-14 h-14 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
+            <i data-lucide="inbox" class="w-6 h-6 text-slate-400"></i>
+          </div>
+          <p class="text-sm font-bold text-slate-500">Sin movimientos registrados hoy</p>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="px-5 pb-5">
+        <button onclick="cerrarMovimientosCapital()" class="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CONFIRMAR BORRADO DE RETIRO BBVA -->
+  <div id="modal-confirmar-borrar-bbva" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-100 dark:border-slate-800 p-6 space-y-4">
+      <div class="text-center">
+        <div class="w-12 h-12 bg-rose-50 dark:bg-rose-950 text-rose-500 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="trash-2" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-base font-bold text-slate-900">Borrar Retiro BBVA</h3>
+        <p id="bbva-borrar-desc" class="text-xs text-slate-500 dark:text-slate-400 mt-1">¿Confirmas que deseas eliminar este registro?</p>
+      </div>
+      <input type="hidden" id="bbva-borrar-log-id">
+      <div class="flex gap-2 pt-2">
+        <button onclick="cerrarConfirmarBorrarBBVA()" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition">Cancelar</button>
+        <button onclick="ejecutarBorradoRetiroBBVA()" class="flex-1 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-xl text-xs transition">Sí, Borrar</button>
+      </div>
+    </div>
+  </div>
+  <!-- MODAL: CONFIRMAR BORRADO DE CAPITAL -->
+  <div id="modal-confirmar-borrar-capital" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-100 dark:border-slate-800 p-6 space-y-4">
+      <div class="text-center">
+        <div class="w-12 h-12 bg-rose-50 dark:bg-rose-950 text-rose-500 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="trash-2" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-base font-bold text-slate-900">Borrar Anexo de Capital</h3>
+        <p id="cap-borrar-desc" class="text-xs text-slate-500 dark:text-slate-400 mt-1">¿Confirmas que deseas eliminar este anexo de capital?</p>
+      </div>
+      <input type="hidden" id="cap-borrar-log-id">
+      <div class="flex gap-2 pt-2">
+        <button onclick="cerrarConfirmarBorrarCapital()" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition">Cancelar</button>
+        <button onclick="ejecutarBorradoCapital()" class="flex-1 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-xl text-xs transition">Sí, Borrar</button>
+      </div>
+    </div>
+  </div>
+
+
+
+
+
+
+  <!-- NOTIFICACIÓN TIPO TOAST -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ==========================================
+       LÓGICA EN JAVASCRIPT
+       ========================================== -->
+  <script src="app.js"></script>
+</body>
+</html>
