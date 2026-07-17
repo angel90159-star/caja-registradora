@@ -1,5 +1,7 @@
 // === CATÁLOGOS Y CONFIGURACIÓN ===
-    const GOOGLE_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxenozEiAlIfKmab4P-uLQ-DP7t5J0jF92U_koqYzjrPtAlYAleq0YOLau5kHgqedx-/exec";
+    const GOOGLE_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxfRXih37n0ClO61EXtAYPMr2P4WoORwnGrs1rewdGsU_lIyjf2gZ68Qjk6PSAuwVjr/exec";
+    const SECURITY_TOKEN = "sec_caja_90159_star_xyz";
+    let ADMIN_SETTINGS_PIN = localStorage.getItem('caja_admin_settings_pin') || "072";
     const ADMIN_PIN = '02'; // Miguel — PIN de administrador
     const DEFAULT_OPERATORS = {
       "20": "Ingrid", "64": "Leticia", "02": "Miguel",
@@ -191,6 +193,28 @@
     window.onload = function() {
       DB.init();
       
+      const unlocked = sessionStorage.getItem('caja_app_unlocked') === 'true';
+      if (unlocked) {
+        const lockScreen = document.getElementById('pantalla-bloqueo-global');
+        const appWrapper = document.getElementById('app-wrapper');
+        if (lockScreen) lockScreen.classList.add('hidden');
+        if (appWrapper) appWrapper.classList.remove('hidden');
+        inicializarSistemaDespuesDeDesbloqueo();
+      } else {
+        // Enlazar Enter al input de contraseña
+        const passInput = document.getElementById('global-lock-password');
+        if (passInput) {
+          passInput.focus();
+          passInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+              desbloquearPlataforma();
+            }
+          });
+        }
+      }
+    };
+
+    function inicializarSistemaDespuesDeDesbloqueo() {
       const now = new Date();
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -237,9 +261,50 @@
       activeOperator = state.operator;
 
       if (sessionActive && state.opened_date && state.opened_date !== todayStr) {
-        setTimeout(() => {
-          mostrarModalDiferenciaFecha(state.opened_date);
-        }, 300);
+        // --- EVITAR CONFLICTOS POR PRE-APERTURA (FOOLPROOF) ---
+        // Si el turno está activo en una fecha anterior, pero NO se han registrado transacciones aún
+        // (es decir, la bitácora activa está vacía o solo contiene la 'Apertura'),
+        // actualizamos automáticamente la fecha de apertura al día de hoy para evitar alertas y reportes desfasados.
+        const currentLogs = DB.get('logs', []);
+        const nonOpeningLogs = currentLogs.filter(log => log.category !== 'Apertura');
+        
+        if (nonOpeningLogs.length === 0) {
+          state.opened_date = todayStr;
+          state.opened_time = now.toLocaleTimeString();
+          DB.set('state', state);
+          
+          if (currentLogs.length > 0) {
+            currentLogs[0].date = todayStr;
+            currentLogs[0].time = now.toLocaleTimeString();
+            DB.set('logs', currentLogs);
+          }
+          console.log(`Auto-actualización de pre-apertura de turno detectada. Turno movido al día de hoy (${todayStr}).`);
+        } else {
+          // Inicializar o restablecer intentos si cambia de día
+          const lastAttemptDay = localStorage.getItem('caja_cierre_ultimo_dia_intento');
+          if (lastAttemptDay !== todayStr) {
+            localStorage.setItem('caja_cierre_intentos', '0');
+            localStorage.setItem('caja_cierre_ultimo_dia_intento', todayStr);
+          }
+          
+          // Verificar si la alerta ya está silenciada para hoy
+          const isMutedToday = localStorage.getItem('caja_cierre_mutada_dia') === todayStr;
+          if (!isMutedToday) {
+            const proximoReminder = parseInt(localStorage.getItem('caja_cierre_proximo_reminder')) || 0;
+            const timeLeft = proximoReminder - Date.now();
+            
+            if (timeLeft <= 0) {
+              setTimeout(() => {
+                mostrarModalDiferenciaFecha(state.opened_date);
+              }, 300);
+            } else {
+              console.log(`Alerta de cierre pospuesta. Siguiente recordatorio en ${Math.round(timeLeft / 1000 / 60)} min.`);
+              setTimeout(() => {
+                mostrarModalDiferenciaFecha(state.opened_date);
+              }, timeLeft);
+            }
+          }
+        }
       }
 
       if (localStorage.getItem('lc5_theme') === 'dark') {
@@ -607,6 +672,7 @@
         }
       }
       lucide.createIcons();
+      sincronizarEstadoActivoInicial();
     }
 
     // === CONTROL DE VISTAS (PÁGINA 1: Apertura de Turno, PÁGINA 2: Tablero/Dashboard) ===
@@ -1191,8 +1257,14 @@
       const day = String(now.getDate()).padStart(2, '0');
       const todayStr = `${year}-${month}-${day}`;
 
-      // Guardar el estado con fecha de apertura
-      DB.set('state', { session_active: true, operator: operatorName, opened_date: todayStr });
+      // Guardar el estado con fecha y hora de apertura
+      const timeStr = now.toLocaleTimeString();
+      DB.set('state', { 
+        session_active: true, 
+        operator: operatorName, 
+        opened_date: todayStr,
+        opened_time: timeStr
+      });
       sessionActive = true;
       activeOperator = operatorName;
 
@@ -2691,6 +2763,8 @@
       const balances = DB.get('balances', {});
       const actualVal = balances[account] || 0;
 
+      window.edicionBaseMonto = actualVal;
+
       document.getElementById('edicion-cuenta-nombre').value = account;
       document.getElementById('edicion-monto-input').value = actualVal;
       document.getElementById('edicion-modal-desc').innerText = `Ajuste manual del saldo de ${account.toUpperCase()}. Valor actual: ${fmt.format(actualVal)}.`;
@@ -2704,12 +2778,30 @@
           meliBaseContainer.classList.add('hidden');
         }
       }
+
+      const transferContainer = document.getElementById('edicion-transfer-container');
+      const transferInput = document.getElementById('edicion-transfer-input');
+      if (transferContainer && transferInput) {
+        transferInput.value = '';
+        if (account === 'meli') {
+          transferContainer.classList.remove('hidden');
+        } else {
+          transferContainer.classList.add('hidden');
+        }
+      }
       
       document.getElementById('modal-edicion').classList.remove('hidden');
     }
 
     function cerrarModalEdicion() {
       document.getElementById('modal-edicion').classList.add('hidden');
+    }
+
+    function actualizarMontoDesdeTransferencia() {
+      const base = window.edicionBaseMonto || 0;
+      const transferInput = document.getElementById('edicion-transfer-input');
+      const transferVal = parseFloat(transferInput.value) || 0;
+      document.getElementById('edicion-monto-input').value = (base + transferVal).toFixed(2);
     }
 
     function guardarEdicionMonto() {
@@ -2741,14 +2833,24 @@
         }
         DB.set('balances', balances);
 
+        const transferVal = (account === 'meli') ? (parseFloat(document.getElementById('edicion-transfer-input').value) || 0) : 0;
+        
+        let category = `AJUSTE_${account.toUpperCase()}`;
         let detMsg = `Ajuste manual. Anterior: ${fmt.format(oldVal)} -> Nuevo: ${fmt.format(newVal)}`;
+        
         if (account === 'meli') {
+          if (transferVal > 0) {
+            category = `FONDEO_${account.toUpperCase()}`;
+            detMsg = `Reposición por transferencia. Monto transferido: ${fmt.format(transferVal)} | Saldo anterior: ${fmt.format(oldVal)} -> Nuevo: ${fmt.format(newVal)}`;
+          }
           detMsg += ` | Base: ${fmt.format(newBaseVal)}`;
         }
-        registrarMovimientoBitacora(opName, `AJUSTE_${account.toUpperCase()}`, newVal - oldVal, detMsg);
+
+        registrarMovimientoBitacora(opName, category, newVal - oldVal, detMsg);
 
         mostrarToast("Saldo modificado con éxito.", "success");
         cargarSaldosDigitales();
+        cargarBitacora();
       });
     }
 
@@ -3277,10 +3379,27 @@
     // === GESTIÓN DE PIN MODAL ===
     function abrirPINModal(title, callback) {
       const titleEl = document.getElementById('pin-modal-titulo');
+      const descEl = document.getElementById('pin-modal-desc');
+      const inputEl = document.getElementById('pin-input');
+      
       if (titleEl) titleEl.innerText = title;
-      document.getElementById('pin-input').value = '';
+      
+      if (inputEl) {
+        inputEl.value = '';
+        const is3D = title.includes("3 dígitos") || title.includes("Administración") || title.includes("072") || title.includes(ADMIN_SETTINGS_PIN);
+        if (is3D) {
+          inputEl.setAttribute('maxlength', '3');
+          inputEl.setAttribute('placeholder', '•••');
+          if (descEl) descEl.innerText = "Escriba el PIN de Administración (3 dígitos) para validar.";
+        } else {
+          inputEl.setAttribute('maxlength', '2');
+          inputEl.setAttribute('placeholder', '••');
+          if (descEl) descEl.innerText = "Escriba su PIN de Cajero (2 dígitos) para validar la operación.";
+        }
+      }
+      
       document.getElementById('modal-pin').classList.remove('hidden');
-      setTimeout(() => document.getElementById('pin-input').focus(), 120);
+      setTimeout(() => { if (inputEl) inputEl.focus(); }, 120);
       pinCallback = callback;
     }
 
@@ -3292,11 +3411,20 @@
 
     function validarPIN() {
       const pin = document.getElementById('pin-input').value;
+      
+      // Permitir el PIN de 3 dígitos de administración
+      if (pin === ADMIN_SETTINGS_PIN) {
+        const callback = pinCallback;
+        cerrarModalPIN();
+        if (callback) callback("Administrador", pin);
+        return;
+      }
+      
       const name = Operators[pin];
       if (name) {
         const callback = pinCallback;
         cerrarModalPIN();
-        if (callback) callback(name);
+        if (callback) callback(name, pin);
       } else {
         mostrarToast("Código PIN no válido.", "error");
       }
@@ -3462,6 +3590,9 @@
       }
       historical[dateStr].unshift(newLog);
       DB.set('historical_logs_by_date', historical);
+      
+      // Sincronizar el estado activo del turno en la nube
+      guardarEstadoActivoNube();
     }
 
     function setBitacoraTab(tab) {
@@ -3555,15 +3686,15 @@
       const filteredLogs = dateLogs.filter(log => {
         // Filtrar por Tipo de movimiento
         if (filterTipo === 'ingreso') {
-          if (log.amount < 0 || log.category === 'Apertura' || log.category === 'Cierre' || log.category === 'Cambio' || log.category === 'cambio' || log.category.startsWith('AJUSTE_') || log.category.startsWith('BORRADO_')) return false;
+          if (log.amount < 0 || log.category === 'Apertura' || log.category === 'Cierre' || log.category === 'Cambio' || log.category === 'cambio' || log.category.startsWith('AJUSTE_') || log.category.startsWith('BORRADO_') || log.category.startsWith('FONDEO_')) return false;
         } else if (filterTipo === 'egreso') {
-          if (log.amount >= 0 || log.category === 'Apertura' || log.category === 'Cierre' || log.category === 'Cambio' || log.category === 'cambio' || log.category.startsWith('AJUSTE_') || log.category.startsWith('BORRADO_')) return false;
+          if (log.amount >= 0 || log.category === 'Apertura' || log.category === 'Cierre' || log.category === 'Cambio' || log.category === 'cambio' || log.category.startsWith('AJUSTE_') || log.category.startsWith('BORRADO_') || log.category.startsWith('FONDEO_')) return false;
         } else if (filterTipo === 'apertura') {
           if (log.category !== 'Apertura') return false;
         } else if (filterTipo === 'cierre') {
           if (log.category !== 'Cierre') return false;
         } else if (filterTipo === 'ajuste') {
-          if (!log.category.startsWith('AJUSTE_') && !log.category.startsWith('BORRADO_')) return false;
+          if (!log.category.startsWith('AJUSTE_') && !log.category.startsWith('BORRADO_') && !log.category.startsWith('FONDEO_')) return false;
         } else if (filterTipo === 'cambio') {
           if (log.category !== 'Cambio' && log.category !== 'cambio') return false;
         }
@@ -5098,14 +5229,24 @@
     }
 
     function solicitarAccesoAdmin() {
-      abrirPINModal("Acceso de Administrador", (opName) => {
-        const ops = getOperators();
-        const adminName = ops[ADMIN_PIN];
-        if (opName === adminName) {
+      abrirPINModal("PIN de Administración (3 dígitos)", (opName, pin) => {
+        if (pin === ADMIN_SETTINGS_PIN) {
           document.getElementById('modal-usuarios').classList.remove('hidden');
+          
+          // Limpiar campos de configuración al abrir modal
+          const inputClave = document.getElementById('nueva-contrasenia-global');
+          const confirmClave = document.getElementById('confirmar-contrasenia-global');
+          const inputPin = document.getElementById('nuevo-pin-admin');
+          const confirmPin = document.getElementById('confirmar-pin-admin');
+          
+          if (inputClave) inputClave.value = '';
+          if (confirmClave) confirmClave.value = '';
+          if (inputPin) inputPin.value = '';
+          if (confirmPin) confirmPin.value = '';
+          
           renderizarListaUsuarios();
         } else {
-          mostrarToast("Acceso denegado. Solo el administrador Miguel Angel puede acceder a esta sección.", "error");
+          mostrarToast("Acceso denegado. Código de administración incorrecto.", "error");
         }
       });
     }
@@ -5207,6 +5348,22 @@
       const existing = document.getElementById('date-diff-modal');
       if (existing) existing.remove();
 
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const todayStr = `${year}-${month}-${day}`;
+
+      // Asegurar día registrado
+      localStorage.setItem('caja_cierre_ultimo_dia_intento', todayStr);
+
+      let attempts = parseInt(localStorage.getItem('caja_cierre_intentos')) || 0;
+      attempts++;
+      localStorage.setItem('caja_cierre_intentos', attempts);
+
+      const isThirdAttempt = attempts >= 3;
+      const continueBtnText = isThirdAttempt ? "Silenciar Alertas por Hoy" : "Posponer (30 min)";
+
       const modal = document.createElement('div');
       modal.id = 'date-diff-modal';
       modal.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 transition-all duration-300';
@@ -5221,13 +5378,17 @@
               Hay un turno que se quedó abierto desde el <b>${openedDate}</b>.<br><br>
               ¿Deseas continuar operando con el mismo balance de caja o prefieres cerrar el turno de ayer para iniciar un nuevo día con caja limpia?
             </p>
+            ${isThirdAttempt 
+              ? `<p class="text-[10px] text-rose-500 font-bold bg-rose-50 dark:bg-rose-950/20 py-1.5 px-3 rounded-lg mt-2">Esta es la tercera alerta. Al hacer clic abajo, se desactivarán los avisos por el día de hoy.</p>` 
+              : `<p class="text-[10px] text-indigo-500 font-bold bg-indigo-50 dark:bg-indigo-950/20 py-1.5 px-3 rounded-lg mt-2">Recordatorio constante. Intento ${attempts} de 3.</p>`
+            }
           </div>
           <div class="w-full flex flex-col gap-2 pt-2">
             <button id="date-diff-close-btn" class="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 px-4 rounded-xl text-xs transition shadow-md shadow-rose-950/20 uppercase tracking-wider">
               Cerrar Turno Anterior
             </button>
             <button id="date-diff-continue-btn" class="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold py-3 px-4 rounded-xl text-xs transition uppercase tracking-wider">
-              Continuar con el Balance
+              ${continueBtnText}
             </button>
           </div>
         </div>
@@ -5252,17 +5413,26 @@
       });
 
       continueBtn.addEventListener('click', () => {
-        const state = DB.get('state', {});
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const todayStr = `${year}-${month}-${day}`;
-        
-        state.opened_date = todayStr;
-        DB.set('state', state);
-        modal.remove();
-        mostrarToast("Continuando con el turno y balance de ayer.", "info");
+        if (isThirdAttempt) {
+          // Aceptar definitivamente la fecha de ayer / Silenciar alertas
+          const state = DB.get('state', {});
+          state.opened_date = todayStr;
+          DB.set('state', state);
+          localStorage.setItem('caja_cierre_mutada_dia', todayStr);
+          localStorage.setItem('caja_cierre_intentos', '0');
+          modal.remove();
+          mostrarToast("Alertas de cierre silenciadas por hoy. Continuando con el balance.", "success");
+        } else {
+          // Posponer decisión por 30 minutos
+          localStorage.setItem('caja_cierre_proximo_reminder', String(Date.now() + 30 * 60 * 1000));
+          modal.remove();
+          mostrarToast("Alerta pospuesta por 30 minutos.", "info");
+          
+          // Programar siguiente disparo
+          setTimeout(() => {
+            mostrarModalDiferenciaFecha(openedDate);
+          }, 30 * 60 * 1000);
+        }
       });
     }
 
@@ -5616,8 +5786,8 @@
           date: dateKey,
           time: now.toLocaleTimeString(),
           operator: opName,
-          apertura_date: DB.get('state', {}).apertura_date || dateKey,
-          apertura_time: DB.get('state', {}).apertura_time || '08:00:00',
+          apertura_date: DB.get('state', {}).opened_date || dateKey,
+          apertura_time: DB.get('state', {}).opened_time || '08:00:00',
           expectedCajon: expectedCajon,
           expectedBoveda: expectedBoveda,
           totalContado: totalContado,
@@ -5714,43 +5884,45 @@
       const reports = DB.get('cierre_reports', {});
       const report = reports[selectedDate];
 
+      const mainView = document.getElementById('dash-main-view');
+      const bitacoraView = document.getElementById('dash-bitacora-view');
+      const cierreView = document.getElementById('dash-cierre-view');
+
       if (report) {
         // Mostrar visor del reporte de cierre histórico
         viendoHistoricoCierre = true;
-        
-        // Ocultar otras subvistas del dashboard
-        const mainView = document.getElementById('dash-main-view');
-        const bitacoraView = document.getElementById('dash-bitacora-view');
-        const cierreView = document.getElementById('dash-cierre-view');
-        
-        if (mainView) mainView.classList.add('hidden');
-        if (bitacoraView) bitacoraView.classList.add('hidden');
-        if (cierreView) cierreView.classList.remove('hidden');
-
         mostrarReporteCierreHistorico(report);
+        
+        // Conservar la vista actual donde está parado el usuario.
+        // Solo forzar la vista de cierre si no estaba en tablero ni en bitácora.
+        const wasMainView = mainView && !mainView.classList.contains('hidden');
+        const wasBitacoraView = bitacoraView && !bitacoraView.classList.contains('hidden');
+        
+        if (!wasMainView && !wasBitacoraView) {
+          if (mainView) mainView.classList.add('hidden');
+          if (bitacoraView) bitacoraView.classList.add('hidden');
+          if (cierreView) cierreView.classList.remove('hidden');
+        }
       } else {
         // Si no hay reporte histórico, regresar a la subvista activa de hoy
         viendoHistoricoCierre = false;
         restaurarCierreModoInteractivo();
 
-        const cierreView = document.getElementById('dash-cierre-view');
-        if (cierreView) cierreView.classList.add('hidden');
-
-        // Volver a mostrar la subvista operativa que corresponda
-        if (sessionActive) {
-          // Si hay sesión activa, restaurar la subvista del switch superior
-          const currentSwitchSubvista = document.getElementById('dash-bitacora-view').classList.contains('hidden') ? 'tablero' : 'bitacora';
-          const mainView = document.getElementById('dash-main-view');
-          const bitacoraView = document.getElementById('dash-bitacora-view');
-
-          if (currentSwitchSubvista === 'tablero') {
-            if (mainView) mainView.classList.remove('hidden');
+        const wasCierreView = cierreView && !cierreView.classList.contains('hidden');
+        if (wasCierreView) {
+          if (cierreView) cierreView.classList.add('hidden');
+          if (sessionActive) {
+            // Restaurar tablero o bitácora según corresponda
+            const btnBitacora = document.getElementById('btn-abrir-bitacora');
+            const lookingAtBitacora = btnBitacora && btnBitacora.getAttribute('onclick').includes('tablero');
+            if (lookingAtBitacora) {
+              if (bitacoraView) bitacoraView.classList.remove('hidden');
+            } else {
+              if (mainView) mainView.classList.remove('hidden');
+            }
           } else {
-            if (bitacoraView) bitacoraView.classList.remove('hidden');
+            refrescarPantallas();
           }
-        } else {
-          // Si no hay sesión, volver a la vista de apertura
-          refrescarPantallas();
         }
       }
     }
@@ -6092,6 +6264,18 @@
       if (dashboard) {
         dashboard.classList.remove('hidden');
         lucide.createIcons();
+      }
+
+      // Rango de Horarios de Apertura y Cierre
+      const openTimeEl = document.getElementById('corte-report-apertura-time');
+      const closeTimeEl = document.getElementById('corte-report-cierre-time');
+      if (openTimeEl) {
+        openTimeEl.innerText = report.apertura_date 
+          ? `${report.apertura_date} a las ${report.apertura_time}`
+          : report.apertura_time || '--:--:--';
+      }
+      if (closeTimeEl) {
+        closeTimeEl.innerText = `${report.date} a las ${report.time}`;
       }
 
       // KPIs
@@ -6576,4 +6760,247 @@
           mostrarToast(`Se respaldaron ${subidosCount} cierres pendientes en Google Sheets.`, "success");
         }, 1500);
       }
+    }
+
+    // === MÉTODOS DE SEGURIDAD GLOBAL Y SINCRONIZACIÓN EN VIVO ===
+    function toggleGlobalPasswordVisibility() {
+      const passwordInput = document.getElementById('global-lock-password');
+      const toggleIcon = document.getElementById('global-password-toggle-icon');
+      if (!passwordInput || !toggleIcon) return;
+      
+      if (passwordInput.type === "password") {
+        passwordInput.type = "text";
+        toggleIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye-off"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>';
+      } else {
+        passwordInput.type = "password";
+        toggleIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+      }
+    }
+
+    async function desbloquearPlataforma() {
+      const passwordInput = document.getElementById('global-lock-password');
+      if (!passwordInput) return;
+      const pass = passwordInput.value;
+      if (!pass) {
+        mostrarToast("Por favor escriba la contraseña.", "warning");
+        return;
+      }
+      
+      const errorDiv = document.getElementById('global-lock-error');
+      if (errorDiv) errorDiv.classList.add('hidden');
+      
+      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
+        // Fallback local por defecto si no hay URL
+        if (pass === "1234") {
+          sessionStorage.setItem('caja_app_unlocked', 'true');
+          document.getElementById('pantalla-bloqueo-global').classList.add('hidden');
+          document.getElementById('app-wrapper').classList.remove('hidden');
+          inicializarSistemaDespuesDeDesbloqueo();
+        } else {
+          if (errorDiv) errorDiv.classList.remove('hidden');
+        }
+        return;
+      }
+      
+      try {
+        const payload = {
+          action: "verify_password",
+          password: pass,
+          token: SECURITY_TOKEN
+        };
+        
+        mostrarToast("Validando contraseña de entrada...", "info");
+        const response = await fetch(GOOGLE_WEB_APP_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          }
+        });
+        const resJson = await response.json();
+        
+        if (resJson && resJson.status === "success" && resJson.authenticated) {
+          sessionStorage.setItem('caja_app_unlocked', 'true');
+          document.getElementById('pantalla-bloqueo-global').classList.add('hidden');
+          document.getElementById('app-wrapper').classList.remove('hidden');
+          inicializarSistemaDespuesDeDesbloqueo();
+        } else {
+          if (errorDiv) errorDiv.classList.remove('hidden');
+          passwordInput.value = '';
+          passwordInput.focus();
+        }
+      } catch (e) {
+        console.error("Error al validar contraseña:", e);
+        // Fallback en caso de error de red: permitir desbloqueo si coincide con clave básica
+        if (pass === "1234") {
+          sessionStorage.setItem('caja_app_unlocked', 'true');
+          document.getElementById('pantalla-bloqueo-global').classList.add('hidden');
+          document.getElementById('app-wrapper').classList.remove('hidden');
+          inicializarSistemaDespuesDeDesbloqueo();
+          mostrarToast("Ingreso en modo sin conexión (Red offline).", "warning");
+        } else {
+          mostrarToast("Error de conexión al servidor de seguridad.", "error");
+        }
+      }
+    }
+
+    async function guardarNuevaContraseniaGlobal() {
+      const input = document.getElementById('nueva-contrasenia-global');
+      const confirmInput = document.getElementById('confirmar-contrasenia-global');
+      if (!input || !confirmInput) return;
+      
+      const newPass = input.value.trim();
+      const confirmPass = confirmInput.value.trim();
+      
+      if (!newPass) {
+        mostrarToast("Escriba la nueva contraseña.", "warning");
+        return;
+      }
+      
+      if (newPass !== confirmPass) {
+        mostrarToast("Las contraseñas no coinciden. Intente de nuevo.", "error");
+        return;
+      }
+      
+      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
+        mostrarToast("No se puede cambiar la contraseña: URL de Google Sheets no configurada.", "error");
+        return;
+      }
+      
+      const payload = {
+        action: "update_password",
+        new_password: newPass,
+        token: SECURITY_TOKEN
+      };
+      
+      try {
+        mostrarToast("Actualizando contraseña en la nube...", "info");
+        const response = await fetch(GOOGLE_WEB_APP_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          }
+        });
+        const resJson = await response.json();
+        
+        if (resJson && resJson.status === "success") {
+          mostrarToast("Contraseña global actualizada con éxito.", "success");
+          input.value = '';
+          confirmInput.value = '';
+          cerrarModalUsuarios();
+        } else {
+          mostrarToast("Error al guardar la nueva contraseña.", "error");
+        }
+      } catch (e) {
+        console.error("Error al actualizar contraseña:", e);
+        mostrarToast("Error de conexión. Intente más tarde.", "error");
+      }
+    }
+
+    async function guardarEstadoActivoNube() {
+      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) return;
+      if (!sessionActive) return; // Solo guardar si hay sesión activa
+      
+      const stateObj = {
+        session_active: sessionActive,
+        operator: activeOperator,
+        opened_date: DB.get('state', {}).opened_date || null,
+        opened_time: DB.get('state', {}).opened_time || null,
+        balances: DB.get('balances', {}),
+        inventory: DB.get('inventory', {}),
+        inventoryBoveda: DB.get('inventoryBoveda', {}),
+        logs: DB.get('logs', [])
+      };
+      
+      const payload = {
+        action: "save_active_state",
+        token: SECURITY_TOKEN,
+        state: stateObj
+      };
+      
+      try {
+        await fetch(GOOGLE_WEB_APP_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          }
+        });
+      } catch (e) {
+        console.error("Error al guardar estado activo en la nube:", e);
+      }
+    }
+
+    async function sincronizarEstadoActivoInicial() {
+      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) return;
+      
+      try {
+        mostrarToast("Sincronizando estado con la nube...", "info");
+        const response = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_active_state`);
+        const cloudState = await response.json();
+        
+        if (cloudState && cloudState.session_active) {
+          // Cargar el estado activo desde la nube
+          DB.set('state', {
+            session_active: true,
+            operator: cloudState.operator,
+            opened_date: cloudState.opened_date,
+            opened_time: cloudState.opened_time || "08:00:00"
+          });
+          sessionActive = true;
+          activeOperator = cloudState.operator;
+          
+          if (cloudState.balances) DB.set('balances', cloudState.balances);
+          if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
+          if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
+          if (cloudState.logs) DB.set('logs', cloudState.logs);
+          
+          mostrarToast("Turno activo sincronizado desde la nube.", "success");
+        } else {
+          // No hay turno activo en la nube. Validar si localmente hay uno (para actuar de fallback)
+          const localState = DB.get('state', {});
+          if (localState.session_active) {
+            console.log("Turno activo local detectado sin respaldo en la nube. Sincronizando...");
+            guardarEstadoActivoNube();
+          }
+        }
+        refrescarPantallas();
+      } catch (e) {
+        console.error("Error al sincronizar estado activo inicial:", e);
+        mostrarToast("Error de conexión. Trabajando con datos locales.", "warning");
+        refrescarPantallas();
+      }
+    }
+
+    function guardarNuevoPINAdmin() {
+      const input = document.getElementById('nuevo-pin-admin');
+      const confirmInput = document.getElementById('confirmar-pin-admin');
+      if (!input || !confirmInput) return;
+      
+      const newPin = input.value.trim();
+      const confirmPin = confirmInput.value.trim();
+      
+      if (!newPin) {
+        mostrarToast("Escriba el nuevo PIN.", "warning");
+        return;
+      }
+      
+      if (newPin.length !== 3 || isNaN(newPin)) {
+        mostrarToast("El PIN de administración debe ser exactamente de 3 números.", "error");
+        return;
+      }
+      
+      if (newPin !== confirmPin) {
+        mostrarToast("Los PINs no coinciden. Intente de nuevo.", "error");
+        return;
+      }
+      
+      localStorage.setItem('caja_admin_settings_pin', newPin);
+      ADMIN_SETTINGS_PIN = newPin;
+      
+      mostrarToast("PIN de administración actualizado con éxito.", "success");
+      input.value = '';
+      confirmInput.value = '';
+      cerrarModalUsuarios();
     }
