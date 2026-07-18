@@ -214,7 +214,7 @@
       }
     };
 
-    function inicializarSistemaDespuesDeDesbloqueo() {
+    async function inicializarSistemaDespuesDeDesbloqueo() {
       const now = new Date();
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -256,19 +256,61 @@
         }
       }
 
-      const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
-      sessionActive = state.session_active;
-      activeOperator = state.operator;
+      // 1. Sincronizar estado activo inicial desde la nube
+      if (GOOGLE_WEB_APP_URL && !GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
+        mostrarToast("Sincronizando estado con la nube...", "info");
+        try {
+          const response = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_active_state`);
+          const cloudState = await response.json();
+          
+          if (cloudState && cloudState.session_active) {
+            DB.set('state', {
+              session_active: true,
+              operator: cloudState.operator,
+              opened_date: cloudState.opened_date,
+              opened_time: cloudState.opened_time || "08:00:00"
+            });
+            sessionActive = true;
+            activeOperator = cloudState.operator;
+            
+            if (cloudState.balances) DB.set('balances', cloudState.balances);
+            if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
+            if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
+            if (cloudState.logs) DB.set('logs', cloudState.logs);
+            
+            mostrarToast("Turno activo sincronizado desde la nube.", "success");
+          } else {
+            // No hay turno activo en la nube. Validar si localmente hay uno (para actuar de fallback)
+            const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
+            sessionActive = state.session_active;
+            activeOperator = state.operator;
+            
+            if (sessionActive) {
+              console.log("Turno activo local detectado sin respaldo en la nube. Sincronizando...");
+              guardarEstadoActivoNube();
+            }
+          }
+        } catch (e) {
+          console.error("Error al sincronizar estado activo inicial:", e);
+          mostrarToast("Error de conexión. Trabajando con datos locales.", "warning");
+          const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
+          sessionActive = state.session_active;
+          activeOperator = state.operator;
+        }
+      } else {
+        const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
+        sessionActive = state.session_active;
+        activeOperator = state.operator;
+      }
 
-      if (sessionActive && state.opened_date && state.opened_date !== todayStr) {
+      // 2. Ejecutar bypass de pre-apertura y alertas de cierre sobre el estado final obtenido
+      if (sessionActive && DB.get('state', {}).opened_date && DB.get('state', {}).opened_date !== todayStr) {
         // --- EVITAR CONFLICTOS POR PRE-APERTURA (FOOLPROOF) ---
-        // Si el turno está activo en una fecha anterior, pero NO se han registrado transacciones aún
-        // (es decir, la bitácora activa está vacía o solo contiene la 'Apertura'),
-        // actualizamos automáticamente la fecha de apertura al día de hoy para evitar alertas y reportes desfasados.
         const currentLogs = DB.get('logs', []);
         const nonOpeningLogs = currentLogs.filter(log => log.category !== 'Apertura');
         
         if (nonOpeningLogs.length === 0) {
+          const state = DB.get('state', {});
           state.opened_date = todayStr;
           state.opened_time = now.toLocaleTimeString();
           DB.set('state', state);
@@ -295,12 +337,12 @@
             
             if (timeLeft <= 0) {
               setTimeout(() => {
-                mostrarModalDiferenciaFecha(state.opened_date);
+                mostrarModalDiferenciaFecha(DB.get('state', {}).opened_date);
               }, 300);
             } else {
               console.log(`Alerta de cierre pospuesta. Siguiente recordatorio en ${Math.round(timeLeft / 1000 / 60)} min.`);
               setTimeout(() => {
-                mostrarModalDiferenciaFecha(state.opened_date);
+                mostrarModalDiferenciaFecha(DB.get('state', {}).opened_date);
               }, timeLeft);
             }
           }
