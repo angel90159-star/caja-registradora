@@ -3710,7 +3710,23 @@
       }
       
       const historical = DB.get('historical_logs_by_date', {});
-      const dateLogs = historical[selectedDate] || [];
+      let dateLogs = historical[selectedDate] || [];
+
+      // Si la fecha seleccionada es hoy, incluir también los logs del turno activo actual
+      if (selectedDate === todayStr) {
+        const activeLogs = DB.get('logs', []) || [];
+        const seenIds = new Set(dateLogs.map(l => l.id).filter(Boolean));
+        
+        activeLogs.forEach(log => {
+          if (!seenIds.has(log.id)) {
+            dateLogs.push(log);
+            seenIds.add(log.id);
+          }
+        });
+        
+        // Ordenar por ID descendente (el más reciente primero)
+        dateLogs.sort((a, b) => b.id - a.id);
+      }
 
       // 2. Llenar selector de operadores dinámicamente según la base de datos de esa fecha
       const filtroOperadorSelect = document.getElementById('filtro-operador');
