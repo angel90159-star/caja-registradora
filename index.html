@@ -229,8 +229,16 @@
 
         <!-- T-Conecta Card (Azul Cielo) -->
         <div id="card-tconecta" onclick="seleccionarServicioCard('tconecta')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-sky-500 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <div class="absolute top-2.5 right-2.5">
+            <button onclick="event.stopPropagation(); abrirAjusteSaldoTConecta()" class="text-slate-300 hover:text-sky-600 dark:hover:text-sky-300 transition" title="Ajustar saldos de T-Conecta y Banamex">
+              <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
           <span class="text-[10px] font-bold text-sky-500 dark:text-sky-400 tracking-wider uppercase text-center">T-Conecta</span>
-          <span id="dash-bal-tconecta" class="hidden text-base font-black text-slate-800 dark:text-white mt-2">$0.00</span>
+          <div id="dash-bal-tconecta" class="hidden flex flex-col items-center mt-1 space-y-0.5">
+            <span id="dash-bal-tconecta-term" class="text-xs font-black text-sky-600 dark:text-sky-400">Term: $0.00</span>
+            <span id="dash-bal-tconecta-banamex" class="text-[10px] font-bold text-slate-500 dark:text-slate-400">Banamex: $0.00</span>
+          </div>
         </div>
 
         <!-- Capital / Fondo Card → Ahora es Sistema Híbrido -->
@@ -420,7 +428,7 @@
                 <div id="op-cambio-modo-container" class="hidden space-y-1.5">
                   <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Modo de Cambio</label>
                   <div class="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <button type="button" id="btn-cambio-sugerido" onclick="setCambioModo('sugerido')" class="py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-amber-650 text-white border border-amber-500">
+                    <button type="button" id="btn-cambio-sugerido" onclick="setCambioModo('sugerido')" class="py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-amber-600 text-white border border-amber-500">
                       Sugerido (Auto)
                     </button>
                     <button type="button" id="btn-cambio-manual" onclick="setCambioModo('manual')" class="py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent border border-transparent">
@@ -534,13 +542,41 @@
                   Ingrese las piezas de billetes y monedas que le está entregando al cliente en el cambio.
                 </p>
 
-                <button type="button" id="btn-sugerir-cambio" onclick="sugerirCambioEfectivo()" class="w-full py-2.5 px-3 rounded-xl border border-orange-200 text-xs font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 transition flex items-center justify-center gap-1.5" title="Sugerir desglose de cambio automáticamente">
-                  <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                  <span>Sugerir Cambio</span>
-                </button>
+                <!-- Selector de Modo: Sugerido vs Manual -->
+                <div class="space-y-1.5">
+                  <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Modo de Entrega</label>
+                  <div class="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <button type="button" id="btn-cambio-salida-sugerido" onclick="setCambioSalidaModo('sugerido')" class="py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-orange-600 text-white border border-orange-500">
+                      Sugerido (Auto)
+                    </button>
+                    <button type="button" id="btn-cambio-salida-manual" onclick="setCambioSalidaModo('manual')" class="py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent border border-transparent">
+                      Manual
+                    </button>
+                  </div>
+                  <input type="hidden" id="op-cambio-salida-modo-val" value="sugerido">
+                </div>
 
-                <!-- Grid de Desglose de Salida -->
-                <div class="grid grid-cols-2 gap-6">
+                <!-- Vista de Cambio Sugerido (Auto) -->
+                <div id="panel-cambio-salida-sugerido" class="space-y-4">
+                  <!-- Banner Letrero Naranja -->
+                  <div class="text-center py-5 bg-gradient-to-r from-orange-600 to-amber-600 rounded-2xl shadow-md border border-orange-700 flex flex-col gap-1 text-white">
+                    <span class="text-[11px] font-black text-orange-100 uppercase tracking-wider block">CAMBIO A DEVOLVER AL CLIENTE</span>
+                    <span id="cambio-salida-sugerido-total" class="text-4xl font-black text-white">$0.00</span>
+                  </div>
+
+                  <!-- Lista de Piezas Sugeridas -->
+                  <div class="space-y-2">
+                    <span class="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                      Billetes y monedas a entregar (Sugerido):
+                    </span>
+                    <div id="cambio-salida-sugerido-piezas" class="grid grid-cols-2 gap-2.5">
+                      <!-- Cargado dinámicamente -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Grid de Desglose Manual (Oculto por defecto en modo sugerido) -->
+                <div id="panel-cambio-salida-manual-grid" class="hidden grid grid-cols-2 gap-6">
                   <!-- Billetes a entregar -->
                   <div class="space-y-3">
                     <span class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block border-b border-slate-100 dark:border-slate-800 pb-1">Billetes</span>
@@ -602,7 +638,7 @@
                     <div class="space-y-2">
                       <!-- $10 Moneda -->
                       <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
-                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">$10</div>
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-950 text-slate-900 dark:text-amber-300 select-none">$10</div>
                         <div class="flex-grow flex flex-col min-w-0">
                           <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
                           <input type="number" id="cambio-out-m10" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
@@ -610,7 +646,7 @@
                       </div>
                       <!-- $5 Moneda -->
                       <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
-                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">$5</div>
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-950 text-slate-900 dark:text-amber-300 select-none">$5</div>
                         <div class="flex-grow flex flex-col min-w-0">
                           <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
                           <input type="number" id="cambio-out-m5" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
@@ -618,7 +654,7 @@
                       </div>
                       <!-- $2 Moneda -->
                       <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
-                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">$2</div>
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-950 text-slate-900 dark:text-amber-300 select-none">$2</div>
                         <div class="flex-grow flex flex-col min-w-0">
                           <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
                           <input type="number" id="cambio-out-m2" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
@@ -626,7 +662,7 @@
                       </div>
                       <!-- $1 Moneda -->
                       <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
-                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">$1</div>
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-950 text-slate-900 dark:text-amber-300 select-none">$1</div>
                         <div class="flex-grow flex flex-col min-w-0">
                           <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
                           <input type="number" id="cambio-out-m1" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
@@ -634,7 +670,7 @@
                       </div>
                       <!-- 50¢ Moneda -->
                       <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl hover:border-orange-400 hover:shadow-sm transition duration-150">
-                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-9500 text-slate-900 select-none">50¢</div>
+                        <div class="w-16 text-center py-2 rounded-xl text-sm font-black shadow-sm dark:shadow-slate-950/30 bg-amber-50 dark:bg-amber-950 text-slate-900 dark:text-amber-300 select-none">50¢</div>
                         <div class="flex-grow flex flex-col min-w-0">
                           <span class="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cantidad</span>
                           <input type="number" id="cambio-out-m05" oninput="calcularCambioEfectivo()" min="0" value="0" class="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 focus:border-orange-500 text-base font-black text-slate-800 dark:text-white text-center outline-none py-1">
@@ -644,11 +680,11 @@
                   </div>
                 </div>
 
-                <!-- Comparador de Totales -->
-                <div class="pt-2 border-t border-slate-200 dark:border-slate-700 flex flex-col gap-1.5">
+                <!-- Comparador de Totales (para Modo Manual) -->
+                <div id="cambio-comparador-totales" class="hidden pt-2 border-t border-slate-200 dark:border-slate-700 flex flex-col gap-1.5">
                   <div class="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     <span>Recibido (Entrada):</span>
-                    <span id="cambio-total-entrada" class="text-slate-700 font-black">$0.00</span>
+                    <span id="cambio-total-entrada" class="text-slate-700 dark:text-slate-200 font-black">$0.00</span>
                   </div>
                   <div class="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     <span>Entregado (Salida):</span>
@@ -1439,26 +1475,47 @@
             </div>
           </div>
 
-          <!-- Calculadora de Suma Rápida -->
-          <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-              <h3 class="text-xs font-black text-slate-800 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <i data-lucide="calculator" class="w-4 h-4 text-indigo-500"></i>
-                Calculadora de Suma Rápida
+          <!-- Guía de Reconciliación y Fondeo (T-Conecta / Banamex) -->
+          <div class="bg-sky-50/50 dark:bg-sky-950/20 rounded-2xl p-5 border border-sky-200 dark:border-sky-800 space-y-4">
+            <div class="flex items-center justify-between border-b border-sky-200 dark:border-sky-800 pb-2">
+              <h3 class="text-xs font-black text-sky-900 dark:text-sky-300 uppercase tracking-wider flex items-center gap-1.5">
+                <i data-lucide="arrow-left-right" class="w-4 h-4 text-sky-500"></i>
+                Guía de Reconciliación y Fondeo (T-Conecta / Banamex)
               </h3>
-              <span class="text-[9px] bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 px-2 py-0.5 rounded-md font-extrabold uppercase tracking-wider select-none">Herramienta</span>
+              <span class="text-[9px] bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300 px-2 py-0.5 rounded-md font-black uppercase tracking-wider">Ajustes</span>
             </div>
-            <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">Selecciona los conceptos que deseas sumar para calcular un total personalizado al instante:</p>
-            
-            <div id="cierre-suma-rapida-list" class="space-y-2 select-none">
-              <!-- Se generarán dinámicamente las filas interactivas -->
-            </div>
-            
-            <div class="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center bg-indigo-50/50 dark:bg-indigo-950/20 p-3 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
-              <span class="text-xs font-black text-indigo-900 dark:text-indigo-300 uppercase tracking-wider">Total Suma Seleccionada:</span>
-              <span id="cierre-suma-rapida-total" class="text-lg font-black font-mono text-indigo-650 dark:text-indigo-400">$0.00</span>
+            <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Movimientos sugeridos para saldar la terminal T-Conecta y reponer el efectivo de retiros:
+            </p>
+
+            <div class="space-y-2.5 text-xs">
+              <!-- Reconciliación 1: Efectivo Yastas -> T-Conecta -->
+              <div class="bg-white dark:bg-slate-900 p-3 rounded-xl border border-sky-100 dark:border-slate-800 space-y-1">
+                <div class="flex justify-between items-center">
+                  <span class="font-extrabold text-slate-800 dark:text-white flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Fondeo T-Conecta (Efectivo)
+                  </span>
+                  <span id="cierre-rec-efectivo-val" class="font-black text-emerald-600 dark:text-teal-400 font-mono">$0.00</span>
+                </div>
+                <p id="cierre-rec-efectivo-desc" class="text-[10px] text-slate-500 dark:text-slate-400">Tomar este efectivo del cajón/Yastas para abonar a la plataforma T-Conecta.</p>
+              </div>
+
+              <!-- Reconciliación 2: Banamex -> T-Conecta -->
+              <div class="bg-white dark:bg-slate-900 p-3 rounded-xl border border-sky-100 dark:border-slate-800 space-y-1">
+                <div class="flex justify-between items-center">
+                  <span class="font-extrabold text-slate-800 dark:text-white flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-sky-500"></span> Transferencia Excedente (Banamex ➔ T-Conecta)
+                  </span>
+                  <span id="cierre-rec-tarjeta-val" class="font-black text-sky-600 dark:text-sky-400 font-mono">$0.00</span>
+                </div>
+                <p id="cierre-rec-tarjeta-desc" class="text-[10px] text-slate-500 dark:text-slate-400">Transferir desde Cuenta Banamex a Terminal T-Conecta por recargas cobradas con tarjeta.</p>
+              </div>
+
+
             </div>
           </div>
+
+
 
           <!-- Firma y Cierre -->
           <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 space-y-4">
@@ -1954,6 +2011,57 @@
       <!-- Footer -->
       <div class="px-5 pb-5">
         <button onclick="cerrarRetirosBBVA()" class="w-full py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AJUSTE DE SALDOS T-CONECTA Y BANAMEX -->
+  <div id="modal-ajuste-tconecta" class="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 dark:border-slate-700">
+      <div class="bg-gradient-to-r from-sky-600 to-blue-700 p-5 text-white">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <i data-lucide="edit-3" class="w-5 h-5 text-white"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-black">Ajuste de Saldos T-Conecta</h3>
+              <p class="text-[10px] text-sky-200 font-bold uppercase tracking-wider">Configurar saldos iniciales o de trabajo</p>
+            </div>
+          </div>
+          <button onclick="cerrarAjusteSaldoTConecta()" class="w-8 h-8 flex items-center justify-center rounded-full bg-white dark:bg-slate-900 text-sky-700 shadow-sm hover:bg-sky-50 transition" title="Cerrar">
+            <i data-lucide="x" class="w-4.5 h-4.5 stroke-[2.5]"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <div class="space-y-1.5">
+          <label class="block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            📱 Saldo Disponible en Terminal T-Conecta ($)
+          </label>
+          <input type="number" id="input-ajuste-tconecta-terminal" placeholder="0.00" step="0.01"
+            class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-base font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+          <p class="text-[9px] text-slate-400">Saldo de tiempo aire de la plataforma (disminuye con recargas).</p>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            💳 Saldo Acumulado en Cuenta Banamex ($)
+          </label>
+          <input type="number" id="input-ajuste-tconecta-banamex" placeholder="0.00" step="0.01"
+            class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-base font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+          <p class="text-[9px] text-slate-400">Saldo acumulado por cobros de tarjeta en terminal Banamex.</p>
+        </div>
+
+        <div class="pt-2 flex gap-3">
+          <button type="button" onclick="cerrarAjusteSaldoTConecta()" class="flex-1 py-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition">
+            Cancelar
+          </button>
+          <button type="button" onclick="guardarAjusteSaldoTConecta()" class="flex-1 py-3 bg-sky-600 hover:bg-sky-700 text-white font-black rounded-xl text-xs transition shadow-md shadow-sky-950/20">
+            Guardar Saldos
+          </button>
+        </div>
       </div>
     </div>
   </div>

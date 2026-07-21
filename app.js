@@ -88,8 +88,8 @@
         title: 'Operativo T-Conecta',
         desc: 'Flujo diario de T-Conecta',
         label1: 'Recarga Efectivo',
-        label2: 'Banamex Recarga',
-        label3: 'Total Banamex',
+        label2: 'T-Conecta Recarga',
+        label3: 'Total T-Conecta',
         gradient: ['from-sky-500', 'to-blue-500']
       },
       'transferencia': {
@@ -276,7 +276,21 @@
             if (cloudState.balances) DB.set('balances', cloudState.balances);
             if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
             if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
-            if (cloudState.logs) DB.set('logs', cloudState.logs);
+            if (cloudState.logs && Array.isArray(cloudState.logs)) {
+              DB.set('logs', cloudState.logs);
+              const historical = DB.get('historical_logs_by_date', {});
+              cloudState.logs.forEach(log => {
+                const dStr = log.date;
+                if (dStr) {
+                  if (!historical[dStr]) historical[dStr] = [];
+                  const seen = new Set(historical[dStr].map(l => l.id).filter(Boolean));
+                  if (!seen.has(log.id)) {
+                    historical[dStr].unshift(log);
+                  }
+                }
+              });
+              DB.set('historical_logs_by_date', historical);
+            }
             
             mostrarToast("Turno activo sincronizado desde la nube.", "success");
           } else {
@@ -873,7 +887,10 @@
         }
       }
       document.getElementById('dash-bal-bbva').innerText = fmt.format(balances.bbva || 0);
-      document.getElementById('dash-bal-tconecta').innerText = fmt.format(balances.tconecta || 0);
+      const balTermEl = document.getElementById('dash-bal-tconecta-term');
+      const balBanamexEl = document.getElementById('dash-bal-tconecta-banamex');
+      if (balTermEl) balTermEl.innerText = `Term: ${fmt.format(balances.tconectaTerminal || 0)}`;
+      if (balBanamexEl) balBanamexEl.innerText = `Banamex: ${fmt.format(balances.banamex || 0)}`;
       const balTransf = document.getElementById('dash-bal-transferencia');
       if (balTransf) {
         balTransf.innerText = fmt.format(balances.transferencia || 0);
@@ -1129,10 +1146,10 @@
         const operatorEl = document.getElementById('dash-total-bar-operator');
         if (operatorEl) operatorEl.innerText = '-';
       } else if (activeSrv === 'tconecta') {
-        // T-Conecta: Recarga Efectivo, Banamex Recarga, Banamex Retiro
+        // T-Conecta: Recarga Efectivo, T-Conecta Recarga, T-Conecta Retiro
         let recargaEfectivo = 0;
-        let banamexRecarga = 0;
-        let banamexRetiro = 0;
+        let tconectaRecarga = 0;
+        let tconectaRetiro = 0;
 
         dateLogs.forEach(log => {
           if (!log || !log.category) return;
@@ -1140,13 +1157,13 @@
           if (cat === 'TCONECTA_RECARGA_EFECTIVO') {
             recargaEfectivo += log.amount;
           } else if (cat === 'TCONECTA_RECARGA_TARJETA') {
-            banamexRecarga += log.amount;
+            tconectaRecarga += log.amount;
           } else if (cat === 'TCONECTA_RETIRO') {
-            banamexRetiro += Math.abs(log.amount);
+            tconectaRetiro += Math.abs(log.amount);
           }
         });
 
-        const totalBanamex = banamexRecarga + banamexRetiro;
+        const totalTConecta = tconectaRecarga + tconectaRetiro;
 
         // Configurar estilos de la columna 3 y 4
         const label3El = document.getElementById('dash-total-bar-label3');
@@ -1171,13 +1188,13 @@
         const labelRetiro = document.getElementById('dash-total-bar-label-retiro');
         if (opRetiro) opRetiro.classList.remove('hidden');
         if (colRetiro) colRetiro.classList.remove('hidden');
-        if (labelRetiro) labelRetiro.innerText = 'Banamex Retiro';
+        if (labelRetiro) labelRetiro.innerText = 'T-Conecta Retiro';
 
         document.getElementById('dash-total-charola').innerText = fmt.format(recargaEfectivo);
-        document.getElementById('dash-total-terminal').innerText = fmt.format(banamexRecarga);
+        document.getElementById('dash-total-terminal').innerText = fmt.format(tconectaRecarga);
         const totalRetiroEl = document.getElementById('dash-total-retiro');
-        if (totalRetiroEl) totalRetiroEl.innerText = fmt.format(banamexRetiro);
-        document.getElementById('dash-total-operativo').innerText = fmt.format(totalBanamex);
+        if (totalRetiroEl) totalRetiroEl.innerText = fmt.format(tconectaRetiro);
+        document.getElementById('dash-total-operativo').innerText = fmt.format(totalTConecta);
 
         if (op) op.innerText = '|';
         if (opRetiro) opRetiro.innerText = '+';
@@ -1509,6 +1526,20 @@
       tabIngreso.disabled = false;
       tabIngreso.classList.remove('opacity-50', 'cursor-not-allowed');
 
+      // Re-aplicar estilos visuales de pestañas y botón si no es BBVA
+      if (srv !== 'bbva') {
+        const btnProc = document.getElementById('btn-procesar-operacion');
+        if (currentOpType === 'ingreso') {
+          tabIngreso.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-emerald-500 text-emerald-600 bg-emerald-50/20";
+          tabSalida.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/50";
+          if (btnProc) btnProc.className = "w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-emerald-100 flex items-center justify-center gap-2";
+        } else if (currentOpType === 'salida') {
+          tabSalida.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-rose-500 text-rose-600 bg-rose-50/20";
+          tabIngreso.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/50";
+          if (btnProc) btnProc.className = "w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-rose-100 flex items-center justify-center gap-2";
+        }
+      }
+
       if (srv === 'yastas') {
         if (currentOpType === 'redeposito') {
           panelOrigen.classList.add('hidden');
@@ -1701,15 +1732,7 @@
           charolaTituloEl.className = 'font-black text-emerald-600 dark:text-emerald-400 text-sm uppercase tracking-wider flex items-center';
         }
 
-        // Resetear inputs de salida a 0
-        const idsList = [
-          'cambio-out-1000', 'cambio-out-500', 'cambio-out-200', 'cambio-out-100', 'cambio-out-50', 'cambio-out-20',
-          'cambio-out-m10', 'cambio-out-m5', 'cambio-out-m2', 'cambio-out-m1', 'cambio-out-m05'
-        ];
-        idsList.forEach(id => {
-          const inp = document.getElementById(id);
-          if (inp) inp.value = 0;
-        });
+        setCambioSalidaModo('sugerido');
         
         lucide.createIcons();
       }
@@ -1832,11 +1855,27 @@
       const select = document.getElementById('op-service');
       if (!select) return;
 
+      const prevSrv = select.value;
+      if (prevSrv === 'bbva' && srv !== 'bbva') {
+        currentOpType = 'ingreso';
+      }
+
       if (currentOpType === 'redeposito' && srv !== 'yastas') {
         currentOpType = 'ingreso';
       }
 
-      // Actualizar destaque visual de las tarjetas
+      // Actualizar destaque visual de las tarjetas con su color distintivo
+      const srvThemes = {
+        'yastas': { ring: 'ring-purple-600', ringDark: 'dark:ring-purple-400' },
+        'banorte': { ring: 'ring-rose-600', ringDark: 'dark:ring-rose-400' },
+        'meli': { ring: 'ring-amber-500', ringDark: 'dark:ring-amber-400' },
+        'bbva': { ring: 'ring-blue-700', ringDark: 'dark:ring-blue-500' },
+        'tconecta': { ring: 'ring-sky-500', ringDark: 'dark:ring-sky-400' },
+        'capital': { ring: 'ring-teal-600', ringDark: 'dark:ring-teal-400' },
+        'caja': { ring: 'ring-slate-700', ringDark: 'dark:ring-slate-400' },
+        'cambio': { ring: 'ring-amber-600', ringDark: 'dark:ring-amber-400' }
+      };
+
       const srvIds = {
         'yastas': 'card-yastas',
         'meli': 'card-meli',
@@ -1847,13 +1886,19 @@
         'capital': 'card-capital',
         'cambio': 'card-cambio'
       };
+
       Object.keys(srvIds).forEach(key => {
         const card = document.getElementById(srvIds[key]);
         if (card) {
-          if (key === srv) {
-            card.classList.add('ring-4', 'ring-indigo-600', 'ring-offset-2', 'shadow-md');
-          } else {
-            card.classList.remove('ring-4', 'ring-indigo-600', 'ring-offset-2', 'shadow-md');
+          const theme = srvThemes[key];
+          // Limpiar cualquier resaltado activo previo de cualquier color
+          card.classList.remove(
+            'ring-4', 'ring-offset-2', 'shadow-md',
+            'ring-indigo-600', 'ring-purple-600', 'ring-rose-600', 'ring-amber-500', 'ring-blue-700', 'ring-sky-500', 'ring-teal-600', 'ring-slate-700', 'ring-amber-600',
+            'dark:ring-purple-400', 'dark:ring-rose-400', 'dark:ring-amber-400', 'dark:ring-blue-500', 'dark:ring-sky-400', 'dark:ring-teal-400', 'dark:ring-slate-400'
+          );
+          if (key === srv && theme) {
+            card.classList.add('ring-4', theme.ring, theme.ringDark, 'ring-offset-2', 'shadow-md');
           }
         }
       });
@@ -1992,11 +2037,11 @@
       const btnNegocio = document.getElementById('btn-meli-negocio');
 
       if (modo === 'tienda') {
-        btnTienda.className = "py-2.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 border-amber-500 text-amber-600 bg-amber-50";
-        btnNegocio.className = "py-2.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 border-slate-200 text-slate-500 bg-white hover:bg-slate-50";
+        btnTienda.className = "py-2.5 px-3 rounded-xl border-2 text-xs font-black transition flex items-center justify-center gap-1.5 border-amber-600 bg-amber-500 text-white shadow-md shadow-amber-500/20";
+        btnNegocio.className = "py-2.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800";
       } else {
-        btnTienda.className = "py-2.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 border-slate-200 text-slate-500 bg-white hover:bg-slate-50";
-        btnNegocio.className = "py-2.5 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 border-amber-500 text-amber-600 bg-amber-50";
+        btnTienda.className = "py-2.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800";
+        btnNegocio.className = "py-2.5 px-3 rounded-xl border-2 text-xs font-black transition flex items-center justify-center gap-1.5 border-amber-600 bg-amber-500 text-white shadow-md shadow-amber-500/20";
       }
       
       actualizarFormularioOperacion();
@@ -2543,18 +2588,18 @@
         const isRecargaTConectaTerminal = (currentOpType === 'ingreso' && document.getElementById('op-metodo-recarga-val') && document.getElementById('op-metodo-recarga-val').value === 'terminal');
         
         if (isIngreso) {
-          // Recarga telefónica (Sale recarga digital, entra pago)
+          // Recarga telefónica (Sale saldo de la terminal T-Conecta)
+          balances.tconectaTerminal = (balances.tconectaTerminal || 0) - finalAmount; // Disminuye el saldo de la terminal T-Conecta
+
           if (!isRecargaTConectaTerminal) {
-            balances.yastasEfectivo = (balances.yastasEfectivo || 0) + finalAmount; // Pagó con efectivo
+            balances.yastasEfectivo = (balances.yastasEfectivo || 0) + finalAmount; // Pagó con efectivo -> Entra al cajón
           } else {
-            balances.banamex = (balances.banamex || 0) + finalAmount; // Pagó con tarjeta (Terminal) -> Va a Banamex
+            balances.banamex = (balances.banamex || 0) + finalAmount; // Pagó con tarjeta -> Va a la cuenta Banamex
           }
-          balances.tconecta = (balances.tconecta || 0) + finalAmount; // Sube positivamente (se suma)
         } else {
-          // Retiro de efectivo (Sale efectivo de caja, entra dinero a terminal)
+          // Retiro con tarjeta T-Conecta (Sale efectivo de caja, entra cobro a Banamex; NO afecta la terminal T-Conecta)
           balances.yastasEfectivo = (balances.yastasEfectivo || 0) - finalAmount;
           balances.banamex = (balances.banamex || 0) + finalAmount; // Entra a Banamex por cobro a tarjeta
-          balances.tconecta = (balances.tconecta || 0) + finalAmount; // Sube positivamente
         }
       }
       
@@ -3437,6 +3482,51 @@
       });
     }
 
+    // === GESTIÓN DE SALDOS T-CONECTA Y BANAMEX ===
+    function abrirAjusteSaldoTConecta() {
+      abrirPINModal("Ajustar Saldos T-Conecta (Clave Admin)", (opName) => {
+        const modal = document.getElementById('modal-ajuste-tconecta');
+        const termInput = document.getElementById('input-ajuste-tconecta-terminal');
+        const banamexInput = document.getElementById('input-ajuste-tconecta-banamex');
+        if (!modal || !termInput || !banamexInput) return;
+
+        const balances = DB.get('balances', {});
+        termInput.value = balances.tconectaTerminal || 0;
+        banamexInput.value = balances.banamex || 0;
+
+        modal.classList.remove('hidden');
+        lucide.createIcons();
+      });
+    }
+
+    function cerrarAjusteSaldoTConecta() {
+      const modal = document.getElementById('modal-ajuste-tconecta');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function guardarAjusteSaldoTConecta() {
+      const termInput = document.getElementById('input-ajuste-tconecta-terminal');
+      const banamexInput = document.getElementById('input-ajuste-tconecta-banamex');
+      if (!termInput || !banamexInput) return;
+
+      const newTerm = parseFloat(termInput.value) || 0;
+      const newBanamex = parseFloat(banamexInput.value) || 0;
+
+      const balances = DB.get('balances', {});
+      const oldTerm = balances.tconectaTerminal || 0;
+      const oldBanamex = balances.banamex || 0;
+
+      balances.tconectaTerminal = newTerm;
+      balances.banamex = newBanamex;
+      DB.set('balances', balances);
+
+      registrarMovimientoBitacora('Admin', 'AJUSTE_TCONECTA', 0,
+        `Saldos ajustados manualmente. Terminal T-Conecta: ${fmt.format(oldTerm)} -> ${fmt.format(newTerm)}. Banamex: ${fmt.format(oldBanamex)} -> ${fmt.format(newBanamex)}.`);
+
+      cerrarAjusteSaldoTConecta();
+      mostrarToast("Saldos de T-Conecta y Banamex actualizados con éxito.", "success");
+      refrescarPantallas();
+    }
 
     // === GESTIÓN DE PIN MODAL ===
     function abrirPINModal(title, callback) {
@@ -3712,8 +3802,22 @@
       const historical = DB.get('historical_logs_by_date', {});
       let dateLogs = historical[selectedDate] || [];
 
-      // Si la fecha seleccionada es hoy, incluir también los logs del turno activo actual
-      if (selectedDate === todayStr) {
+      // Recuperar logs desde cierre_reports si historical_logs_by_date estaba vacío
+      if (!dateLogs || dateLogs.length === 0) {
+        const reports = DB.get('cierre_reports', {});
+        const report = reports[selectedDate];
+        if (report && (report.bitacora || report.logs)) {
+          dateLogs = report.bitacora || report.logs || [];
+          historical[selectedDate] = dateLogs;
+          DB.set('historical_logs_by_date', historical);
+        }
+      }
+
+      // Si la fecha seleccionada es hoy o coincide con la fecha de apertura del turno activo
+      const stateObj = DB.get('state', {});
+      const activeOpenedDate = stateObj.opened_date || todayStr;
+
+      if (selectedDate === todayStr || selectedDate === activeOpenedDate) {
         const activeLogs = DB.get('logs', []) || [];
         const seenIds = new Set(dateLogs.map(l => l.id).filter(Boolean));
         
@@ -3723,10 +3827,10 @@
             seenIds.add(log.id);
           }
         });
-        
-        // Ordenar por ID descendente (el más reciente primero)
-        dateLogs.sort((a, b) => b.id - a.id);
       }
+
+      // Ordenar por ID descendente (el más reciente primero)
+      dateLogs.sort((a, b) => (b.id || 0) - (a.id || 0));
 
       // 2. Llenar selector de operadores dinámicamente según la base de datos de esa fecha
       const filtroOperadorSelect = document.getElementById('filtro-operador');
@@ -4137,6 +4241,12 @@
     }
 
     function calcularCambioEfectivo() {
+      const modo = document.getElementById('op-cambio-salida-modo-val')?.value || 'sugerido';
+      if (modo === 'sugerido' && !isCalculatingSugerido) {
+        sugerirCambioEfectivo();
+        return;
+      }
+
       // 1. Obtener suma de la entrada (lo que entra a la charola, ingresado en la charola izquierda)
       let totalEntrada = 0;
       const prefix = 'dash';
@@ -4168,38 +4278,57 @@
         totalSalida += val * idsMap[id];
       });
 
-      // 3. Actualizar textos de totales
-      document.getElementById('cambio-total-entrada').innerText = fmt.format(totalEntrada);
-      document.getElementById('cambio-total-salida').innerText = fmt.format(totalSalida);
+      // 3. Actualizar textos de totales si existen
+      const totEntradaEl = document.getElementById('cambio-total-entrada');
+      const totSalidaEl = document.getElementById('cambio-total-salida');
+      if (totEntradaEl) totEntradaEl.innerText = fmt.format(totalEntrada);
+      if (totSalidaEl) totSalidaEl.innerText = fmt.format(totalSalida);
 
       // 4. Comparar y actualizar badge + botón
       const badge = document.getElementById('cambio-status-badge');
       const btnProcesar = document.getElementById('btn-procesar-operacion');
 
       if (totalEntrada === 0 && totalSalida === 0) {
-        badge.className = "mt-1.5 p-2 rounded-lg text-center text-xs font-bold bg-rose-50 border border-rose-100 text-rose-600 transition-colors duration-150";
-        badge.innerText = "❌ Ingrese piezas";
+        if (badge) {
+          badge.className = "mt-1.5 p-2.5 rounded-xl text-center text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700";
+          badge.innerText = "📌 Ingrese piezas a cambiar en la charola izquierda";
+        }
         if (btnProcesar) {
           btnProcesar.disabled = true;
           btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
           btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Registrar Cambio`;
         }
-      } else if (totalEntrada === totalSalida) {
-        badge.className = "mt-1.5 p-2 rounded-lg text-center text-xs font-bold bg-emerald-50 border border-emerald-100 text-emerald-600 transition-colors duration-150";
-        badge.innerText = `✅ Montos coinciden (${fmt.format(totalEntrada)})`;
+      } else if (Math.abs(totalEntrada - totalSalida) < 0.01) {
+        if (badge) {
+          badge.className = "mt-1.5 p-2.5 rounded-xl text-center text-xs font-black bg-emerald-600 text-white shadow-md border border-emerald-700";
+          badge.innerText = `✅ CAMBIO CUADRADO EXACTO (${fmt.format(totalEntrada)})`;
+        }
         if (btnProcesar) {
           btnProcesar.disabled = false;
           btnProcesar.classList.remove('opacity-50', 'cursor-not-allowed');
-          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Registrar Cambio`;
+          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Registrar Cambio de ${fmt.format(totalEntrada)}`;
         }
-      } else {
-        const diff = Math.abs(totalEntrada - totalSalida);
-        badge.className = "mt-1.5 p-2 rounded-lg text-center text-xs font-bold bg-rose-50 border border-rose-100 text-rose-600 transition-colors duration-150";
-        badge.innerText = `❌ Montos no coinciden. Dif: ${fmt.format(diff)}`;
+      } else if (totalSalida < totalEntrada) {
+        const diff = totalEntrada - totalSalida;
+        if (badge) {
+          badge.className = "mt-1.5 p-2.5 rounded-xl text-center text-xs font-black bg-amber-500 text-white shadow-md border border-amber-600";
+          badge.innerText = `⚠️ FALTA ${fmt.format(diff)} PARA CUADRAR EL CAMBIO`;
+        }
         if (btnProcesar) {
           btnProcesar.disabled = true;
           btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
-          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Registrar Cambio`;
+          btnProcesar.innerHTML = `<i data-lucide="alert-triangle" class="w-4.5 h-4.5 mr-1 inline"></i> Falta ${fmt.format(diff)} para Cuadrar`;
+        }
+      } else {
+        const diff = totalSalida - totalEntrada;
+        if (badge) {
+          badge.className = "mt-1.5 p-2.5 rounded-xl text-center text-xs font-black bg-rose-600 text-white shadow-md border border-rose-700";
+          badge.innerText = `❌ EXCEDE POR ${fmt.format(diff)} (REDUZCA PIEZAS)`;
+        }
+        if (btnProcesar) {
+          btnProcesar.disabled = true;
+          btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+          btnProcesar.innerHTML = `<i data-lucide="x-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Excede por ${fmt.format(diff)}`;
         }
       }
       lucide.createIcons();
@@ -4368,10 +4497,10 @@
 
       if (btnSugerido && btnManual) {
         if (modo === 'sugerido') {
-          btnSugerido.className = 'py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-amber-650 text-white border border-amber-500';
+          btnSugerido.className = 'py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-amber-600 text-white border border-amber-500';
           btnManual.className = 'py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent border border-transparent';
         } else {
-          btnManual.className = 'py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-amber-650 text-white border border-amber-500';
+          btnManual.className = 'py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-amber-600 text-white border border-amber-500';
           btnSugerido.className = 'py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent border border-transparent';
         }
       }
@@ -4832,12 +4961,24 @@
           charolaSection.style.opacity = '0.4';
           charolaSection.style.pointerEvents = 'none';
           charolaSection.style.userSelect = 'none';
+          const serviceOverlayColors = {
+            'yastas': 'bg-purple-600/90',
+            'banorte': 'bg-rose-600/90',
+            'meli': 'bg-amber-600/90',
+            'bbva': 'bg-blue-700/90',
+            'tconecta': 'bg-sky-600/90',
+            'capital': 'bg-teal-600/90',
+            'caja': 'bg-slate-700/90',
+            'cambio': 'bg-amber-600/90'
+          };
+          const bgClass = serviceOverlayColors[activeSrv] || 'bg-indigo-600/90';
+
           if (!overlay) {
             overlay = document.createElement('div');
             overlay.id = 'charola-lock-overlay';
             overlay.className = 'absolute inset-0 flex items-center justify-center z-10';
             overlay.innerHTML = `
-              <div class="bg-indigo-600/90 text-white px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 backdrop-blur-sm">
+              <div class="${bgClass} text-white px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 backdrop-blur-sm">
                 <i data-lucide="lock" class="w-5 h-5"></i>
                 <span class="text-xs font-black uppercase tracking-wider">Modo Sugerido Activo</span>
               </div>
@@ -4845,6 +4986,9 @@
             charolaSection.style.position = 'relative';
             charolaSection.appendChild(overlay);
             lucide.createIcons();
+          } else {
+            const badge = overlay.querySelector('div');
+            if (badge) badge.className = `${bgClass} text-white px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 backdrop-blur-sm`;
           }
         } else {
           charolaSection.style.opacity = '1';
@@ -5136,7 +5280,11 @@
       }
     }
 
+    let isCalculatingSugerido = false;
+
     function sugerirCambioEfectivo() {
+      if (isCalculatingSugerido) return;
+      isCalculatingSugerido = true;
       let totalEntrada = 0;
       const prefix = 'dash';
       const leftInputs = document.querySelectorAll(`.denom-input-field[id^="${prefix}-"]`);
@@ -5154,7 +5302,18 @@
       });
 
       if (totalEntrada <= 0) {
-        mostrarToast("Ingrese las piezas recibidas en la charola izquierda primero.", "error");
+        const piezasContainer = document.getElementById('cambio-salida-sugerido-piezas');
+        const totalBanner = document.getElementById('cambio-salida-sugerido-total');
+        if (totalBanner) totalBanner.innerText = "$0.00";
+        if (piezasContainer) piezasContainer.innerHTML = "";
+        
+        const btnProcesar = document.getElementById('btn-procesar-operacion');
+        if (btnProcesar) {
+          btnProcesar.disabled = true;
+          btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Registrar Cambio`;
+        }
+        isCalculatingSugerido = false;
         return;
       }
 
@@ -5188,11 +5347,6 @@
 
       const searchList = denoms.filter(d => d <= maxAllowedDenom);
       
-      // Intentar dar cambio en varias pasadas con factores de escala de stock de seguridad
-      // Pasada 1: Conservar el 100% de la base de seguridad (Fuerte)
-      // Pasada 2: Conservar el 60% de la base de seguridad (Medio)
-      // Pasada 3: Conservar el 20% de la base de seguridad (Mínimo)
-      // Pasada 4: Sin restricciones (Gastar todo - 0%)
       let success = false;
       const safetyFactors = [1.0, 0.6, 0.2, 0.0];
       
@@ -5201,7 +5355,6 @@
         if (success) break;
       }
       
-      // Fallback secundario sin restricción de denominación máxima si falla lo anterior
       if (!success) {
         for (let factor of safetyFactors) {
           success = tryMakeChangeWithSafetyFactor(denoms, factor);
@@ -5222,10 +5375,76 @@
         document.getElementById('cambio-out-m1').value = suggested['m1'];
         document.getElementById('cambio-out-m05').value = suggested['m05'];
 
-        calcularCambioEfectivo();
-        mostrarToast("Cambio sugerido con éxito basado en el inventario disponible.", "success");
+        // Renderizado dinámico de la vista de tarjetas sugeridas
+        const piezasContainer = document.getElementById('cambio-salida-sugerido-piezas');
+        const totalBanner = document.getElementById('cambio-salida-sugerido-total');
+        if (totalBanner) totalBanner.innerText = fmt.format(totalEntrada);
+
+        if (piezasContainer) {
+          const cardsHTML = [];
+          const labelsMap = {
+            1000: '$1000', 500: '$500', 200: '$200', 100: '$100', 50: '$50', 20: '$20',
+            m10: '$10', m5: '$5', m2: '$2', m1: '$1', m05: '50¢'
+          };
+          const denomsOrder = [1000, 500, 200, 100, 50, 20, 'm10', 'm5', 'm2', 'm1', 'm05'];
+          
+          denomsOrder.forEach(key => {
+            const count = suggested[key] || 0;
+            if (count > 0) {
+              const label = labelsMap[key];
+              cardsHTML.push(`
+                <div class="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-2xl shadow-xs">
+                  <div class="w-14 text-center py-2 rounded-xl text-sm font-black bg-indigo-600 text-white select-none">${label}</div>
+                  <div class="flex flex-col min-w-0">
+                    <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider">ENTREGAR</span>
+                    <span class="text-sm font-black text-slate-800 dark:text-white">${count} pzs</span>
+                  </div>
+                </div>
+              `);
+            }
+          });
+          piezasContainer.innerHTML = cardsHTML.join('');
+        }
+
+        const btnProcesar = document.getElementById('btn-procesar-operacion');
+        if (btnProcesar) {
+          btnProcesar.disabled = false;
+          btnProcesar.classList.remove('opacity-50', 'cursor-not-allowed');
+          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Registrar Cambio de ${fmt.format(totalEntrada)}`;
+        }
+
+        isCalculatingSugerido = false;
+        lucide.createIcons();
       } else {
-        mostrarToast("No hay suficientes piezas en la charola para completar el cambio de forma exacta.", "warning");
+        const idsList = [
+          'cambio-out-1000', 'cambio-out-500', 'cambio-out-200', 'cambio-out-100', 'cambio-out-50', 'cambio-out-20',
+          'cambio-out-m10', 'cambio-out-m5', 'cambio-out-m2', 'cambio-out-m1', 'cambio-out-m05'
+        ];
+        idsList.forEach(id => {
+          const inp = document.getElementById(id);
+          if (inp) inp.value = 0;
+        });
+        
+        const piezasContainer = document.getElementById('cambio-salida-sugerido-piezas');
+        const totalBanner = document.getElementById('cambio-salida-sugerido-total');
+        if (totalBanner) totalBanner.innerText = fmt.format(totalEntrada);
+        if (piezasContainer) {
+          piezasContainer.innerHTML = `
+            <div class="col-span-2 p-4 text-center bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl text-rose-700 dark:text-rose-300 text-xs font-bold">
+              ⚠️ No hay suficientes piezas en caja para sugerir un desglose exacto. Por favor, utilice el modo Manual.
+            </div>
+          `;
+        }
+
+        const btnProcesar = document.getElementById('btn-procesar-operacion');
+        if (btnProcesar) {
+          btnProcesar.disabled = true;
+          btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+          btnProcesar.innerHTML = `<i data-lucide="alert-triangle" class="w-4.5 h-4.5 mr-1 inline"></i> Sin stock para sugerido (Use Manual)`;
+        }
+
+        isCalculatingSugerido = false;
+        lucide.createIcons();
       }
 
       function tryMakeChangeWithSafetyFactor(list, factor) {
@@ -5264,6 +5483,57 @@
         return Math.abs(tempRemaining) < 0.01;
       }
     }
+
+    function setCambioSalidaModo(modo) {
+      const valInput = document.getElementById('op-cambio-salida-modo-val');
+      if (!valInput) return;
+      valInput.value = modo;
+
+      const btnSugerido = document.getElementById('btn-cambio-salida-sugerido');
+      const btnManual = document.getElementById('btn-cambio-salida-manual');
+      const panelSugerido = document.getElementById('panel-cambio-salida-sugerido');
+      const panelManualGrid = document.getElementById('panel-cambio-salida-manual-grid');
+      const panelComparador = document.getElementById('cambio-comparador-totales');
+      const inputsOut = document.querySelectorAll('input[id^="cambio-out-"]');
+
+      if (modo === 'sugerido') {
+        if (btnSugerido) {
+          btnSugerido.className = 'py-2 px-3 rounded-xl text-xs font-black transition-all shadow-md bg-orange-600 text-white border-2 border-orange-700';
+        }
+        if (btnManual) {
+          btnManual.className = 'py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700';
+        }
+
+        if (panelSugerido) panelSugerido.classList.remove('hidden');
+        if (panelManualGrid) panelManualGrid.classList.add('hidden');
+        if (panelComparador) panelComparador.classList.add('hidden');
+
+        inputsOut.forEach(inp => {
+          inp.readOnly = true;
+        });
+
+        sugerirCambioEfectivo();
+      } else {
+        if (btnManual) {
+          btnManual.className = 'py-2 px-3 rounded-xl text-xs font-black transition-all shadow-md bg-orange-600 text-white border-2 border-orange-700';
+        }
+        if (btnSugerido) {
+          btnSugerido.className = 'py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700';
+        }
+
+        if (panelSugerido) panelSugerido.classList.add('hidden');
+        if (panelManualGrid) panelManualGrid.classList.remove('hidden');
+        if (panelComparador) panelComparador.classList.remove('hidden');
+
+        inputsOut.forEach(inp => {
+          inp.readOnly = false;
+          inp.value = 0;
+        });
+
+        calcularCambioEfectivo();
+      }
+    }
+
     function toggleCalculadora() {
       const widget = document.getElementById('calc-widget');
       const isHidden = widget.classList.contains('hidden');
@@ -6045,6 +6315,29 @@
       const banamexLive = document.getElementById('cierre-banco-banamex-live');
       if (banamexLive) banamexLive.innerText = fmt.format(balances.banamex || 0);
 
+      // Calcular reconciliación T-Conecta / Banamex / Yastas
+      let recEfectivo = 0;
+      let recTarjeta = 0;
+      let recRetiro = 0;
+
+      const currentLogs = DB.get('logs', []) || [];
+      currentLogs.forEach(log => {
+        if (!log || !log.category) return;
+        const cat = log.category.toUpperCase();
+        if (cat === 'TCONECTA_RECARGA_EFECTIVO') recEfectivo += log.amount;
+        else if (cat === 'TCONECTA_RECARGA_TARJETA') recTarjeta += log.amount;
+        else if (cat === 'TCONECTA_RETIRO') recRetiro += Math.abs(log.amount);
+      });
+
+      const recEfectivoEl = document.getElementById('cierre-rec-efectivo-val');
+      if (recEfectivoEl) recEfectivoEl.innerText = fmt.format(recEfectivo);
+
+      const recTarjetaEl = document.getElementById('cierre-rec-tarjeta-val');
+      if (recTarjetaEl) recTarjetaEl.innerText = fmt.format(recTarjeta);
+
+      const recRetiroEl = document.getElementById('cierre-rec-retiro-val');
+      if (recRetiroEl) recRetiroEl.innerText = fmt.format(recRetiro);
+
       // Calcular y refrescar la calculadora de suma rápida
       actualizarSumaRapidaCierre();
     }
@@ -6115,6 +6408,8 @@
 
         // --- PREPARAR PAYLOAD PARA GOOGLE SHEETS ---
         const payloadNube = {
+          action: "save_closure",
+          token: typeof SECURITY_TOKEN !== 'undefined' ? SECURITY_TOKEN : "",
           fecha: dateKey,
           hora: now.toLocaleTimeString(),
           operador: opName,
@@ -6129,7 +6424,8 @@
           bbva: balances.bbva || 0,
           banorte: balances.banorte || 0,
           banamex_banco: balances.banamex || 0,
-          bitacora: logs // Toda la lista de transacciones en la bitácora
+          bitacora: logs,
+          report: report
         };
 
         // Enviar asíncronamente a Google Sheets con fallback local en cola
@@ -6142,17 +6438,17 @@
           }
         });
 
-        // RESETEAR SALDOS A CERO
+        // RESETEAR SALDOS DE CONTEO DIARIO
         balances.yastasTerminal = 0;
         balances.yastasEfectivo = 0;
         balances.tconecta = 0;
         balances.transferencia = 0;
         balances.bbva = 0;
-        balances.banamex = 0;
         balances.capital = 0;
         balances.capitalTerminal = 0;
         balances.capitalEfectivo = 0;
         balances.boveda = 0; // Se recoge de bóveda
+        // NOTA: balances.tconectaTerminal y balances.banamex NO SE RESETEAN (Se conservan acumulativamente entre turnos)
         DB.set('inventoryBoveda', {}); // Bóveda vacía
         DB.set('balances', balances);
         DB.set('logs', []);
@@ -6172,12 +6468,11 @@
     // === VISOR DE REPORTES HISTÓRICOS DE CIERRE ===
     let viendoHistoricoCierre = false;
 
-    function alCambiarFechaFiltro() {
-      cargarBitacora();
-
+    async function alCambiarFechaFiltro() {
       const filtroFecha = document.getElementById('filtro-fecha');
       if (!filtroFecha) return;
       const selectedDate = filtroFecha.value;
+      if (!selectedDate) return;
 
       // Obtener el día de hoy en formato YYYY-MM-DD
       const now = new Date();
@@ -6186,8 +6481,31 @@
       const day = String(now.getDate()).padStart(2, '0');
       const todayStr = `${year}-${month}-${day}`;
 
-      const reports = DB.get('cierre_reports', {});
-      const report = reports[selectedDate];
+      let reports = DB.get('cierre_reports', {});
+      let report = reports[selectedDate];
+
+      if (!report && selectedDate !== todayStr && GOOGLE_WEB_APP_URL && !GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
+        try {
+          const res = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_historical_data&date=${selectedDate}`);
+          const cloudHist = await res.json();
+          if (cloudHist && cloudHist.status === "success") {
+            if (cloudHist.report) {
+              reports[selectedDate] = cloudHist.report;
+              DB.set('cierre_reports', reports);
+              report = cloudHist.report;
+            }
+            if (cloudHist.logs && Array.isArray(cloudHist.logs)) {
+              const historical = DB.get('historical_logs_by_date', {});
+              historical[selectedDate] = cloudHist.logs;
+              DB.set('historical_logs_by_date', historical);
+            }
+          }
+        } catch (e) {
+          console.error("Error recuperando datos históricos:", e);
+        }
+      }
+
+      cargarBitacora();
 
       const mainView = document.getElementById('dash-main-view');
       const bitacoraView = document.getElementById('dash-bitacora-view');
