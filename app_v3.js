@@ -1882,7 +1882,7 @@
         currentOpType = 'ingreso';
       }
 
-      if (currentOpType === 'redeposito' && srv !== 'yastas') {
+      if ((currentOpType === 'redeposito' || currentOpType === 'recarga') && srv !== 'yastas') {
         currentOpType = 'ingreso';
       }
 
