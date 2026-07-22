@@ -1146,7 +1146,7 @@
         const operatorEl = document.getElementById('dash-total-bar-operator');
         if (operatorEl) operatorEl.innerText = '-';
       } else if (activeSrv === 'tconecta') {
-        // T-Conecta: Recarga Efectivo, T-Conecta Recarga, T-Conecta Retiro
+        // T-Conecta: Recarga Efectivo + T-Conecta Retiro = Entradas Banamex; T-Conecta Recarga (Terminal) Informativo
         let recargaEfectivo = 0;
         let tconectaRecarga = 0;
         let tconectaRetiro = 0;
@@ -1163,38 +1163,45 @@
           }
         });
 
-        const totalTConecta = tconectaRecarga + tconectaRetiro;
+        const totalBanamexTConecta = recargaEfectivo + tconectaRetiro;
 
-        // Configurar estilos de la columna 3 y 4
+        // Configurar títulos de las columnas
+        const label1El = document.getElementById('dash-total-bar-label1');
+        const label2El = document.getElementById('dash-total-bar-label2');
         const label3El = document.getElementById('dash-total-bar-label3');
-        if (label3El) label3El.className = "text-[9px] font-bold text-indigo-200 uppercase tracking-wider block";
+        const labelRetiro = document.getElementById('dash-total-bar-label-retiro');
+
+        if (label1El) label1El.innerText = "Recarga Efectivo";
+        if (label2El) label2El.innerText = "Recarga Terminal (Info)";
+        if (labelRetiro) labelRetiro.innerText = "T-Conecta Retiro";
+        if (label3El) {
+          label3El.innerText = "Entradas Banamex";
+          label3El.className = "text-[9px] font-bold text-yellow-300 uppercase tracking-wider block";
+        }
 
         const totalEl = document.getElementById('dash-total-operativo');
-        if (totalEl) totalEl.className = "text-xl font-black text-white";
+        if (totalEl) totalEl.className = "text-xl font-black text-yellow-300";
 
         // Mostrar elementos de la barra
         const col1 = document.getElementById('dash-total-col1');
         const col2 = document.getElementById('dash-total-col2');
         const op = document.getElementById('dash-total-bar-operator');
         const eq = document.getElementById('dash-total-bar-equals');
+        const opRetiro = document.getElementById('dash-total-bar-operator-retiro');
+        const colRetiro = document.getElementById('dash-total-col-retiro');
+
         if (col1) col1.classList.remove('hidden');
         if (col2) col2.classList.remove('hidden');
         if (op) op.classList.remove('hidden');
         if (eq) eq.classList.remove('hidden');
-
-        // Mostrar columna de retiros y operador de retiro
-        const opRetiro = document.getElementById('dash-total-bar-operator-retiro');
-        const colRetiro = document.getElementById('dash-total-col-retiro');
-        const labelRetiro = document.getElementById('dash-total-bar-label-retiro');
         if (opRetiro) opRetiro.classList.remove('hidden');
         if (colRetiro) colRetiro.classList.remove('hidden');
-        if (labelRetiro) labelRetiro.innerText = 'T-Conecta Retiro';
 
         document.getElementById('dash-total-charola').innerText = fmt.format(recargaEfectivo);
         document.getElementById('dash-total-terminal').innerText = fmt.format(tconectaRecarga);
         const totalRetiroEl = document.getElementById('dash-total-retiro');
         if (totalRetiroEl) totalRetiroEl.innerText = fmt.format(tconectaRetiro);
-        document.getElementById('dash-total-operativo').innerText = fmt.format(totalTConecta);
+        document.getElementById('dash-total-operativo').innerText = fmt.format(totalBanamexTConecta);
 
         if (op) op.innerText = '|';
         if (opRetiro) opRetiro.innerText = '+';
@@ -1582,12 +1589,27 @@
           const charolaTituloEl = document.getElementById('dash-charola-titulo');
           if (charolaTituloEl) {
             charolaTituloEl.innerHTML = `📱 RECARGA TELEFÓNICA`;
-            charolaTituloEl.className = 'font-black text-teal-650 dark:text-teal-400 text-sm uppercase tracking-wider';
+            charolaTituloEl.className = 'font-black text-teal-600 dark:text-teal-400 text-sm uppercase tracking-wider';
           }
           lucide.createIcons();
           
           const recargaMetodoVal = document.getElementById('op-metodo-recarga-val') ? document.getElementById('op-metodo-recarga-val').value : 'efectivo';
           setRecargaMetodo(recargaMetodoVal);
+        } else if (currentOpType === 'salida') {
+          // Ocultar paneles de recarga y redepósito al retirar
+          if (panelRecarga) panelRecarga.classList.add('hidden');
+          const panelRedeposito = document.getElementById('panel-yastas-redeposito');
+          if (panelRedeposito) panelRedeposito.classList.add('hidden');
+          
+          panelOrigen.classList.remove('hidden');
+          
+          const charolaTituloEl = document.getElementById('dash-charola-titulo');
+          if (charolaTituloEl) {
+            charolaTituloEl.innerHTML = `💸 RETIRO DE EFECTIVO (T-CONECTA)`;
+            charolaTituloEl.className = 'font-black text-rose-600 dark:text-rose-400 text-sm uppercase tracking-wider';
+          }
+          lucide.createIcons();
+          toggleCharolaInputs(false);
         }
       }
 
@@ -2588,18 +2610,17 @@
         const isRecargaTConectaTerminal = (currentOpType === 'ingreso' && document.getElementById('op-metodo-recarga-val') && document.getElementById('op-metodo-recarga-val').value === 'terminal');
         
         if (isIngreso) {
-          // Recarga telefónica (Sale saldo de la terminal T-Conecta)
-          balances.tconectaTerminal = (balances.tconectaTerminal || 0) - finalAmount; // Disminuye el saldo de la terminal T-Conecta
-
           if (!isRecargaTConectaTerminal) {
-            balances.yastasEfectivo = (balances.yastasEfectivo || 0) + finalAmount; // Pagó con efectivo -> Entra al cajón
+            // Recarga en Efectivo: Se descuenta de la terminal T-Conecta y el dinero entra a la caja de Yastas
+            balances.tconectaTerminal = (balances.tconectaTerminal || 0) - finalAmount;
+            balances.yastasEfectivo = (balances.yastasEfectivo || 0) + finalAmount;
           } else {
-            balances.banamex = (balances.banamex || 0) + finalAmount; // Pagó con tarjeta -> Va a la cuenta Banamex
+            // Recarga con Tarjeta (Terminal): Operación INFORMATIVA. No genera movimiento directo en saldos de caja, terminal ni Banamex.
           }
         } else {
-          // Retiro con tarjeta T-Conecta (Sale efectivo de caja, entra cobro a Banamex; NO afecta la terminal T-Conecta)
+          // Retiro de Efectivo (con Tarjeta): Terminal T-Conecta se queda igual. Disminuye caja de Yastas por el efectivo entregado e incrementa Banamex por el cobro con tarjeta.
           balances.yastasEfectivo = (balances.yastasEfectivo || 0) - finalAmount;
-          balances.banamex = (balances.banamex || 0) + finalAmount; // Entra a Banamex por cobro a tarjeta
+          balances.banamex = (balances.banamex || 0) + finalAmount;
         }
       }
       
