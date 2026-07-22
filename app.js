@@ -8090,15 +8090,16 @@
     async function guardarEstadoActivoNube() {
       if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) return;
       
+      const currentState = DB.get('state', {});
       const stateObj = {
-        session_active: sessionActive,
-        operator: activeOperator,
-        opened_date: DB.get('state', {}).opened_date || null,
-        opened_time: DB.get('state', {}).opened_time || null,
-        balances: sessionActive ? DB.get('balances', {}) : {},
-        inventory: sessionActive ? DB.get('inventory', {}) : {},
-        inventoryBoveda: sessionActive ? DB.get('inventoryBoveda', {}) : {},
-        logs: sessionActive ? DB.get('logs', []) : []
+        session_active: sessionActive || currentState.session_active || false,
+        operator: activeOperator || currentState.operator || null,
+        opened_date: currentState.opened_date || null,
+        opened_time: currentState.opened_time || null,
+        balances: DB.get('balances', {}),
+        inventory: DB.get('inventory', {}),
+        inventoryBoveda: DB.get('inventoryBoveda', {}),
+        logs: DB.get('logs', [])
       };
       
       const payload = {
@@ -8128,22 +8129,23 @@
         const response = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_active_state`);
         const cloudState = await response.json();
         
-        if (cloudState && cloudState.session_active) {
-          // Cargar el estado activo desde la nube
-          DB.set('state', {
-            session_active: true,
-            operator: cloudState.operator,
-            opened_date: cloudState.opened_date,
-            opened_time: cloudState.opened_time || "08:00:00"
-          });
-          sessionActive = true;
-          activeOperator = cloudState.operator;
+        if (cloudState) {
+          if (cloudState.session_active) {
+            DB.set('state', {
+              session_active: true,
+              operator: cloudState.operator,
+              opened_date: cloudState.opened_date,
+              opened_time: cloudState.opened_time || "08:00:00"
+            });
+            sessionActive = true;
+            activeOperator = cloudState.operator;
+            
+            if (cloudState.balances) DB.set('balances', cloudState.balances);
+            if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
+            if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
+          }
           
-          if (cloudState.balances) DB.set('balances', cloudState.balances);
-          if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
-          if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
-          
-          // Fusión Inteligente de Registros (Local + Nube)
+          // Fusión Inteligente de Registros (Local + Nube) - SIEMPRE EJECUTAR
           const cloudLogs = Array.isArray(cloudState.logs) ? cloudState.logs : [];
           const localLogs = DB.get('logs', []) || [];
           const combinedMap = new Map();
@@ -8207,7 +8209,7 @@
             autoRestored = true;
           }
 
-          if (autoRestored) {
+          if (autoRestored || mergedLogs.length > cloudLogs.length) {
             currentAllLogs.sort((a, b) => (b.id || 0) - (a.id || 0));
             DB.set('logs', currentAllLogs);
             
@@ -8221,16 +8223,9 @@
             historical['2026-07-22'].sort((a, b) => (b.id || 0) - (a.id || 0));
             DB.set('historical_logs_by_date', historical);
             guardarEstadoActivoNube();
-          } else if (mergedLogs.length > cloudLogs.length) {
-            guardarEstadoActivoNube();
           }
 
           mostrarToast("Turno activo sincronizado desde la nube.", "success");
-        } else {
-          // No hay turno activo en la nube: forzar sesión cerrada localmente
-          sessionActive = false;
-          activeOperator = null;
-          DB.set('state', { session_active: false, operator: null });
         }
         refrescarPantallas();
         if (typeof cargarBitacora === 'function') cargarBitacora();
