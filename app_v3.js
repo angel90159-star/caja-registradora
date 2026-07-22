@@ -6652,6 +6652,38 @@
     // === VISOR DE REPORTES HISTÓRICOS DE CIERRE ===
     let viendoHistoricoCierre = false;
 
+    function mapearFilaANubeReporte(row, fallbackDate) {
+      if (!row || typeof row !== 'object') return null;
+      if (row.fecha === 'Fecha' || row.hora === 'Hora Cierre') return null;
+
+      const bitacoraArr = Array.isArray(row.bitacora) ? row.bitacora : [];
+      let fechaClean = fallbackDate;
+      if (row.fecha && typeof row.fecha === 'string') {
+        fechaClean = row.fecha.includes('T') ? row.fecha.split('T')[0] : row.fecha;
+      }
+
+      return {
+        date: fechaClean,
+        time: row.hora || '',
+        operator: row.operador || 'Operador',
+        totalContado: parseFloat(row.efectivo_real) || 0,
+        expectedCajon: parseFloat(row.efectivo_esperado) || 0,
+        expectedBoveda: parseFloat(row.boveda) || 0,
+        diffTotal: parseFloat(row.diferencia) || 0,
+        balances: {
+          yastasTerminal: parseFloat(row.yastas_terminal) || 0,
+          capitalTerminal: parseFloat(row.meli_terminal) || 0,
+          tconecta: parseFloat(row.tconecta_efectivo) || 0,
+          banamex: parseFloat(row.banamex_terminal) || parseFloat(row.banamex_banco) || 0,
+          bbva: parseFloat(row.bbva) || 0,
+          banorte: parseFloat(row.banorte) || 0
+        },
+        bitacora: bitacoraArr,
+        countedInventory: row.countedInventory || row.inventory || {},
+        combinedExpectedInventory: row.combinedExpectedInventory || {}
+      };
+    }
+
     async function alCambiarFechaFiltro() {
       const filtroFecha = document.getElementById('filtro-fecha');
       if (!filtroFecha) return;
@@ -6668,19 +6700,56 @@
       let reports = DB.get('cierre_reports', {});
       let report = reports[selectedDate];
 
-      if (!report && selectedDate !== todayStr && GOOGLE_WEB_APP_URL && !GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
+      if (!report && GOOGLE_WEB_APP_URL && !GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
         try {
           const res = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_historical_data&date=${selectedDate}`);
           const cloudHist = await res.json();
-          if (cloudHist && cloudHist.status === "success") {
-            if (cloudHist.report) {
-              reports[selectedDate] = cloudHist.report;
+          let rawList = [];
+          if (Array.isArray(cloudHist)) {
+            rawList = cloudHist;
+          } else if (cloudHist && cloudHist.data && Array.isArray(cloudHist.data)) {
+            rawList = cloudHist.data;
+          } else if (cloudHist && cloudHist.report) {
+            rawList = [cloudHist.report];
+          }
+
+          if (rawList.length > 0) {
+            const historical = DB.get('historical_logs_by_date', {});
+            const allDayLogs = [];
+
+            rawList.forEach(item => {
+              if (item.report && typeof item.report === 'object') {
+                reports[selectedDate] = item.report;
+                report = item.report;
+                if (item.report.bitacora && Array.isArray(item.report.bitacora)) {
+                  allDayLogs.push(...item.report.bitacora);
+                }
+              } else {
+                const rep = mapearFilaANubeReporte(item, selectedDate);
+                if (rep && (rep.totalContado > 0 || rep.expectedCajon > 0 || rep.operator !== 'Operador')) {
+                  reports[selectedDate] = rep;
+                  report = rep;
+                  if (rep.bitacora && Array.isArray(rep.bitacora)) {
+                    allDayLogs.push(...rep.bitacora);
+                  }
+                }
+              }
+            });
+
+            if (Object.keys(reports).length > 0) {
               DB.set('cierre_reports', reports);
-              report = cloudHist.report;
             }
-            if (cloudHist.logs && Array.isArray(cloudHist.logs)) {
-              const historical = DB.get('historical_logs_by_date', {});
-              historical[selectedDate] = cloudHist.logs;
+
+            if (allDayLogs.length > 0) {
+              const existingLogs = historical[selectedDate] || [];
+              const seenIds = new Set(existingLogs.map(l => l ? l.id : null).filter(Boolean));
+              allDayLogs.forEach(l => {
+                if (l && l.id && !seenIds.has(l.id)) {
+                  existingLogs.push(l);
+                  seenIds.add(l.id);
+                }
+              });
+              historical[selectedDate] = existingLogs;
               DB.set('historical_logs_by_date', historical);
             }
           }
@@ -7791,6 +7860,70 @@
         refrescarPantallas();
       }
     }
+
+    let prevCloudLogsHash = "";
+
+    async function sincronizarEstadoActivoBackground() {
+      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) return;
+      try {
+        const response = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_active_state`);
+        const cloudState = await response.json();
+        
+        if (cloudState && cloudState.session_active) {
+          const currentLogs = cloudState.logs && Array.isArray(cloudState.logs) ? cloudState.logs : [];
+          const newHash = `${currentLogs.length}_${cloudState.opened_date}_${JSON.stringify(cloudState.balances || {})}`;
+          
+          const wasActive = sessionActive;
+          sessionActive = true;
+          activeOperator = cloudState.operator;
+          
+          DB.set('state', {
+            session_active: true,
+            operator: cloudState.operator,
+            opened_date: cloudState.opened_date,
+            opened_time: cloudState.opened_time || "08:00:00"
+          });
+
+          if (cloudState.balances) DB.set('balances', cloudState.balances);
+          if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
+          if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
+          
+          if (currentLogs.length > 0) {
+            DB.set('logs', currentLogs);
+            const historical = DB.get('historical_logs_by_date', {});
+            currentLogs.forEach(log => {
+              const dStr = log.date;
+              if (dStr) {
+                if (!historical[dStr]) historical[dStr] = [];
+                const seen = new Set(historical[dStr].map(l => l ? l.id : null).filter(Boolean));
+                if (!seen.has(log.id)) {
+                  historical[dStr].unshift(log);
+                }
+              }
+            });
+            DB.set('historical_logs_by_date', historical);
+          }
+
+          if (newHash !== prevCloudLogsHash || !wasActive) {
+            prevCloudLogsHash = newHash;
+            refrescarPantallas();
+            cargarBitacora();
+          }
+        } else if (sessionActive) {
+          // Si el turno fue cerrado en otro dispositivo mientras este estaba abierto:
+          sessionActive = false;
+          activeOperator = null;
+          DB.set('state', { session_active: false, operator: null });
+          refrescarPantallas();
+          mostrarToast("El turno fue cerrado desde otro dispositivo.", "warning");
+        }
+      } catch (e) {
+        // Silencioso en fondo para no interrumpir la navegación del usuario
+      }
+    }
+
+    // Intervalo de sincronización activa en segundo plano cada 15 segundos
+    setInterval(sincronizarEstadoActivoBackground, 15000);
 
     function guardarNuevoPINAdmin() {
       const input = document.getElementById('nuevo-pin-admin');
