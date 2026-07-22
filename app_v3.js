@@ -8090,8 +8090,42 @@
           if (cloudState.balances) DB.set('balances', cloudState.balances);
           if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
           if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
-          if (cloudState.logs) DB.set('logs', cloudState.logs);
           
+          // Fusión Inteligente de Registros (Local + Nube)
+          const cloudLogs = Array.isArray(cloudState.logs) ? cloudState.logs : [];
+          const localLogs = DB.get('logs', []) || [];
+          const combinedMap = new Map();
+
+          localLogs.forEach(l => { if (l && l.id) combinedMap.set(l.id, l); });
+          cloudLogs.forEach(l => { if (l && l.id) combinedMap.set(l.id, l); });
+
+          const mergedLogs = Array.from(combinedMap.values()).sort((a, b) => (b.id || 0) - (a.id || 0));
+          DB.set('logs', mergedLogs);
+
+          // Actualizar histórico por fecha
+          const historical = DB.get('historical_logs_by_date', {}) || {};
+          mergedLogs.forEach(log => {
+            const dStr = log.date;
+            if (dStr) {
+              if (!historical[dStr]) historical[dStr] = [];
+              const seen = new Set(historical[dStr].map(l => l ? l.id : null).filter(Boolean));
+              if (!seen.has(log.id)) {
+                historical[dStr].push(log);
+              }
+            }
+          });
+          Object.keys(historical).forEach(d => {
+            if (Array.isArray(historical[d])) {
+              historical[d].sort((a, b) => (b.id || 0) - (a.id || 0));
+            }
+          });
+          DB.set('historical_logs_by_date', historical);
+          
+          // Guardar el estado consolidado de regreso en la nube si hubo fusión
+          if (mergedLogs.length > cloudLogs.length) {
+            guardarEstadoActivoNube();
+          }
+
           mostrarToast("Turno activo sincronizado desde la nube.", "success");
         } else {
           // No hay turno activo en la nube: forzar sesión cerrada localmente
@@ -8100,6 +8134,7 @@
           DB.set('state', { session_active: false, operator: null });
         }
         refrescarPantallas();
+        if (typeof cargarBitacora === 'function') cargarBitacora();
       } catch (e) {
         console.error("Error al sincronizar estado activo inicial:", e);
         mostrarToast("Error de conexión. Trabajando con datos locales.", "warning");
