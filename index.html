@@ -961,12 +961,37 @@
       <!-- Contenedor Principal de Tablas a Ancho Completo -->
       <div class="bg-white dark:bg-slate-800 rounded-b-2xl shadow-sm dark:shadow-slate-950/20 border border-t-0 border-slate-100 dark:border-slate-800 overflow-hidden transition-colors duration-200">
         
+        <!-- Barra de Paginación Superior Compartida para Saldos y Piezas Excel -->
+        <div id="bitacora-pagination-bar" class="flex flex-col sm:flex-row items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-400">
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mostrar:</span>
+            <select id="bitacora-per-page" onchange="setBitacoraPerPage(this.value)" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+              <option value="10">10 por página</option>
+              <option value="20">20 por página</option>
+              <option value="30">30 por página</option>
+              <option value="todo">Todos</option>
+            </select>
+            <span id="bitacora-pagination-info" class="text-slate-500 dark:text-slate-400 ml-2 font-mono text-[11px]">Mostrando 0 de 0</span>
+          </div>
+
+          <div id="bitacora-pagination-controls" class="flex items-center gap-2">
+            <button id="btn-bitacora-prev" type="button" onclick="cambiarPaginaBitacora(-1)" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 font-bold transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer">
+              <i data-lucide="chevron-left" class="w-4 h-4"></i> Anterior
+            </button>
+            <span id="bitacora-page-status" class="px-2 font-mono font-bold text-slate-800 dark:text-white">Pág 1 de 1</span>
+            <button id="btn-bitacora-next" type="button" onclick="cambiarPaginaBitacora(1)" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 font-bold transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer">
+              Siguiente <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
         <!-- A: TABLA DE VISTA DE SALDOS (Historial Clásico) -->
         <div id="container-bitacora-saldos" class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
             <thead>
               <tr class="bg-slate-50 border-b border-slate-100 dark:border-slate-800 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                <th class="py-3.5 px-6 w-24">Hora</th>
+                <th class="py-3.5 px-4 w-28">Fecha</th>
+                <th class="py-3.5 px-4 w-20">Hora</th>
                 <th class="py-3.5 px-4 w-32">Operador</th>
                 <th class="py-3.5 px-4 w-32">Cuenta</th>
                 <th class="py-3.5 px-4 w-28">Tipo</th>
@@ -983,10 +1008,11 @@
 
         <!-- B: TABLA DE VISTA DE PIEZAS (Excel-like Grid) -->
         <div id="container-bitacora-piezas" class="overflow-x-auto hidden">
-          <table class="w-full text-left border-collapse min-w-[900px]">
+          <table class="w-full text-left border-collapse min-w-[950px]">
             <thead>
               <tr class="bg-slate-50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider text-center">
-                <th class="py-3 px-4 text-left w-20">Hora</th>
+                <th class="py-3 px-3 text-left w-24">Fecha</th>
+                <th class="py-3 px-3 text-left w-16">Hora</th>
                 <th class="py-3 px-2 w-12">$1000</th>
                 <th class="py-3 px-2 w-12">$500</th>
                 <th class="py-3 px-2 w-12">$200</th>

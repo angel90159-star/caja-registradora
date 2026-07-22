@@ -132,14 +132,43 @@
     let currentOpType = 'ingreso'; // ingreso, salida
     let pinCallback = null;
     let bitacoraActiveTab = 'saldos';
+    let bitacoraPerPage = '10';
+    let bitacoraCurrentPage = 1;
 
-    // === PERSISTENCIA LOCAL ===
+    function setBitacoraPerPage(val) {
+      bitacoraPerPage = val;
+      if (typeof DB !== 'undefined') DB.set('bitacora_per_page', val);
+      bitacoraCurrentPage = 1;
+      cargarBitacora();
+    }
+
+    function cambiarPaginaBitacora(delta) {
+      bitacoraCurrentPage += delta;
+      cargarBitacora();
+    }
+
+    // === PERSISTENCIA LOCAL Y CACHÉ EN MEMORIA ===
+    const dbCache = {};
     const DB = {
       get: (key, def) => {
+        if (dbCache[key] !== undefined) return dbCache[key];
         const item = localStorage.getItem('lc5_' + key);
-        return item ? JSON.parse(item) : def;
+        if (item) {
+          try {
+            dbCache[key] = JSON.parse(item);
+            return dbCache[key];
+          } catch (e) {}
+        }
+        dbCache[key] = def;
+        return def;
       },
-      set: (key, val) => localStorage.setItem('lc5_' + key, JSON.stringify(val)),
+      set: (key, val) => {
+        dbCache[key] = val;
+        localStorage.setItem('lc5_' + key, JSON.stringify(val));
+      },
+      clearCache: () => {
+        for (let k in dbCache) delete dbCache[k];
+      },
       init: () => {
         if (!localStorage.getItem('lc5_inventory')) {
           DB.set('inventory', {1000:0,500:0,200:0,100:0,50:0,20:0,10:0,5:0,2:0,1:0,0.5:0});
@@ -619,19 +648,15 @@
       const inputDep = document.getElementById('op-cambio-deposito');
       if (inputDep) inputDep.value = '';
       currentSugerenciaCambio = null;
-      currentModoCambio = 'sugerido';
       currentManualCambioPieces = {};
-      const cambioModoVal = document.getElementById('op-cambio-modo-val');
-      if (cambioModoVal) cambioModoVal.value = 'sugerido';
+      setCambioModo('sugerido');
 
       // Resetear campos de retiro asistido
       const inputRet = document.getElementById('op-retiro-monto');
       if (inputRet) inputRet.value = '';
-      currentModoRetiro = 'sugerido';
       currentSugerenciaRetiro = null;
-      const retModoVal = document.getElementById('op-retiro-modo-val');
-      if (retModoVal) retModoVal.value = 'sugerido';
-      toggleCharolaInputs(false);
+      currentDevolucionRetiro = {};
+      setRetiroModo('sugerido');
 
       // Resetear campos de recarga
       const inputRec = document.getElementById('op-recarga-monto');
@@ -1579,6 +1604,7 @@
     function actualizarFormularioOperacion() {
       limpiarDesglose(true);
       setCambioModo('sugerido');
+      setRetiroModo(currentModoRetiro);
       const srv = document.getElementById('op-service').value;
       const panelOrigen = document.getElementById('panel-origen-efectivo');
       const panelManual = document.getElementById('panel-monto-manual');
@@ -1876,7 +1902,6 @@
       } else if (srv === 'caja') {
         panelUbicacionBoveda.classList.remove('hidden');
         const panelMontoBoveda = document.getElementById('panel-monto-boveda');
-        if (panelMontoBoveda) panelMontoBoveda.classList.remove('hidden');
         const labelMontoBoveda = document.getElementById('label-monto-boveda');
         
         const labelUbicacion = document.getElementById('label-ubicacion-boveda');
@@ -1884,13 +1909,14 @@
         inputUbicacion.value = "";
         
         if (currentOpType === 'ingreso') {
+          if (panelMontoBoveda) panelMontoBoveda.classList.remove('hidden');
           labelUbicacion.innerText = "Destino / Lugar de guardado";
           inputUbicacion.placeholder = "Ej. Caja fuerte principal, Sobre de depósito";
           if (labelMontoBoveda) labelMontoBoveda.innerText = "Monto a Depositar en Bóveda ($)";
         } else {
+          if (panelMontoBoveda) panelMontoBoveda.classList.add('hidden'); // Ocultar cuadro duplicado
           labelUbicacion.innerText = "Origen / Lugar de salida";
           inputUbicacion.placeholder = "Ej. Caja fuerte principal, Compartimento B";
-          if (labelMontoBoveda) labelMontoBoveda.innerText = "Monto a Retirar de Bóveda ($)";
         }
       } else if (srv === 'cambio') {
         panelOrigen.classList.add('hidden');
@@ -2567,7 +2593,7 @@
       }
 
       const isRetiro = currentOpType === 'salida';
-      const isPhysical = (srv === 'yastas' || srv === 'bbva' || srv === 'capital' || srv === 'tconecta' || (srv === 'meli' && document.getElementById('op-modo-meli-val').value === 'tienda'));
+      const isPhysical = (srv === 'yastas' || srv === 'bbva' || srv === 'capital' || srv === 'tconecta' || srv === 'caja' || (srv === 'meli' && document.getElementById('op-modo-meli-val').value === 'tienda'));
       const hasRetiroAsistido = (isRetiro && isPhysical);
       if (hasRetiroAsistido) {
         const inputRet = document.getElementById('op-retiro-monto');
@@ -2682,6 +2708,17 @@
           });
         }
 
+        // Sumar piezas devueltas a la caja en retiro manual si aplica
+        if (hasRetiroAsistido && currentModoRetiro === 'manual' && currentDevolucionRetiro) {
+          Object.keys(currentDevolucionRetiro).forEach(denomStr => {
+            const denom = parseFloat(denomStr);
+            const cantIn = currentDevolucionRetiro[denomStr] || 0;
+            if (cantIn > 0) {
+              inventory[denom] = (inventory[denom] || 0) + cantIn;
+            }
+          });
+        }
+
         DB.set('inventory', inventory);
       }
 
@@ -2701,6 +2738,20 @@
             inventory[denom] = (inventory[denom] || 0) + cant;
           }
         });
+
+        // Aplicar cambio devuelto a Bóveda si hubo devolución de billetes
+        if (!isIngreso && currentDevolucionRetiro) {
+          Object.keys(currentDevolucionRetiro).forEach(denomStr => {
+            const denom = parseFloat(denomStr);
+            const cantIn = currentDevolucionRetiro[denomStr] || 0;
+            if (cantIn > 0) {
+              inventoryBoveda[denom] = (inventoryBoveda[denom] || 0) + cantIn;
+              if (devolucionBovedaOrigen === 'charola') {
+                inventory[denom] = (inventory[denom] || 0) - cantIn;
+              }
+            }
+          });
+        }
         DB.set('inventory', inventory);
         DB.set('inventoryBoveda', inventoryBoveda);
         // Recalcular saldo bóveda
@@ -2871,12 +2922,21 @@
             const denom = parseFloat(inp.getAttribute('data-denom'));
             let cant = parseInt(inp.value) || 0;
 
-            if (hasCambio && currentSugerenciaCambio && currentSugerenciaCambio[denom]) {
-              cant -= currentSugerenciaCambio[denom];
-            }
+            if (hasRetiroAsistido && currentModoRetiro === 'manual') {
+              let netCant = -cant;
+              const devQty = currentDevolucionRetiro[String(denom)] || 0;
+              netCant += devQty;
+              if (netCant !== 0) {
+                piecesObj[denom] = netCant;
+              }
+            } else {
+              if (hasCambio && currentSugerenciaCambio && currentSugerenciaCambio[denom]) {
+                cant -= currentSugerenciaCambio[denom];
+              }
 
-            if (cant !== 0) {
-              piecesObj[denom] = cant;
+              if (cant !== 0) {
+                piecesObj[denom] = cant;
+              }
             }
           });
         }
@@ -3325,11 +3385,11 @@
 
 
     // === ANEXAR CAPITAL ===
-    let modoAnexarCapital = 'terminal'; // 'terminal' | 'efectivo'
+    let modoAnexarCapital = 'efectivo'; // 'terminal' | 'efectivo'
 
     function abrirAnexarCapital() {
       // Reset
-      modoAnexarCapital = 'terminal';
+      modoAnexarCapital = 'efectivo';
       const inputTerminal = document.getElementById('cap-monto-terminal');
       if (inputTerminal) inputTerminal.value = '';
 
@@ -3339,7 +3399,7 @@
       calcularTotalLocal(); // Recalcular subtotales de la charola
 
       calcularTotalAnexarCapital();
-      setModoAnexarCapital('terminal');
+      setModoAnexarCapital('efectivo');
     }
 
     function cerrarAnexarCapital() {
@@ -3945,15 +4005,19 @@
       if (containerPiezas) containerPiezas.classList.add('hidden');
       if (containerCorte) containerCorte.classList.add('hidden');
       
+      const pagBar = document.getElementById('bitacora-pagination-bar');
       if (tab === 'saldos') {
         if (tabSaldos) tabSaldos.className = activeClass;
         if (containerSaldos) containerSaldos.classList.remove('hidden');
+        if (pagBar) pagBar.classList.remove('hidden');
       } else if (tab === 'piezas') {
         if (tabPiezas) tabPiezas.className = activeClass;
         if (containerPiezas) containerPiezas.classList.remove('hidden');
+        if (pagBar) pagBar.classList.remove('hidden');
       } else if (tab === 'corte') {
         if (tabCorte) tabCorte.className = activeClass;
         if (containerCorte) containerCorte.classList.remove('hidden');
+        if (pagBar) pagBar.classList.add('hidden');
       }
       
       cargarBitacora();
@@ -3997,7 +4061,8 @@
         const seenIds = new Set(dateLogs.map(l => l.id).filter(Boolean));
         
         activeLogs.forEach(log => {
-          if (!seenIds.has(log.id)) {
+          const logDate = log.date || activeOpenedDate || todayStr;
+          if (logDate === selectedDate && !seenIds.has(log.id)) {
             dateLogs.push(log);
             seenIds.add(log.id);
           }
@@ -4041,6 +4106,9 @@
       const filterOperador = document.getElementById('filtro-operador') ? document.getElementById('filtro-operador').value : 'todos';
 
       const filteredLogs = dateLogs.filter(log => {
+        // Garantizar estrictamente que el registro sea de la fecha seleccionada
+        const logDate = log.date || selectedDate;
+        if (logDate !== selectedDate) return false;
         // Filtrar por Tipo de movimiento
         if (filterTipo === 'ingreso') {
           if (log.amount < 0 || log.category === 'Apertura' || log.category === 'Cierre' || log.category === 'Cambio' || log.category === 'cambio' || log.category.startsWith('AJUSTE_') || log.category.startsWith('BORRADO_') || log.category.startsWith('FONDEO_')) return false;
@@ -4079,15 +4147,57 @@
       if (tbodySaldos) tbodySaldos.innerHTML = '';
       if (tbodyPiezas) tbodyPiezas.innerHTML = '';
 
-      if (filteredLogs.length === 0) {
+      const selectPerPage = document.getElementById('bitacora-per-page');
+      if (selectPerPage && selectPerPage.value) {
+        bitacoraPerPage = selectPerPage.value;
+      }
+
+      const totalItems = filteredLogs.length;
+      if (totalItems === 0) {
         document.getElementById('bitacora-vacia').classList.remove('hidden');
+        const pagBar = document.getElementById('bitacora-pagination-bar');
+        if (pagBar) pagBar.classList.add('hidden');
         return;
       }
 
       document.getElementById('bitacora-vacia').classList.add('hidden');
+      const pagBar = document.getElementById('bitacora-pagination-bar');
+      if (pagBar && bitacoraActiveTab !== 'corte') pagBar.classList.remove('hidden');
+
+      // Calcular Paginación
+      let pageSize = totalItems;
+      let totalPages = 1;
+      if (bitacoraPerPage !== 'todo') {
+        pageSize = parseInt(bitacoraPerPage, 10) || 10;
+        totalPages = Math.ceil(totalItems / pageSize) || 1;
+      }
+
+      if (bitacoraCurrentPage > totalPages) bitacoraCurrentPage = totalPages;
+      if (bitacoraCurrentPage < 1) bitacoraCurrentPage = 1;
+
+      const startIndex = bitacoraPerPage === 'todo' ? 0 : (bitacoraCurrentPage - 1) * pageSize;
+      const endIndex = bitacoraPerPage === 'todo' ? totalItems : Math.min(startIndex + pageSize, totalItems);
+      const pageLogs = filteredLogs.slice(startIndex, endIndex);
+
+      // Actualizar UI de Paginación
+      const infoEl = document.getElementById('bitacora-pagination-info');
+      if (infoEl) {
+        infoEl.innerText = bitacoraPerPage === 'todo'
+          ? `Mostrando ${totalItems} registros`
+          : `Mostrando ${startIndex + 1} - ${endIndex} de ${totalItems} registros`;
+      }
+
+      const statusEl = document.getElementById('bitacora-page-status');
+      if (statusEl) statusEl.innerText = `Pág ${bitacoraCurrentPage} de ${totalPages}`;
+
+      const btnPrev = document.getElementById('btn-bitacora-prev');
+      if (btnPrev) btnPrev.disabled = (bitacoraCurrentPage <= 1 || bitacoraPerPage === 'todo');
+
+      const btnNext = document.getElementById('btn-bitacora-next');
+      if (btnNext) btnNext.disabled = (bitacoraCurrentPage >= totalPages || bitacoraPerPage === 'todo');
 
       if (bitacoraActiveTab === 'saldos') {
-        filteredLogs.forEach(log => {
+        pageLogs.forEach(log => {
           const tr = document.createElement('tr');
           tr.className = "hover:bg-slate-50 transition duration-150 border-b border-slate-100";
           
@@ -4129,8 +4239,11 @@
           else if (log.category === 'TCONECTA_RECARGA_TARJETA') friendlyCategory = 'T-Conecta (Recarga Tarjeta)';
           else if (log.category === 'TCONECTA_RETIRO') friendlyCategory = 'T-Conecta (Retiro Tarjeta)';
 
+          const logDate = log.date || selectedDate;
+
           tr.innerHTML = `
-            <td class="py-3 px-6 font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
+            <td class="py-3 px-4 font-mono text-slate-500 dark:text-slate-300 text-xs font-semibold">${logDate}</td>
+            <td class="py-3 px-4 font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
             <td class="py-3 px-4 font-bold text-slate-700 dark:text-slate-100 text-xs">${log.operator}</td>
             <td class="py-3 px-4 text-xs font-semibold text-slate-600 dark:text-slate-200">${friendlyCategory}</td>
             <td class="py-3 px-4 text-xs">${typeBadge}</td>
@@ -4141,7 +4254,7 @@
           if (tbodySaldos) tbodySaldos.appendChild(tr);
         });
       } else {
-        filteredLogs.forEach(log => {
+        pageLogs.forEach(log => {
           const tr = document.createElement('tr');
           tr.className = "hover:bg-slate-50 dark:hover:bg-slate-800/60 transition duration-150 border-b border-slate-100 dark:border-slate-800 text-center";
           
@@ -4157,8 +4270,11 @@
             piecesCellsHtml += `<td class="py-2.5 px-2 font-bold text-slate-800 dark:text-slate-100">${val}</td>`;
           });
 
+          const logDate = log.date || selectedDate;
+
           tr.innerHTML = `
-            <td class="py-2.5 px-4 text-left font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
+            <td class="py-2.5 px-3 text-left font-mono text-slate-500 dark:text-slate-300 text-xs font-semibold">${logDate}</td>
+            <td class="py-2.5 px-3 text-left font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
             ${piecesCellsHtml}
             <td class="py-2.5 px-3 text-left font-bold text-slate-700 dark:text-slate-100 text-xs">${log.operator}</td>
             <td class="py-2.5 px-4 text-left text-xs text-slate-500 dark:text-slate-300 font-medium max-w-xs truncate" title="${log.details || ''}">${log.details || ''}</td>
@@ -4661,6 +4777,36 @@
     let currentManualCambioPieces = {};
     let currentModoRetiro = 'sugerido';
     let currentSugerenciaRetiro = null;
+    let currentDevolucionRetiro = {};
+    let devolucionBovedaOrigen = 'charola'; // 'charola' | 'externo'
+
+    function setDevolucionBovedaOrigen(origen) {
+      devolucionBovedaOrigen = origen;
+      calcularRetiroOperacion();
+    }
+
+    function cambiarDevolucionRetiro(denom, delta) {
+      const dKey = String(denom);
+      const current = currentDevolucionRetiro[dKey] || 0;
+      const next = Math.max(0, current + delta);
+      if (next === 0) {
+        delete currentDevolucionRetiro[dKey];
+      } else {
+        currentDevolucionRetiro[dKey] = next;
+      }
+      calcularRetiroOperacion();
+    }
+
+    function setDevolucionRetiroInput(denom, val) {
+      const dKey = String(denom);
+      const parsed = parseInt(val, 10);
+      if (isNaN(parsed) || parsed <= 0) {
+        delete currentDevolucionRetiro[dKey];
+      } else {
+        currentDevolucionRetiro[dKey] = parsed;
+      }
+      calcularRetiroOperacion();
+    }
 
     function setCambioModo(modo) {
       currentModoCambio = modo;
@@ -5203,7 +5349,7 @@
     function calcularRetiroOperacion() {
       const srv = document.getElementById('op-service').value;
       const isRetiro = currentOpType === 'salida';
-      const isPhysical = (srv === 'yastas' || srv === 'bbva' || srv === 'capital' || srv === 'tconecta' || (srv === 'meli' && document.getElementById('op-modo-meli-val').value === 'tienda'));
+      const isPhysical = (srv === 'yastas' || srv === 'bbva' || srv === 'capital' || srv === 'tconecta' || srv === 'caja' || (srv === 'meli' && document.getElementById('op-modo-meli-val').value === 'tienda'));
       
       const panel = document.getElementById('panel-calculadora-retiro');
       const panelOrigen = document.getElementById('panel-origen-efectivo');
@@ -5215,10 +5361,10 @@
         currentSugerenciaRetiro = null;
         toggleCharolaInputs(false); // Asegurar que quede habilitada para otros servicios
         if (panelOrigen) {
-          if (isPhysical && sessionActive) {
+          if (isPhysical && sessionActive && srv !== 'caja') {
             panelOrigen.classList.add('hidden'); // Siempre oculto para Yastas/Meli
-          } else if (sessionActive && srv === 'caja') {
-            panelOrigen.classList.remove('hidden'); // Mostrar para Bóveda que usa charola directa
+          } else if (sessionActive && srv === 'caja' && !isRetiro) {
+            panelOrigen.classList.remove('hidden'); // Mostrar para Bóveda en depósito
           } else {
             panelOrigen.classList.add('hidden');
           }
@@ -5227,7 +5373,7 @@
       }
 
       panel.classList.remove('hidden');
-      if (panelOrigen) panelOrigen.classList.add('hidden'); // Ocultar siempre el duplicado para Yastas/Meli
+      if (panelOrigen) panelOrigen.classList.add('hidden'); // Ocultar siempre el duplicado
 
       // Bloquear/desbloquear charola según modo activo
       toggleCharolaInputs(currentModoRetiro === 'sugerido');
@@ -5281,18 +5427,118 @@
               btn.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Registrar Retiro de ${fmt.format(montoRet)}`;
             }
           } else {
-            const exceso = parseFloat((sumCharola - montoRet).toFixed(2));
-            resultadoWrapper.innerHTML = `
-              <div class="text-center py-4 bg-rose-50 border border-rose-200 rounded-2xl shadow-xs">
-                <span class="text-[10px] font-black text-rose-500 uppercase tracking-wider block mb-1">Exceso detectado en charola</span>
-                <span class="text-3xl font-black text-rose-600">${fmt.format(exceso)}</span>
-              </div>
-            `;
-            if (btn) {
-              btn.disabled = true;
-              btn.classList.add('opacity-50', 'cursor-not-allowed');
-              btn.innerHTML = `<i data-lucide="alert-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Exceso de Efectivo (${fmt.format(exceso)})`;
+            const cambioDevolver = parseFloat((sumCharola - montoRet).toFixed(2));
+            
+            // Sumar lo devuelto capturado
+            let sumDevolucion = 0;
+            const denomsList = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
+            denomsList.forEach(d => {
+              const cant = currentDevolucionRetiro[String(d)] || 0;
+              sumDevolucion += d * cant;
+            });
+            sumDevolucion = parseFloat(sumDevolucion.toFixed(2));
+
+            const devCuadrado = Math.abs(sumDevolucion - cambioDevolver) < 0.01;
+            const diffDev = parseFloat((cambioDevolver - sumDevolucion).toFixed(2));
+
+            let origenSelectorHtml = '';
+            if (srv === 'caja') {
+              const activeCharola = devolucionBovedaOrigen === 'charola'
+                ? 'bg-indigo-600 text-white font-black shadow-md border-indigo-500 scale-[1.02]'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border-slate-700';
+              
+              const activeExterno = devolucionBovedaOrigen === 'externo'
+                ? 'bg-emerald-600 text-white font-black shadow-md border-emerald-500 scale-[1.02]'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border-slate-700';
+              
+              origenSelectorHtml = `
+                <div class="mt-2.5 p-2.5 bg-slate-900 dark:bg-slate-950 rounded-xl border border-slate-800 text-white shadow-md space-y-2">
+                  <div class="flex items-center gap-1.5 text-slate-200">
+                    <i data-lucide="help-circle" class="w-3.5 h-3.5 text-amber-400"></i>
+                    <span class="text-[10px] font-black uppercase tracking-wider">¿De dónde salió el cambio que metiste a la Bóveda?</span>
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button type="button" onclick="setDevolucionBovedaOrigen('charola')" class="py-2 px-2.5 rounded-lg border text-[10px] uppercase font-bold tracking-wide flex items-center justify-center gap-1.5 transition-all ${activeCharola}">
+                      <i data-lucide="inbox" class="w-3.5 h-3.5"></i>
+                      <span>De la Charola (Caja Chica)</span>
+                    </button>
+                    <button type="button" onclick="setDevolucionBovedaOrigen('externo')" class="py-2 px-2.5 rounded-lg border text-[10px] uppercase font-bold tracking-wide flex items-center justify-center gap-1.5 transition-all ${activeExterno}">
+                      <i data-lucide="wallet" class="w-3.5 h-3.5"></i>
+                      <span>Dinero Externo / Aparte</span>
+                    </button>
+                  </div>
+                </div>
+              `;
             }
+
+            let devHtml = `
+              <div class="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-2xl p-3.5 space-y-2.5 shadow-xs">
+                <div class="flex items-center justify-between border-b border-amber-200/60 dark:border-amber-800/60 pb-2">
+                  <div>
+                    <span class="text-[10px] font-black text-amber-700 dark:text-amber-300 uppercase tracking-wider block">Devolución de Cambio a ${srv === 'caja' ? 'Bóveda' : 'Caja'}</span>
+                    <span class="text-[11px] font-semibold text-slate-500">Sacaste ${fmt.format(sumCharola)} para retirar ${fmt.format(montoRet)}. Ingresa ${fmt.format(cambioDevolver)} de regreso.</span>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-[9px] font-bold text-slate-400 block uppercase">Requerido</span>
+                    <span class="text-base font-black text-amber-600 dark:text-amber-400">${fmt.format(cambioDevolver)}</span>
+                  </div>
+                </div>
+
+                ${origenSelectorHtml}
+
+                <div class="grid grid-cols-4 sm:grid-cols-6 gap-1.5 pt-0.5">
+            `;
+
+            denomsList.forEach(d => {
+              const labelStr = d >= 1 ? `$${d}` : '50¢';
+              const cant = currentDevolucionRetiro[String(d)] || 0;
+              const activeBg = cant > 0 ? 'bg-amber-100 dark:bg-amber-900/50 border-amber-400 dark:border-amber-600' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700';
+              devHtml += `
+                <div class="flex flex-col items-center justify-between p-1.5 rounded-xl border ${activeBg} text-center shadow-xs">
+                  <span class="text-[9px] font-black uppercase text-slate-700 dark:text-slate-200 mb-1">${labelStr}</span>
+                  <input type="number"
+                         min="0"
+                         step="1"
+                         data-denom="${d}"
+                         value="${cant}"
+                         onfocus="if(this.value==='0') this.value='';"
+                         onblur="if(this.value.trim()==='') this.value='0'; setDevolucionRetiroInput('${d}', this.value);"
+                         oninput="setDevolucionRetiroInput('${d}', this.value);"
+                         class="w-full text-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-black py-1 text-slate-800 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-none" />
+                </div>
+              `;
+            });
+
+            devHtml += `</div></div>`;
+
+            if (devCuadrado) {
+              devHtml += `
+                <div class="text-center py-3 bg-emerald-50 border border-emerald-200 rounded-2xl shadow-xs">
+                  <span class="text-[10px] font-black text-emerald-600 uppercase tracking-wider block mb-0.5">Efectivo Cuadrado Correctamente</span>
+                  <span class="text-2xl font-black text-emerald-600">${fmt.format(montoRet)} Retiro Neto</span>
+                </div>
+              `;
+              if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                btn.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Registrar Retiro de ${fmt.format(montoRet)}`;
+              }
+            } else {
+              const msgStatus = diffDev > 0 ? `Falta ingresar ${fmt.format(diffDev)} a la caja` : `Exceso de ${fmt.format(Math.abs(diffDev))} en devolución`;
+              devHtml += `
+                <div class="text-center py-3 bg-amber-100/70 border border-amber-300 rounded-2xl shadow-xs">
+                  <span class="text-[10px] font-black text-amber-800 uppercase tracking-wider block mb-0.5">${msgStatus}</span>
+                  <span class="text-lg font-black text-amber-700">Devuelto: ${fmt.format(sumDevolucion)} / ${fmt.format(cambioDevolver)}</span>
+                </div>
+              `;
+              if (btn) {
+                btn.disabled = true;
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+                btn.innerHTML = `<i data-lucide="alert-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Devolución Incompleta (${fmt.format(diffDev)})`;
+              }
+            }
+
+            resultadoWrapper.innerHTML = devHtml;
           }
         }
         // CASO B: Modo Sugerido (Auto)
