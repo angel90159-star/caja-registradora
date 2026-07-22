@@ -8209,23 +8209,23 @@
             autoRestored = true;
           }
 
-          if (autoRestored || mergedLogs.length > cloudLogs.length) {
-            currentAllLogs.sort((a, b) => (b.id || 0) - (a.id || 0));
-            DB.set('logs', currentAllLogs);
-            
-            if (!historical['2026-07-22']) historical['2026-07-22'] = [];
-            currentAllLogs.forEach(l => {
-              if (l.date === '2026-07-22') {
-                const seen = new Set(historical['2026-07-22'].map(x => x ? x.id : null).filter(Boolean));
-                if (!seen.has(l.id)) historical['2026-07-22'].push(l);
-              }
-            });
-            historical['2026-07-22'].sort((a, b) => (b.id || 0) - (a.id || 0));
-            DB.set('historical_logs_by_date', historical);
-            guardarEstadoActivoNube();
-          }
+          currentAllLogs.sort((a, b) => (b.id || 0) - (a.id || 0));
+          DB.set('logs', currentAllLogs);
+          
+          if (!historical['2026-07-22']) historical['2026-07-22'] = [];
+          currentAllLogs.forEach(l => {
+            if (l.date === '2026-07-22') {
+              const seen = new Set(historical['2026-07-22'].map(x => x ? x.id : null).filter(Boolean));
+              if (!seen.has(l.id)) historical['2026-07-22'].push(l);
+            }
+          });
+          historical['2026-07-22'].sort((a, b) => (b.id || 0) - (a.id || 0));
+          DB.set('historical_logs_by_date', historical);
+          
+          // Reenviar siempre el estado consolidado a la nube para sincronización bidireccional
+          await guardarEstadoActivoNube();
 
-          mostrarToast("Turno activo sincronizado desde la nube.", "success");
+          mostrarToast("Sincronización multi-dispositivo completada.", "success");
         }
         refrescarPantallas();
         if (typeof cargarBitacora === 'function') cargarBitacora();
