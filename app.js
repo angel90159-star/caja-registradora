@@ -4023,7 +4023,59 @@
       cargarBitacora();
     }
 
+    function verificarYRestaurarLocal38() {
+      const logs = DB.get('logs', []) || [];
+      const hasTConecta334 = logs.some(l => (l.details && l.details.includes('3:34:48')) || (l.time && l.time.includes('3:34:48')));
+      const hasYastas334 = logs.some(l => (l.details && l.details.includes('3:34:37')) || (l.time && l.time.includes('3:34:37')));
+
+      let autoRestored = false;
+      if (!hasTConecta334) {
+        logs.push({
+          id: 1721684088000,
+          date: '2026-07-22',
+          time: '3:34:48 p.m.',
+          operator: 'Miguel',
+          category: 'TCONECTA_RECARGA_EFECTIVO',
+          amount: 100,
+          details: 'Op: RECARGA. Recarga T-Conecta en Efectivo. Monto: $100.00',
+          pieces: null
+        });
+        autoRestored = true;
+      }
+
+      if (!hasYastas334) {
+        logs.push({
+          id: 1721684077000,
+          date: '2026-07-22',
+          time: '3:34:37 p.m.',
+          operator: 'Miguel',
+          category: 'YASTAS',
+          amount: -100,
+          details: 'Op: RETIRO. Monto de operación: $100.00',
+          pieces: null
+        });
+        autoRestored = true;
+      }
+
+      if (autoRestored) {
+        logs.sort((a, b) => (b.id || 0) - (a.id || 0));
+        DB.set('logs', logs);
+
+        const historical = DB.get('historical_logs_by_date', {}) || {};
+        if (!historical['2026-07-22']) historical['2026-07-22'] = [];
+        logs.forEach(l => {
+          if (l.date === '2026-07-22') {
+            const seen = new Set(historical['2026-07-22'].map(x => x ? x.id : null).filter(Boolean));
+            if (!seen.has(l.id)) historical['2026-07-22'].push(l);
+          }
+        });
+        historical['2026-07-22'].sort((a, b) => (b.id || 0) - (a.id || 0));
+        DB.set('historical_logs_by_date', historical);
+      }
+    }
+
     function cargarBitacora() {
+      verificarYRestaurarLocal38();
       // 1. Obtener logs históricos y fecha seleccionada
       const now = new Date();
       const year = now.getFullYear();
@@ -8121,8 +8173,55 @@
           });
           DB.set('historical_logs_by_date', historical);
           
-          // Guardar el estado consolidado de regreso en la nube si hubo fusión
-          if (mergedLogs.length > cloudLogs.length) {
+          // Verificar y restaurar los 2 movimientos de la Foto 2 si hacían falta
+          const currentAllLogs = DB.get('logs', []) || [];
+          const hasTConecta334 = currentAllLogs.some(l => (l.details && l.details.includes('3:34:48')) || (l.time && l.time.includes('3:34:48')));
+          const hasYastas334 = currentAllLogs.some(l => (l.details && l.details.includes('3:34:37')) || (l.time && l.time.includes('3:34:37')));
+
+          let autoRestored = false;
+          if (!hasTConecta334) {
+            currentAllLogs.push({
+              id: 1721684088000,
+              date: '2026-07-22',
+              time: '3:34:48 p.m.',
+              operator: 'Miguel',
+              category: 'TCONECTA_RECARGA_EFECTIVO',
+              amount: 100,
+              details: 'Op: RECARGA. Recarga T-Conecta en Efectivo. Monto: $100.00',
+              pieces: null
+            });
+            autoRestored = true;
+          }
+
+          if (!hasYastas334) {
+            currentAllLogs.push({
+              id: 1721684077000,
+              date: '2026-07-22',
+              time: '3:34:37 p.m.',
+              operator: 'Miguel',
+              category: 'YASTAS',
+              amount: -100,
+              details: 'Op: RETIRO. Monto de operación: $100.00',
+              pieces: null
+            });
+            autoRestored = true;
+          }
+
+          if (autoRestored) {
+            currentAllLogs.sort((a, b) => (b.id || 0) - (a.id || 0));
+            DB.set('logs', currentAllLogs);
+            
+            if (!historical['2026-07-22']) historical['2026-07-22'] = [];
+            currentAllLogs.forEach(l => {
+              if (l.date === '2026-07-22') {
+                const seen = new Set(historical['2026-07-22'].map(x => x ? x.id : null).filter(Boolean));
+                if (!seen.has(l.id)) historical['2026-07-22'].push(l);
+              }
+            });
+            historical['2026-07-22'].sort((a, b) => (b.id || 0) - (a.id || 0));
+            DB.set('historical_logs_by_date', historical);
+            guardarEstadoActivoNube();
+          } else if (mergedLogs.length > cloudLogs.length) {
             guardarEstadoActivoNube();
           }
 
