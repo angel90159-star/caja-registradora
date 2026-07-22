@@ -294,15 +294,10 @@
             
             mostrarToast("Turno activo sincronizado desde la nube.", "success");
           } else {
-            // No hay turno activo en la nube. Validar si localmente hay uno (para actuar de fallback)
-            const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
-            sessionActive = state.session_active;
-            activeOperator = state.operator;
-            
-            if (sessionActive) {
-              console.log("Turno activo local detectado sin respaldo en la nube. Sincronizando...");
-              guardarEstadoActivoNube();
-            }
+            // No hay turno activo en la nube: forzar sesión cerrada localmente
+            sessionActive = false;
+            activeOperator = null;
+            DB.set('state', { session_active: false, operator: null, opened_date: null });
           }
         } catch (e) {
           console.error("Error al sincronizar estado activo inicial:", e);
@@ -1396,6 +1391,10 @@
       const meliModoInput = document.getElementById('op-modo-meli-val');
       const meliModo = meliModoInput ? meliModoInput.value : 'tienda';
 
+      if (srv !== 'yastas' && (type === 'redeposito' || type === 'recarga')) {
+        return;
+      }
+
       if (srv === 'bbva' && type === 'ingreso') {
         mostrarToast("Solo se pueden hacer retiros de BBVA.", "warning");
         return; // Prevent changing to ingreso for BBVA
@@ -1411,23 +1410,33 @@
       const tabRedeposito = document.getElementById('tab-redeposito');
       const tabRecarga = document.getElementById('tab-recarga');
       
-      // Reset all classes to default
-      tabIngreso.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/50";
-      tabSalida.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/50";
-      tabRedeposito.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/50";
-      if (tabRecarga) tabRecarga.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/50";
+      const allTabs = [tabIngreso, tabSalida, tabRedeposito, tabRecarga];
+      allTabs.forEach(tab => {
+        if (!tab) return;
+        tab.classList.remove('border-emerald-500', 'text-emerald-600', 'bg-emerald-50/20',
+                             'border-rose-500', 'text-rose-600', 'bg-rose-50/20',
+                             'border-indigo-500', 'text-indigo-600', 'bg-indigo-50/20',
+                             'border-teal-500', 'text-teal-600', 'bg-teal-50/20');
+        tab.classList.add('border-transparent', 'text-slate-400', 'hover:text-slate-600', 'hover:bg-slate-50/50');
+      });
 
       if (type === 'ingreso') {
-        tabIngreso.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-emerald-500 text-emerald-600 bg-emerald-50/20";
+        tabIngreso.classList.remove('border-transparent', 'text-slate-400');
+        tabIngreso.classList.add('border-emerald-500', 'text-emerald-600', 'bg-emerald-50/20');
         document.getElementById('btn-procesar-operacion').className = "w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-emerald-100 flex items-center justify-center gap-2";
       } else if (type === 'salida') {
-        tabSalida.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-rose-500 text-rose-600 bg-rose-50/20";
+        tabSalida.classList.remove('border-transparent', 'text-slate-400');
+        tabSalida.classList.add('border-rose-500', 'text-rose-600', 'bg-rose-50/20');
         document.getElementById('btn-procesar-operacion').className = "w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-rose-100 flex items-center justify-center gap-2";
       } else if (type === 'redeposito') {
-        tabRedeposito.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-indigo-500 text-indigo-600 bg-indigo-50/20";
+        tabRedeposito.classList.remove('border-transparent', 'text-slate-400');
+        tabRedeposito.classList.add('border-indigo-500', 'text-indigo-600', 'bg-indigo-50/20');
         document.getElementById('btn-procesar-operacion').className = "w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-indigo-100 flex items-center justify-center gap-2";
       } else if (type === 'recarga') {
-        if (tabRecarga) tabRecarga.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-teal-500 text-teal-600 bg-teal-50/20";
+        if (tabRecarga) {
+          tabRecarga.classList.remove('border-transparent', 'text-slate-400');
+          tabRecarga.classList.add('border-teal-500', 'text-teal-600', 'bg-teal-50/20');
+        }
         document.getElementById('btn-procesar-operacion').className = "w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-teal-100 flex items-center justify-center gap-2";
       }
       actualizarFormularioOperacion();
@@ -1486,7 +1495,10 @@
           document.getElementById('btn-procesar-operacion').className = "w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-emerald-100 flex items-center justify-center gap-2";
         }
       } else {
-        // Otros servicios: asegurar que ingreso y salida estén visibles y tengan nombres estándar
+        // Otros servicios (T-Conecta, Banorte, etc.): Ocultar 100% garantizado Re-depósito y Recarga de Yastas
+        tabRedeposito.classList.add('hidden');
+        if (tabRecarga) tabRecarga.classList.add('hidden');
+
         tabIngreso.innerHTML = srv === 'tconecta'
           ? `<i data-lucide="plus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Recarga Telefónica (+)`
           : `<i data-lucide="plus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Ingreso (+)`;
@@ -1579,6 +1591,9 @@
       }
 
       if (srv === 'tconecta') {
+        const panelRetiroCalc = document.getElementById('panel-calculadora-retiro');
+        if (panelRetiroCalc) panelRetiroCalc.classList.add('hidden');
+
         if (currentOpType === 'ingreso') {
           panelOrigen.classList.add('hidden');
           if (panelRecarga) panelRecarga.classList.remove('hidden');
@@ -4961,6 +4976,7 @@
     }
 
     function toggleCharolaInputs(disabled) {
+      const activeSrv = (document.getElementById('op-service') && document.getElementById('op-service').value) || 'yastas';
       const inputs = document.querySelectorAll('.denom-input-field[id^="dash-"]');
       inputs.forEach(inp => {
         inp.disabled = disabled;
@@ -6162,11 +6178,13 @@
         const input = document.getElementById(`cierre-pz-${d.id}`);
         const pz = input ? parseInt(input.value) || 0 : 0;
         countedInventory[d.id] = pz;
+        if (d.id === '05') countedInventory['0.5'] = pz;
         totalContado += pz * d.val;
 
         // Calcular piezas esperadas (cajón + bóveda)
-        const espCajon = expectedInvCajon[d.id] || 0;
-        const espBoveda = expectedInvBoveda[d.id] || 0;
+        const invKey = (d.id === '05' || d.id === '0.5') ? '0.5' : d.id;
+        const espCajon = (expectedInvCajon[invKey] !== undefined) ? expectedInvCajon[invKey] : (expectedInvCajon[d.id] || 0);
+        const espBoveda = (expectedInvBoveda[invKey] !== undefined) ? expectedInvBoveda[invKey] : (expectedInvBoveda[d.id] || 0);
         const esperadas = espCajon + espBoveda;
         const diff = pz - esperadas;
 
@@ -6401,7 +6419,11 @@
         const day = String(now.getDate()).padStart(2, '0');
         const dateKey = `${year}-${month}-${day}`;
 
+        const pad = n => String(n).padStart(2, '0');
+        const folioId = `CR-${year}${month}${day}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
         const report = {
+          folio: folioId,
           date: dateKey,
           time: now.toLocaleTimeString(),
           operator: opName,
@@ -6425,12 +6447,13 @@
 
         // Guardar en la bitácora histórica de movimientos
         const currentInventory = DB.get('inventory', {});
-        registrarMovimientoBitacora(opName, "Cierre", 0, `Turno cerrado y firmado. Total Contado: ${fmt.format(totalContado)}. Diferencia: ${fmt.format(diffTotal)}`, currentInventory);
+        registrarMovimientoBitacora(opName, "Cierre", 0, `Turno cerrado y firmado [${folioId}]. Total Contado: ${fmt.format(totalContado)}. Diferencia: ${fmt.format(diffTotal)}`, currentInventory);
 
         // --- PREPARAR PAYLOAD PARA GOOGLE SHEETS ---
         const payloadNube = {
           action: "save_closure",
           token: typeof SECURITY_TOKEN !== 'undefined' ? SECURITY_TOKEN : "",
+          folio: folioId,
           fecha: dateKey,
           hora: now.toLocaleTimeString(),
           operador: opName,
@@ -6478,6 +6501,7 @@
         DB.set('state', { session_active: false, operator: null });
         sessionActive = false;
         activeOperator = null;
+        guardarEstadoActivoNube();
 
         // Ocultar modal y mostrar éxito
         cerrarCierreCajaModal();
@@ -6634,14 +6658,16 @@
 
       denoms.forEach(id => {
         const input = document.getElementById(`cierre-pz-${id}`);
-        const cnt = countedInventory[id] || 0;
+        const cntKey = (id === '05' || id === '0.5') ? '0.5' : id;
+        const cnt = (countedInventory[id] !== undefined) ? countedInventory[id] : (countedInventory[cntKey] || 0);
         if (input) {
           input.value = cnt;
           input.disabled = true;
           input.classList.add('bg-slate-100/60', 'dark:bg-slate-900/60', 'cursor-not-allowed');
         }
 
-        const esp = expectedInv[id] || 0;
+        const espKey = (id === '05' || id === '0.5') ? '0.5' : id;
+        const esp = (expectedInv[id] !== undefined) ? expectedInv[id] : (expectedInv[espKey] || 0);
         const espEl = document.getElementById(`cierre-cmp-${id}-esp`);
         if (espEl) espEl.innerText = String(esp);
 
@@ -6837,9 +6863,12 @@
       const expectedBovedaInventory = DB.get('inventoryBoveda', {});
       const combined = {};
       denoms.forEach(d => {
-        const cajonPz = expectedInventory[d] || 0;
-        const bovedaPz = expectedBovedaInventory[d] || 0;
-        combined[d] = cajonPz + bovedaPz;
+        const invKey = (d === '05' || d === '0.5') ? '0.5' : d;
+        const cajonPz = (expectedInventory[invKey] !== undefined) ? expectedInventory[invKey] : (expectedInventory[d] || 0);
+        const bovedaPz = (expectedBovedaInventory[invKey] !== undefined) ? expectedBovedaInventory[invKey] : (expectedBovedaInventory[d] || 0);
+        const totalPz = cajonPz + bovedaPz;
+        combined[d] = totalPz;
+        combined[invKey] = totalPz;
       });
       return combined;
     }
@@ -7553,17 +7582,16 @@
 
     async function guardarEstadoActivoNube() {
       if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) return;
-      if (!sessionActive) return; // Solo guardar si hay sesión activa
       
       const stateObj = {
         session_active: sessionActive,
         operator: activeOperator,
         opened_date: DB.get('state', {}).opened_date || null,
         opened_time: DB.get('state', {}).opened_time || null,
-        balances: DB.get('balances', {}),
-        inventory: DB.get('inventory', {}),
-        inventoryBoveda: DB.get('inventoryBoveda', {}),
-        logs: DB.get('logs', [])
+        balances: sessionActive ? DB.get('balances', {}) : {},
+        inventory: sessionActive ? DB.get('inventory', {}) : {},
+        inventoryBoveda: sessionActive ? DB.get('inventoryBoveda', {}) : {},
+        logs: sessionActive ? DB.get('logs', []) : []
       };
       
       const payload = {
@@ -7611,12 +7639,10 @@
           
           mostrarToast("Turno activo sincronizado desde la nube.", "success");
         } else {
-          // No hay turno activo en la nube. Validar si localmente hay uno (para actuar de fallback)
-          const localState = DB.get('state', {});
-          if (localState.session_active) {
-            console.log("Turno activo local detectado sin respaldo en la nube. Sincronizando...");
-            guardarEstadoActivoNube();
-          }
+          // No hay turno activo en la nube: forzar sesión cerrada localmente
+          sessionActive = false;
+          activeOperator = null;
+          DB.set('state', { session_active: false, operator: null });
         }
         refrescarPantallas();
       } catch (e) {
