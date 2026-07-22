@@ -366,6 +366,8 @@
         document.getElementById('theme-icon').setAttribute('data-lucide', 'sun');
       }
 
+      evaluarModoNocturnoProgramado();
+
       cargarDropdownOperadores();
       construirInputsDesglose();
       refrescarPantallas();
@@ -667,27 +669,159 @@
     }
 
     // === SWITCH DE TEMA ===
-    function toggleTheme() {
-      const isDark = document.body.getAttribute('data-theme') === 'dark';
+    function setTemaModo(modoDark) {
       const bodyEl = document.getElementById('body-el');
+      if (!bodyEl) return;
       
-      if (isDark) {
+      if (!modoDark) {
         document.body.removeAttribute('data-theme');
         document.documentElement.classList.remove('dark');
         bodyEl.classList.remove('bg-slate-900', 'text-slate-100');
         bodyEl.classList.add('bg-slate-50', 'text-slate-800');
         localStorage.setItem('lc5_theme', 'light');
-        document.getElementById('theme-icon').setAttribute('data-lucide', 'moon');
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.setAttribute('data-lucide', 'moon');
       } else {
         document.body.setAttribute('data-theme', 'dark');
         document.documentElement.classList.add('dark');
         bodyEl.classList.remove('bg-slate-50', 'text-slate-800');
         bodyEl.classList.add('bg-slate-900', 'text-slate-100');
         localStorage.setItem('lc5_theme', 'dark');
-        document.getElementById('theme-icon').setAttribute('data-lucide', 'sun');
+        const icon = document.getElementById('theme-icon');
+        if (icon) icon.setAttribute('data-lucide', 'sun');
       }
-      lucide.createIcons();
+      if (typeof lucide !== 'undefined') lucide.createIcons();
     }
+
+    function toggleTheme() {
+      const isDark = document.body.getAttribute('data-theme') === 'dark';
+      setTemaModo(!isDark);
+    }
+
+    // === FUNCIONES DE MODO NOCTURNO AUTOMÁTICO ===
+    function abrirModalConfigTema() {
+      const modal = document.getElementById('modal-config-tema');
+      if (!modal) return;
+      
+      const autoEnabled = localStorage.getItem('lc5_theme_auto_enabled') === 'true';
+      const autoType = localStorage.getItem('lc5_theme_auto_type') || 'standard';
+      const startTime = localStorage.getItem('lc5_theme_start_time') || '19:00';
+      const endTime = localStorage.getItem('lc5_theme_end_time') || '07:00';
+      
+      const switchEl = document.getElementById('tema-switch-auto');
+      if (switchEl) switchEl.checked = autoEnabled;
+      
+      if (autoType === 'custom') {
+        const opCustom = document.getElementById('tema-op-custom');
+        if (opCustom) opCustom.checked = true;
+      } else {
+        const opStandard = document.getElementById('tema-op-standard');
+        if (opStandard) opStandard.checked = true;
+      }
+      
+      const inputStart = document.getElementById('tema-hora-inicio');
+      const inputEnd = document.getElementById('tema-hora-fin');
+      if (inputStart) inputStart.value = startTime;
+      if (inputEnd) inputEnd.value = endTime;
+      
+      toggleModoAutoSwitch();
+      modal.classList.remove('hidden');
+    }
+
+    function cerrarModalConfigTema() {
+      const modal = document.getElementById('modal-config-tema');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function toggleModoAutoSwitch() {
+      const switchEl = document.getElementById('tema-switch-auto');
+      const opciones = document.getElementById('tema-opciones-horario');
+      if (!switchEl || !opciones) return;
+      
+      if (switchEl.checked) {
+        opciones.classList.remove('hidden');
+        actualizarVisibilidadHorariosCustom();
+      } else {
+        opciones.classList.add('hidden');
+      }
+    }
+
+    function actualizarVisibilidadHorariosCustom() {
+      const opCustom = document.getElementById('tema-op-custom');
+      const customInputs = document.getElementById('tema-inputs-custom');
+      if (!opCustom || !customInputs) return;
+      
+      if (opCustom.checked) {
+        customInputs.classList.remove('hidden');
+      } else {
+        customInputs.classList.add('hidden');
+      }
+    }
+
+    function guardarConfigTema() {
+      const switchEl = document.getElementById('tema-switch-auto');
+      const autoEnabled = switchEl ? switchEl.checked : false;
+      localStorage.setItem('lc5_theme_auto_enabled', autoEnabled ? 'true' : 'false');
+      
+      if (autoEnabled) {
+        const opCustom = document.getElementById('tema-op-custom');
+        const autoType = (opCustom && opCustom.checked) ? 'custom' : 'standard';
+        localStorage.setItem('lc5_theme_auto_type', autoType);
+        
+        const startTime = document.getElementById('tema-hora-inicio') ? document.getElementById('tema-hora-inicio').value : '19:00';
+        const endTime = document.getElementById('tema-hora-fin') ? document.getElementById('tema-hora-fin').value : '07:00';
+        localStorage.setItem('lc5_theme_start_time', startTime);
+        localStorage.setItem('lc5_theme_end_time', endTime);
+        
+        evaluarModoNocturnoProgramado();
+        mostrarToast("Ajustes de Modo Nocturno Automático guardados.", "success");
+      } else {
+        mostrarToast("Modo Automático desactivado. Modo manual activo.", "info");
+      }
+      cerrarModalConfigTema();
+    }
+
+    function evaluarModoNocturnoProgramado() {
+      const autoEnabled = localStorage.getItem('lc5_theme_auto_enabled') === 'true';
+      if (!autoEnabled) return;
+      
+      const autoType = localStorage.getItem('lc5_theme_auto_type') || 'standard';
+      let startStr = '19:00';
+      let endStr = '07:00';
+      
+      if (autoType === 'custom') {
+        startStr = localStorage.getItem('lc5_theme_start_time') || '19:00';
+        endStr = localStorage.getItem('lc5_theme_end_time') || '07:00';
+      }
+      
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      
+      const [sH, sM] = startStr.split(':').map(Number);
+      const [eH, eM] = endStr.split(':').map(Number);
+      
+      const startMinutes = (sH || 0) * 60 + (sM || 0);
+      const endMinutes = (eH || 0) * 60 + (eM || 0);
+      
+      let shouldBeDark = false;
+      if (startMinutes <= endMinutes) {
+        // Mismo día (ej. 08:00 a 18:00)
+        shouldBeDark = currentMinutes >= startMinutes && currentMinutes < endMinutes;
+      } else {
+        // Cruza medianoche (ej. 19:00 a 07:00)
+        shouldBeDark = currentMinutes >= startMinutes || currentMinutes < endMinutes;
+      }
+      
+      const isCurrentlyDark = document.body.getAttribute('data-theme') === 'dark';
+      if (shouldBeDark && !isCurrentlyDark) {
+        setTemaModo(true);
+      } else if (!shouldBeDark && isCurrentlyDark) {
+        setTemaModo(false);
+      }
+    }
+
+    // Intervalo de evaluación continua cada 60 segundos
+    setInterval(evaluarModoNocturnoProgramado, 60000);
 
     // === ALTERNANCIA DE SUBVISTAS (TABLERO vs BITÁCORA) ===
     function mostrarSubvista(vista) {
@@ -1950,7 +2084,7 @@
         const inputMotivo = document.getElementById('cap-motivo');
         if (inputMotivo) inputMotivo.value = '';
 
-        setModoAnexarCapital('terminal');
+        setModoAnexarCapital('efectivo');
       } else {
         // Para otros servicios: ocultar paneles de capital
         const panelCapital = document.getElementById('panel-anexar-capital');
@@ -2818,10 +2952,15 @@
       } else if (hasCambio && currentSugerenciaCambio) {
         let changeTextParts = [];
         Object.keys(currentSugerenciaCambio).forEach(d => {
-          changeTextParts.push(`${currentSugerenciaCambio[d]}x${parseFloat(d) === 0.5 ? '50¢' : '$' + d}`);
+          const cant = currentSugerenciaCambio[d] || 0;
+          if (cant > 0) {
+            const label = parseFloat(d) === 0.5 ? '50¢' : '$' + d;
+            changeTextParts.push(`${cant}x${label}`);
+          }
         });
         const opLabelText = isRecarga ? 'Recarga' : 'Depósito';
-        detText = `${opLabelText} de ${fmt.format(finalAmount)}. Recibido: ${fmt.format(totalSum)}. Cambio: ${fmt.format(totalSum - finalAmount)} (${changeTextParts.join(', ')}).`;
+        const partsFormatted = changeTextParts.length > 0 ? ` (${changeTextParts.join(', ')})` : '';
+        detText = `${opLabelText} de ${fmt.format(finalAmount)}. Recibido: ${fmt.format(totalSum)}. Cambio: ${fmt.format(totalSum - finalAmount)}${partsFormatted}.`;
       } else if (isRecarga) {
         const recargaMetodo = document.getElementById('op-metodo-recarga-val') ? document.getElementById('op-metodo-recarga-val').value : 'efectivo';
         const metodoLabel = recargaMetodo === 'efectivo' ? 'Efectivo' : 'Pago a Terminal';
@@ -3991,20 +4130,20 @@
           else if (log.category === 'TCONECTA_RETIRO') friendlyCategory = 'T-Conecta (Retiro Tarjeta)';
 
           tr.innerHTML = `
-            <td class="py-3 px-6 font-mono text-slate-400 text-xs">${log.time}</td>
-            <td class="py-3 px-4 font-bold text-slate-700 text-xs">${log.operator}</td>
-            <td class="py-3 px-4 text-xs font-semibold text-slate-600">${friendlyCategory}</td>
+            <td class="py-3 px-6 font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
+            <td class="py-3 px-4 font-bold text-slate-700 dark:text-slate-100 text-xs">${log.operator}</td>
+            <td class="py-3 px-4 text-xs font-semibold text-slate-600 dark:text-slate-200">${friendlyCategory}</td>
             <td class="py-3 px-4 text-xs">${typeBadge}</td>
             <td class="py-3 px-4 text-right ${typeClass} font-mono text-xs">${fmt.format(log.amount)}</td>
             <td class="py-3 px-4 text-center">${piecesBtn}</td>
-            <td class="py-3 px-6 text-xs text-slate-500 font-medium">${log.details}</td>
+            <td class="py-3 px-6 text-xs text-slate-500 dark:text-slate-300 font-medium">${log.details}</td>
           `;
           if (tbodySaldos) tbodySaldos.appendChild(tr);
         });
       } else {
         filteredLogs.forEach(log => {
           const tr = document.createElement('tr');
-          tr.className = "hover:bg-slate-50 transition duration-150 border-b border-slate-100 text-center";
+          tr.className = "hover:bg-slate-50 dark:hover:bg-slate-800/60 transition duration-150 border-b border-slate-100 dark:border-slate-800 text-center";
           
           const denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
           let piecesCellsHtml = '';
@@ -4015,14 +4154,14 @@
               const qty = log.pieces[d];
               val = qty > 0 ? `+${qty}` : `${qty}`;
             }
-            piecesCellsHtml += `<td class="py-2.5 px-2 font-bold text-slate-800">${val}</td>`;
+            piecesCellsHtml += `<td class="py-2.5 px-2 font-bold text-slate-800 dark:text-slate-100">${val}</td>`;
           });
 
           tr.innerHTML = `
-            <td class="py-2.5 px-4 text-left font-mono text-slate-400 text-xs">${log.time}</td>
+            <td class="py-2.5 px-4 text-left font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
             ${piecesCellsHtml}
-            <td class="py-2.5 px-3 text-left font-bold text-slate-700 text-xs">${log.operator}</td>
-            <td class="py-2.5 px-4 text-left text-xs text-slate-500 font-medium max-w-xs truncate" title="${log.details || ''}">${log.details || ''}</td>
+            <td class="py-2.5 px-3 text-left font-bold text-slate-700 dark:text-slate-100 text-xs">${log.operator}</td>
+            <td class="py-2.5 px-4 text-left text-xs text-slate-500 dark:text-slate-300 font-medium max-w-xs truncate" title="${log.details || ''}">${log.details || ''}</td>
           `;
           if (tbodyPiezas) tbodyPiezas.appendChild(tr);
         });

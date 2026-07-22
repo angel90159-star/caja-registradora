@@ -68,9 +68,14 @@
           <span id="cajero-nombre" class="text-xs font-bold text-emerald-700">Turno Activo</span>
         </div>
 
-        <button onclick="toggleTheme()" class="p-2 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 rounded-xl transition duration-150" title="Cambiar Tema">
-          <i data-lucide="moon" class="w-5 h-5" id="theme-icon"></i>
-        </button>
+        <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+          <button onclick="toggleTheme()" class="p-1.5 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 rounded-lg transition duration-150" title="Cambiar Tema (Manual)">
+            <i data-lucide="moon" class="w-4.5 h-4.5" id="theme-icon"></i>
+          </button>
+          <button onclick="abrirModalConfigTema()" class="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 rounded-lg transition duration-150 border-l border-slate-200 dark:border-slate-700" title="Ajustes de Modo Nocturno Automático">
+            <i data-lucide="sliders" class="w-4 h-4"></i>
+          </button>
+        </div>
 
         <button id="btn-cerrar-turno" onclick="cerrarTurno()" class="hidden bg-rose-50 dark:bg-rose-950 hover:bg-rose-100 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 px-4 py-2 rounded-xl text-xs font-bold transition duration-150 flex items-center gap-1.5">
           <i data-lucide="log-out" class="w-3.5 h-3.5"></i> Cerrar Turno
@@ -2178,6 +2183,82 @@
 
       <div id="global-lock-error" class="hidden text-xs font-bold text-rose-500 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-950/50 py-2.5 rounded-xl">
         Contraseña incorrecta. Por favor intente de nuevo.
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE CONFIGURACIÓN DE MODO NOCTURNO AUTOMÁTICO -->
+  <div id="modal-config-tema" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 transition-all duration-300 hidden">
+    <div class="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-5">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center font-bold">
+            <i data-lucide="moon" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">Modo Nocturno Automático</h3>
+            <p class="text-[11px] text-slate-400 font-medium">Programa el cambio de tema en el sistema</p>
+          </div>
+        </div>
+        <button onclick="cerrarModalConfigTema()" class="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- BOTÓN SWITCH AUTOMÁTICO -->
+      <div class="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl flex items-center justify-between border border-slate-100 dark:border-slate-700/50">
+        <div>
+          <span class="text-xs font-black text-slate-800 dark:text-white block">Activar Modo Automático</span>
+          <span class="text-[10px] text-slate-400 font-semibold block">El sistema cambiará de tema según el reloj</span>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="tema-switch-auto" onchange="toggleModoAutoSwitch()" class="sr-only peer">
+          <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+        </label>
+      </div>
+
+      <!-- OPCIONES DE HORARIO (SE MOSTRARÁN SI EL SWITCH ESTÁ ENENDIDO) -->
+      <div id="tema-opciones-horario" class="space-y-3 hidden">
+        <label class="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Selecciona la Regla de Horario</label>
+        
+        <!-- OP 1: ESTÁNDAR -->
+        <label class="flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+          <input type="radio" name="tema_auto_type" value="standard" id="tema-op-standard" onchange="actualizarVisibilidadHorariosCustom()" checked class="text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="text-xs font-bold text-slate-800 dark:text-white block">Horario Nocturno Estándar (7:00 PM - 7:00 AM)</span>
+            <span class="text-[10px] text-slate-400 font-medium block">Activa tema oscuro automáticamente por las noches</span>
+          </div>
+        </label>
+
+        <!-- OP 2: PERSONALIZADO -->
+        <label class="flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+          <input type="radio" name="tema_auto_type" value="custom" id="tema-op-custom" onchange="actualizarVisibilidadHorariosCustom()" class="text-indigo-600 focus:ring-indigo-500">
+          <div>
+            <span class="text-xs font-bold text-slate-800 dark:text-white block">Horario Personalizado</span>
+            <span class="text-[10px] text-slate-400 font-medium block">Define las horas de inicio y fin que prefieras</span>
+          </div>
+        </label>
+
+        <!-- SELECTORES HORA INICIO / FIN -->
+        <div id="tema-inputs-custom" class="grid grid-cols-2 gap-3 pt-1 hidden">
+          <div>
+            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Hora Inicio (Oscuro)</label>
+            <input type="time" id="tema-hora-inicio" value="19:00" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <div>
+            <label class="block text-[9px] font-black text-slate-400 uppercase mb-1">Hora Fin (Claro)</label>
+            <input type="time" id="tema-hora-fin" value="07:00" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 pt-2">
+        <button onclick="guardarConfigTema()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl text-xs transition shadow-md shadow-indigo-950/20 uppercase tracking-wider">
+          Guardar Ajustes
+        </button>
+        <button onclick="cerrarModalConfigTema()" class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold py-3 px-4 rounded-xl text-xs transition uppercase tracking-wider">
+          Cancelar
+        </button>
       </div>
     </div>
   </div>
