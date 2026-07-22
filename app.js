@@ -8121,11 +8121,14 @@
       }
     }
 
-    async function sincronizarEstadoActivoInicial() {
-      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) return;
+    async function sincronizarEstadoActivoInicial(userTriggered = false) {
+      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
+        if (userTriggered) mostrarToast("URL de servidor no configurada.", "error");
+        return;
+      }
       
       try {
-        mostrarToast("Sincronizando estado con la nube...", "info");
+        if (userTriggered) mostrarToast("Conectando con la nube para sincronizar...", "info");
         const response = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_active_state`);
         const cloudState = await response.json();
         
@@ -8225,13 +8228,15 @@
           // Reenviar siempre el estado consolidado a la nube para sincronización bidireccional
           await guardarEstadoActivoNube();
 
-          mostrarToast("Sincronización multi-dispositivo completada.", "success");
+          if (userTriggered) {
+            mostrarToast(`Sincronización completada. Total: ${currentAllLogs.length} registros.`, "success");
+          }
         }
         refrescarPantallas();
         if (typeof cargarBitacora === 'function') cargarBitacora();
       } catch (e) {
         console.error("Error al sincronizar estado activo inicial:", e);
-        mostrarToast("Error de conexión. Trabajando con datos locales.", "warning");
+        if (userTriggered) mostrarToast("Error de red al consultar la nube.", "error");
         refrescarPantallas();
       }
     }
