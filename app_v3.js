@@ -6451,7 +6451,7 @@
 
         // --- PREPARAR PAYLOAD PARA GOOGLE SHEETS ---
         const payloadNube = {
-          action: "save_closure",
+          action: "cierre",
           token: typeof SECURITY_TOKEN !== 'undefined' ? SECURITY_TOKEN : "",
           folio: folioId,
           fecha: dateKey,
@@ -7419,6 +7419,7 @@
       
       for (let i = 0; i < pending.length; i++) {
         const payload = pending[i];
+        if (payload.action === 'save_closure') payload.action = 'cierre';
         const success = await guardarCierreEnNube(payload, true); // silent = true para no molestar con toasts
         if (success) {
           subidosCount++;
