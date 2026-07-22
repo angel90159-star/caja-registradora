@@ -7922,9 +7922,6 @@
       }
     }
 
-    // Intervalo de sincronización activa en segundo plano cada 15 segundos
-    setInterval(sincronizarEstadoActivoBackground, 15000);
-
     function guardarNuevoPINAdmin() {
       const input = document.getElementById('nuevo-pin-admin');
       const confirmInput = document.getElementById('confirmar-pin-admin');
