@@ -1,6 +1,5 @@
-# Ignorar archivos del sistema operativo
 .DS_Store
-Thumbs.db
-
-# Ignorar archivos de logs
-*.log
+vba_output.txt
+vba_output_utf8.txt
+*.xlsm
+contexto_ai.md
