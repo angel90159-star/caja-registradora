@@ -595,6 +595,19 @@
         const totalOperativo = sum + yastasVal;
         const totalOperativoEl = document.getElementById('apertura-total-operativo');
         if (totalOperativoEl) totalOperativoEl.innerText = fmt.format(totalOperativo);
+
+        const btnApertura = document.getElementById('btn-confirmar-apertura');
+        const hasYastas = yastasInput && yastasInput.value.trim() !== '' && !isNaN(parseFloat(yastasInput.value)) && parseFloat(yastasInput.value) > 0;
+
+        if (btnApertura) {
+          if (sum > 0 && hasYastas) {
+            btnApertura.disabled = false;
+            btnApertura.classList.remove('opacity-50', 'cursor-not-allowed', 'pointer-events-none');
+          } else {
+            btnApertura.disabled = true;
+            btnApertura.classList.add('opacity-50', 'cursor-not-allowed', 'pointer-events-none');
+          }
+        }
       } else {
         const srv = document.getElementById('op-service').value;
         if (srv === 'cambio') {
@@ -1110,9 +1123,9 @@
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
       const day = String(now.getDate()).padStart(2, '0');
-      const todayStr = `${year}-${month}-${day}`;
-      
-      const dateLogs = DB.get('logs', []) || [];
+      const activeOpenedDate = DB.get('state', {}).opened_date || todayStr;
+      const rawLogs = sessionActive ? (DB.get('logs', []) || []) : [];
+      const dateLogs = rawLogs.filter(l => l && (l.date === activeOpenedDate || l.date === todayStr));
 
       let todayMovements = 0;
       dateLogs.forEach(log => {
@@ -1317,7 +1330,7 @@
           }
         });
 
-        const totalBanamexTConecta = recargaEfectivo + tconectaRetiro;
+        const totalBanamexTConecta = tconectaRetiro;
 
         // Configurar títulos de las columnas
         const label1El = document.getElementById('dash-total-bar-label1');
@@ -1358,7 +1371,7 @@
         document.getElementById('dash-total-operativo').innerText = fmt.format(totalBanamexTConecta);
 
         if (op) op.innerText = '|';
-        if (opRetiro) opRetiro.innerText = '+';
+        if (opRetiro) opRetiro.innerText = '|';
         if (eq) eq.innerText = '=';
       } else {
         const totalVal = balances[activeSrv] || 0;
@@ -1424,8 +1437,8 @@
     function intentarIniciarTurno() {
       const startingYastas = parseFloat(document.getElementById('apertura-yastas').value);
 
-      if (isNaN(startingYastas) || startingYastas < 0) {
-        mostrarToast("Ingrese un saldo inicial para la terminal Yastas.", "error");
+      if (isNaN(startingYastas) || startingYastas <= 0) {
+        mostrarToast("Ingrese el saldo inicial de la terminal Yastas (debe ser mayor a $0.00).", "error");
         return;
       }
 
@@ -4023,6 +4036,40 @@
       cargarBitacora();
     }
 
+    function obtenerSegundosLog(log) {
+      if (!log) return 0;
+      if (log.time) {
+        const timeStr = String(log.time).trim().toLowerCase();
+        const isPm = timeStr.includes('p.m.') || timeStr.includes('pm');
+        const isAm = timeStr.includes('a.m.') || timeStr.includes('am');
+        const cleanTime = timeStr.replace(/[^0-9:]/g, '');
+        const parts = cleanTime.split(':');
+        if (parts.length >= 2) {
+          let hours = parseInt(parts[0]) || 0;
+          const minutes = parseInt(parts[1]) || 0;
+          const seconds = parseInt(parts[2]) || 0;
+
+          if (isPm && hours < 12) hours += 12;
+          if (isAm && hours === 12) hours = 0;
+
+          return (hours * 3600) + (minutes * 60) + seconds;
+        }
+      }
+      return (log.id || 0) % 86400000;
+    }
+
+    function ordenarLogsPorHoraDescendente(logsArray) {
+      if (!Array.isArray(logsArray)) return;
+      logsArray.sort((a, b) => {
+        const timeA = obtenerSegundosLog(a);
+        const timeB = obtenerSegundosLog(b);
+        if (timeA !== timeB) {
+          return timeB - timeA;
+        }
+        return (b.id || 0) - (a.id || 0);
+      });
+    }
+
     function verificarYRestaurarLocal38() {
       const logs = DB.get('logs', []) || [];
       const hasTConecta334 = logs.some(l => (l.details && l.details.includes('3:34:48')) || (l.time && l.time.includes('3:34:48')));
@@ -4031,7 +4078,7 @@
       let autoRestored = false;
       if (!hasTConecta334) {
         logs.push({
-          id: 1721684088000,
+          id: 1784757288000,
           date: '2026-07-22',
           time: '3:34:48 p.m.',
           operator: 'Miguel',
@@ -4045,7 +4092,7 @@
 
       if (!hasYastas334) {
         logs.push({
-          id: 1721684077000,
+          id: 1784757277000,
           date: '2026-07-22',
           time: '3:34:37 p.m.',
           operator: 'Miguel',
@@ -4058,7 +4105,7 @@
       }
 
       if (autoRestored) {
-        logs.sort((a, b) => (b.id || 0) - (a.id || 0));
+        ordenarLogsPorHoraDescendente(logs);
         DB.set('logs', logs);
 
         const historical = DB.get('historical_logs_by_date', {}) || {};
@@ -4069,7 +4116,7 @@
             if (!seen.has(l.id)) historical['2026-07-22'].push(l);
           }
         });
-        historical['2026-07-22'].sort((a, b) => (b.id || 0) - (a.id || 0));
+        ordenarLogsPorHoraDescendente(historical['2026-07-22']);
         DB.set('historical_logs_by_date', historical);
       }
     }
@@ -4121,8 +4168,8 @@
         });
       }
 
-      // Ordenar por ID descendente (el más reciente primero)
-      dateLogs.sort((a, b) => (b.id || 0) - (a.id || 0));
+      // Ordenar cronológicamente por hora exacta (el más reciente primero)
+      ordenarLogsPorHoraDescendente(dateLogs);
 
       // 2. Llenar selector de operadores dinámicamente según la base de datos de esa fecha
       const filtroOperadorSelect = document.getElementById('filtro-operador');
@@ -6819,8 +6866,25 @@
     }
 
     function firmarYCerrarTurno() {
+      const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '05'];
+      let totalContadoPre = 0;
+      denoms.forEach(id => {
+        const input = document.getElementById(`cierre-pz-${id}`);
+        const pz = input ? parseInt(input.value) || 0 : 0;
+        const val = id === '05' ? 0.5 : parseInt(id);
+        totalContadoPre += pz * val;
+      });
+
+      const balancesPre = DB.get('balances', {});
+      const expectedCajonPre = balancesPre.yastasEfectivo || 0;
+
+      if (totalContadoPre === 0 && expectedCajonPre > 0) {
+        if (!confirm(`⚠️ ATENCIÓN: No has ingresado ninguna pieza de billetes o monedas (Total contado: $0.00), pero se esperaban ${fmt.format(expectedCajonPre)} en caja.\n\n¿Estás seguro de que deseas firmar y cerrar el turno sin capturar las piezas del arqueo?`)) {
+          return;
+        }
+      }
+
       abrirPINModal("Firmar Corte de Caja", (opName) => {
-        const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '05'];
         const countedInventory = {};
         let totalContado = 0;
         
@@ -6960,10 +7024,28 @@
         fechaClean = row.fecha.includes('T') ? row.fecha.split('T')[0] : row.fecha;
       }
 
+      let apDate = row.apertura_date || row.fecha_apertura || '';
+      let apTime = row.apertura_time || row.hora_apertura || '';
+
+      if (!apDate || !apTime) {
+        if (Array.isArray(bitacoraArr)) {
+          const apLog = bitacoraArr.find(l => l && (l.category === 'Apertura' || (l.details && l.details.includes('Apertura'))));
+          if (apLog) {
+            if (!apDate) apDate = apLog.date;
+            if (!apTime) apTime = apLog.time;
+          }
+        }
+      }
+
+      if (!apDate) apDate = fechaClean;
+      if (!apTime) apTime = '08:00:00';
+
       return {
         date: fechaClean,
         time: row.hora || '',
         operator: row.operador || 'Operador',
+        apertura_date: apDate,
+        apertura_time: apTime,
         totalContado: parseFloat(row.efectivo_real) || 0,
         expectedCajon: parseFloat(row.efectivo_esperado) || 0,
         expectedBoveda: parseFloat(row.boveda) || 0,
@@ -7448,13 +7530,28 @@
       // Rango de Horarios de Apertura y Cierre
       const openTimeEl = document.getElementById('corte-report-apertura-time');
       const closeTimeEl = document.getElementById('corte-report-cierre-time');
+
+      let apDate = report.apertura_date;
+      let apTime = report.apertura_time;
+
+      if (!apDate || !apTime || apTime === '--:--:--') {
+        if (report.bitacora && Array.isArray(report.bitacora)) {
+          const apLog = report.bitacora.find(l => l && (l.category === 'Apertura' || (l.details && l.details.includes('Apertura'))));
+          if (apLog) {
+            if (!apDate) apDate = apLog.date;
+            if (!apTime) apTime = apLog.time;
+          }
+        }
+      }
+
+      if (!apDate) apDate = report.date || fecha;
+      if (!apTime) apTime = '08:00:00';
+
       if (openTimeEl) {
-        openTimeEl.innerText = report.apertura_date 
-          ? `${report.apertura_date} a las ${report.apertura_time}`
-          : report.apertura_time || '--:--:--';
+        openTimeEl.innerText = `${apDate} a las ${apTime}`;
       }
       if (closeTimeEl) {
-        closeTimeEl.innerText = `${report.date} a las ${report.time}`;
+        closeTimeEl.innerText = `${report.date || fecha} a las ${report.time || '--:--:--'}`;
       }
 
       // KPIs
@@ -8156,7 +8253,8 @@
           localLogs.forEach(l => { if (l && l.id) combinedMap.set(l.id, l); });
           cloudLogs.forEach(l => { if (l && l.id) combinedMap.set(l.id, l); });
 
-          const mergedLogs = Array.from(combinedMap.values()).sort((a, b) => (b.id || 0) - (a.id || 0));
+          const mergedLogs = Array.from(combinedMap.values());
+          ordenarLogsPorHoraDescendente(mergedLogs);
           DB.set('logs', mergedLogs);
 
           // Actualizar histórico por fecha
@@ -8173,7 +8271,7 @@
           });
           Object.keys(historical).forEach(d => {
             if (Array.isArray(historical[d])) {
-              historical[d].sort((a, b) => (b.id || 0) - (a.id || 0));
+              ordenarLogsPorHoraDescendente(historical[d]);
             }
           });
           DB.set('historical_logs_by_date', historical);
@@ -8186,7 +8284,7 @@
           let autoRestored = false;
           if (!hasTConecta334) {
             currentAllLogs.push({
-              id: 1721684088000,
+              id: 1784757288000,
               date: '2026-07-22',
               time: '3:34:48 p.m.',
               operator: 'Miguel',
@@ -8200,7 +8298,7 @@
 
           if (!hasYastas334) {
             currentAllLogs.push({
-              id: 1721684077000,
+              id: 1784757277000,
               date: '2026-07-22',
               time: '3:34:37 p.m.',
               operator: 'Miguel',
@@ -8212,7 +8310,7 @@
             autoRestored = true;
           }
 
-          currentAllLogs.sort((a, b) => (b.id || 0) - (a.id || 0));
+          ordenarLogsPorHoraDescendente(currentAllLogs);
           DB.set('logs', currentAllLogs);
           
           if (!historical['2026-07-22']) historical['2026-07-22'] = [];
@@ -8222,7 +8320,7 @@
               if (!seen.has(l.id)) historical['2026-07-22'].push(l);
             }
           });
-          historical['2026-07-22'].sort((a, b) => (b.id || 0) - (a.id || 0));
+          ordenarLogsPorHoraDescendente(historical['2026-07-22']);
           DB.set('historical_logs_by_date', historical);
           
           // Reenviar siempre el estado consolidado a la nube para sincronización bidireccional
