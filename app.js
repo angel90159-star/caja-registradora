@@ -969,9 +969,11 @@
         // Resetear subvista a tablero
         const mainView = document.getElementById('dash-main-view');
         const bitacoraView = document.getElementById('dash-bitacora-view');
+        const cierreView = document.getElementById('dash-cierre-view');
         const btnBitacora = document.getElementById('btn-abrir-bitacora');
         if (mainView) mainView.classList.remove('hidden');
         if (bitacoraView) bitacoraView.classList.add('hidden');
+        if (cierreView) cierreView.classList.add('hidden');
         if (btnBitacora) {
           btnBitacora.innerHTML = `
             <i data-lucide="file-text" class="w-4.5 h-4.5"></i>
@@ -6998,14 +7000,20 @@
         DB.set('balances', balances);
         DB.set('logs', []);
 
+        // Restablecer subvistas del tablero a la vista principal
+        const mainView = document.getElementById('dash-main-view');
+        const bitacoraView = document.getElementById('dash-bitacora-view');
+        const cierreView = document.getElementById('dash-cierre-view');
+        if (mainView) mainView.classList.remove('hidden');
+        if (bitacoraView) bitacoraView.classList.add('hidden');
+        if (cierreView) cierreView.classList.add('hidden');
+
         // Guardar estado de sesión cerrada
         DB.set('state', { session_active: false, operator: null });
         sessionActive = false;
         activeOperator = null;
         guardarEstadoActivoNube();
 
-        // Ocultar modal y mostrar éxito
-        cerrarCierreCajaModal();
         mostrarToast("Corte de Caja guardado y firmado con éxito.", "success");
         refrescarPantallas();
       });
