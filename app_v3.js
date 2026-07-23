@@ -1885,6 +1885,12 @@
           if (panelRetiro) panelRetiro.classList.remove('hidden');
           if (btnProcesar) btnProcesar.classList.remove('hidden');
 
+          if (panelMotivoCapital) {
+            panelMotivoCapital.classList.remove('hidden');
+            document.getElementById('op-motivo-capital').value = "";
+            document.getElementById('op-motivo-capital').placeholder = "Ej. Retiro de utilidades, Traspaso a cuenta";
+          }
+
           // Columna izquierda: mostrar charola física, ocultar lista de movimientos
           if (fisicaSeccion) fisicaSeccion.classList.remove('hidden');
           if (placeholderSeccion) placeholderSeccion.classList.add('hidden');
