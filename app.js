@@ -2613,11 +2613,17 @@
       let redepDiff = 0;
       let totalRetiros = 0;
       let totalDeposito = 0;
+      let montoCambioRedep = 0;
+      let charolaRedepSum = 0;
       if (isRedeposito) {
         totalRetiros = redepositoRetiros.reduce((sum, val) => sum + val, 0);
-        const charolaSum = getCharolaFisicaTotalSum();
-        totalDeposito = totalRetiros + charolaSum;
-        redepDiff = charolaSum;
+        charolaRedepSum = getCharolaFisicaTotalSum();
+        const inputDep = document.getElementById('redep-monto-deposito');
+        totalDeposito = inputDep ? (parseFloat(inputDep.value) || 0) : 0;
+        const totalIngresado = totalRetiros + charolaRedepSum;
+        const dif = totalIngresado - totalDeposito;
+        montoCambioRedep = dif > 0 ? dif : 0;
+        redepDiff = totalDeposito - totalRetiros;
       }
 
       if (isManualAmount) {
@@ -2683,7 +2689,7 @@
           
           let addPieces = isIngreso;
           if (isRedeposito) {
-            addPieces = (redepDiff > 0);
+            addPieces = true; // Billetes/Monedas recibidos en charola entran a la caja
           }
           if (isRecarga) {
             addPieces = true; // Recarga en efectivo: entran piezas a caja
@@ -2695,6 +2701,23 @@
             inventory[denom] = (inventory[denom] || 0) - cant;
           }
         });
+
+        // Descontar piezas de cambio en Re-depósito si aplica
+        if (isRedeposito && montoCambioRedep > 0) {
+          if (currentModoRedepCambio === 'sugerido' && currentSugerenciaRedepCambio) {
+            Object.keys(currentSugerenciaRedepCambio).forEach(denomStr => {
+              const denom = parseFloat(denomStr);
+              const cantOut = currentSugerenciaRedepCambio[denomStr] || 0;
+              inventory[denom] = (inventory[denom] || 0) - cantOut;
+            });
+          } else if (currentModoRedepCambio === 'manual' && redepositoCambioManualPiezas) {
+            Object.keys(redepositoCambioManualPiezas).forEach(denomStr => {
+              const denom = parseFloat(denomStr);
+              const cantOut = redepositoCambioManualPiezas[denomStr] || 0;
+              inventory[denom] = (inventory[denom] || 0) - cantOut;
+            });
+          }
+        }
 
         // Descontar el cambio entregado al cliente si aplica
         if (hasCambio && currentSugerenciaCambio) {
@@ -2778,8 +2801,8 @@
       // 2. Modificar saldos digitales
       if (srv === 'yastas') {
         if (isRedeposito) {
-          balances.yastasEfectivo = (balances.yastasEfectivo || 0) + redepDiff;
-          balances.yastasTerminal = (balances.yastasTerminal || 0) - redepDiff;
+          balances.yastasEfectivo = (balances.yastasEfectivo || 0) + (charolaRedepSum - montoCambioRedep);
+          balances.yastasTerminal = (balances.yastasTerminal || 0) - (totalDeposito - totalRetiros);
         } else if (isRecarga) {
           const recargaMetodo = document.getElementById('op-metodo-recarga-val') ? document.getElementById('op-metodo-recarga-val').value : 'efectivo';
           if (recargaMetodo === 'efectivo') {
@@ -3077,19 +3100,24 @@
 
       let redepExtraData = null;
       if (isRedeposito) {
-        logAmount = redepDiff;
+        logAmount = totalDeposito - totalRetiros;
         logCategory = "RE-DEPÓSITO";
         
         const retirosStr = redepositoRetiros.map(r => fmt.format(r)).join(' + ');
-        logDetails = `Operación Combinada Yastas. Retiros virtuales: ${retirosStr} (Total Retiros: ${fmt.format(totalRetiros)}) | Depósito total: ${fmt.format(totalDeposito)} | Neto en charola: ${redepDiff >= 0 ? '+' : '-'}${fmt.format(Math.abs(redepDiff))}`;
+        logDetails = `Operación Combinada Yastas. Retiros virtuales: ${retirosStr} (Total Retiros: ${fmt.format(totalRetiros)}) | Depósito deseado: ${fmt.format(totalDeposito)} | Recibido en charola: ${fmt.format(charolaRedepSum)}${montoCambioRedep > 0 ? ` | Cambio entregado: ${fmt.format(montoCambioRedep)}` : ''}`;
         
         redepExtraData = {
           retiros: [...redepositoRetiros],
-          deposito: totalDeposito
+          deposito: totalDeposito,
+          efectivoRecibido: charolaRedepSum,
+          cambioEntregado: montoCambioRedep
         };
         
         // Resetear estado de redeposito
         redepositoRetiros = [];
+        redepositoCambioManualPiezas = {};
+        const inputDep = document.getElementById('redep-monto-deposito');
+        if (inputDep) inputDep.value = '';
         renderListaRetiros();
         calcularDiferenciaRedeposito();
       }
@@ -4686,38 +4714,70 @@
       mostrarToast(`Retiro de ${fmt.format(val)} eliminado.`, "info");
     }
 
+    let currentModoRedepCambio = 'sugerido';
+    let currentSugerenciaRedepCambio = null;
+    let redepositoCambioManualPiezas = {};
+
+    function actualizarPiezaCambioManualRedep(input) {
+      const denom = parseFloat(input.getAttribute('data-denom'));
+      const cant = parseInt(input.value) || 0;
+      if (cant > 0) {
+        redepositoCambioManualPiezas[denom] = cant;
+      } else {
+        delete redepositoCambioManualPiezas[denom];
+      }
+      calcularDiferenciaRedeposito();
+    }
+
+    function setRedepCambioModo(modo) {
+      currentModoRedepCambio = modo;
+      redepositoCambioManualPiezas = {};
+      const inputModo = document.getElementById('redep-cambio-modo-val');
+      if (inputModo) inputModo.value = modo;
+
+      const btnSugerido = document.getElementById('btn-redep-cambio-sugerido');
+      const btnManual = document.getElementById('btn-redep-cambio-manual');
+
+      if (btnSugerido && btnManual) {
+        if (modo === 'sugerido') {
+          btnSugerido.className = "py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-amber-600 text-white border border-amber-500";
+          btnManual.className = "py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent border border-transparent";
+        } else {
+          btnSugerido.className = "py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent border border-transparent";
+          btnManual.className = "py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-amber-600 text-white border border-amber-500";
+        }
+      }
+      calcularDiferenciaRedeposito();
+    }
+
     function calcularDiferenciaRedeposito() {
       const totalRetiros = redepositoRetiros.reduce((sum, val) => sum + val, 0);
       const charolaSum = getCharolaFisicaTotalSum();
-      
-      const totalDeposito = totalRetiros + charolaSum;
-      
       const inputDeposito = document.getElementById('redep-monto-deposito');
-      if (inputDeposito) {
-        inputDeposito.value = totalDeposito;
-      }
-      const displayDeposito = document.getElementById('redep-monto-deposito-display');
-      if (displayDeposito) {
-        displayDeposito.innerText = fmt.format(totalDeposito);
-      }
-      
+      const depositoDeseado = inputDeposito ? (parseFloat(inputDeposito.value) || 0) : 0;
+
       const container = document.getElementById('redep-diferencia-container');
       const valorEl = document.getElementById('redep-diferencia-valor');
       const mensajeEl = document.getElementById('redep-diferencia-mensaje');
       const statusBadge = document.getElementById('redep-status-badge');
       const btnProcesar = document.getElementById('btn-procesar-operacion');
 
-      valorEl.innerText = fmt.format(charolaSum);
+      const panelAsistente = document.getElementById('panel-redep-asistente-cambio');
+      const resultadoWrapper = document.getElementById('redep-cambio-resultado-wrapper');
 
-      // Reset classes
-      container.className = "p-3 rounded-xl border flex flex-col gap-1 items-center justify-center text-center transition duration-150";
+      const balances = DB.get('balances', {});
+      const saldoTerminal = balances.yastasTerminal || 0;
 
-      if (totalDeposito === 0 && totalRetiros === 0) {
-        container.classList.add("bg-slate-100", "border-slate-200", "text-slate-600");
+      if (panelAsistente) panelAsistente.classList.add('hidden');
+      container.className = "p-3.5 rounded-2xl border flex flex-col gap-0.5 items-center justify-center text-center transition duration-150";
+
+      if (totalRetiros === 0 && depositoDeseado === 0 && charolaSum === 0) {
+        container.classList.add("bg-slate-100", "dark:bg-slate-800", "border-slate-200", "dark:border-slate-700", "text-slate-650");
+        valorEl.innerText = "$0.00";
         mensajeEl.innerText = "Configure los montos";
         statusBadge.innerText = "❌ Ingrese montos";
-        statusBadge.className = "p-2 rounded-lg text-center text-xs font-bold bg-rose-50 border border-rose-100 text-rose-600";
-        
+        statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-rose-50 dark:bg-rose-950 border border-rose-100 text-rose-600";
+
         if (btnProcesar) {
           btnProcesar.disabled = true;
           btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
@@ -4726,43 +4786,293 @@
         return;
       }
 
-      let isValid = true;
-      const balances = DB.get('balances', {});
-      const saldoTerminal = balances.yastasTerminal || 0;
-
       if (totalRetiros === 0) {
-        isValid = false;
-        statusBadge.innerText = "❌ Ingrese al menos un retiro";
-        statusBadge.className = "p-2 rounded-lg text-center text-xs font-bold bg-rose-50 border border-rose-100 text-rose-600";
-      } else if (totalDeposito > saldoTerminal) {
-        isValid = false;
-        statusBadge.innerText = "❌ Saldo insuficiente en terminal";
-        statusBadge.className = "p-2 rounded-lg text-center text-xs font-bold bg-rose-50 border border-rose-100 text-rose-600 animate-pulse";
-      }
+        container.classList.add("bg-rose-50", "dark:bg-rose-950", "border-rose-200", "text-rose-700");
+        valorEl.innerText = "$0.00";
+        mensajeEl.innerText = "Sin retiros agregados";
+        statusBadge.innerText = "❌ Ingrese al menos un retiro de tarjeta";
+        statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-rose-50 dark:bg-rose-950 border border-rose-100 text-rose-600";
 
-      if (isValid) {
-        if (charolaSum > 0) {
-          container.classList.add("bg-emerald-50", "border-emerald-200", "text-emerald-800");
-          mensajeEl.innerHTML = `<span class="flex items-center gap-0.5"><i data-lucide="arrow-down-left" class="w-3.5 h-3.5 text-emerald-500"></i> Recibir del cliente</span>`;
-          statusBadge.innerText = "✅ Listo para autorizar (Efectivo capturado)";
-          statusBadge.className = "p-2 rounded-lg text-center text-xs font-bold bg-emerald-50 border border-emerald-100 text-emerald-600";
-        } else {
-          container.classList.add("bg-indigo-50", "border-indigo-200", "text-indigo-800");
-          mensajeEl.innerText = "Sin flujo de efectivo físico";
-          statusBadge.innerText = "✅ Listo para autorizar (Sin efectivo físico)";
-          statusBadge.className = "p-2 rounded-lg text-center text-xs font-bold bg-emerald-50 border border-emerald-100 text-emerald-600";
-        }
-      }
-
-      if (btnProcesar) {
-        if (isValid) {
-          btnProcesar.disabled = false;
-          btnProcesar.classList.remove('opacity-50', 'cursor-not-allowed');
-        } else {
+        if (btnProcesar) {
           btnProcesar.disabled = true;
           btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Autorizar Re-depósito`;
         }
-        btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Autorizar Re-depósito`;
+        return;
+      }
+
+      if (depositoDeseado <= 0) {
+        container.classList.add("bg-rose-50", "dark:bg-rose-950", "border-rose-200", "text-rose-700");
+        valorEl.innerText = "$0.00";
+        mensajeEl.innerText = "Indique el monto a depositar";
+        statusBadge.innerText = "❌ Ingrese el Monto del Depósito Deseado";
+        statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-rose-50 dark:bg-rose-950 border border-rose-100 text-rose-600";
+
+        if (btnProcesar) {
+          btnProcesar.disabled = true;
+          btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Autorizar Re-depósito`;
+        }
+        return;
+      }
+
+      const netoTerminal = depositoDeseado - totalRetiros;
+      if (netoTerminal > saldoTerminal) {
+        container.classList.add("bg-rose-50", "dark:bg-rose-950", "border-rose-200", "text-rose-700");
+        valorEl.innerText = fmt.format(depositoDeseado);
+        mensajeEl.innerText = "Supera el saldo disponible en terminal";
+        statusBadge.innerText = "❌ Saldo insuficiente en terminal Yastas";
+        statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-rose-50 dark:bg-rose-950 border border-rose-100 text-rose-600 animate-pulse";
+
+        if (btnProcesar) {
+          btnProcesar.disabled = true;
+          btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Autorizar Re-depósito`;
+        }
+        return;
+      }
+
+      const totalIngresado = totalRetiros + charolaSum;
+      const diferencia = Math.round((totalIngresado - depositoDeseado) * 100) / 100;
+
+      valorEl.innerText = fmt.format(charolaSum);
+
+      if (diferencia < 0) {
+        const falta = Math.abs(diferencia);
+        container.classList.add("bg-amber-50", "dark:bg-amber-950", "border-amber-200", "text-amber-800");
+        mensajeEl.innerHTML = `<span class="flex items-center gap-0.5"><i data-lucide="arrow-down-left" class="w-3.5 h-3.5 text-amber-500"></i> Falta efectivo en charola</span>`;
+        statusBadge.innerText = `❌ Faltan ${fmt.format(falta)} en la charola para completar`;
+        statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-amber-50 dark:bg-amber-950 border border-amber-200 text-amber-700";
+
+        if (btnProcesar) {
+          btnProcesar.disabled = true;
+          btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Autorizar Re-depósito`;
+        }
+      } else if (diferencia === 0) {
+        container.classList.add("bg-emerald-50", "dark:bg-emerald-950", "border-emerald-200", "text-emerald-800");
+        mensajeEl.innerHTML = `<span class="flex items-center gap-0.5"><i data-lucide="check" class="w-3.5 h-3.5 text-emerald-500"></i> Monto Exacto</span>`;
+        statusBadge.innerText = "✅ Listo para autorizar (Sin cambio)";
+        statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-emerald-50 dark:bg-emerald-950 border border-emerald-100 text-emerald-600";
+
+        if (btnProcesar) {
+          btnProcesar.disabled = false;
+          btnProcesar.classList.remove('opacity-50', 'cursor-not-allowed');
+          btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Autorizar Re-depósito`;
+        }
+      } else {
+        // diferencia > 0: Hay cambio a entregar al cliente
+        const montoCambio = diferencia;
+        if (panelAsistente) panelAsistente.classList.remove('hidden');
+
+        container.classList.add("bg-indigo-50", "dark:bg-indigo-950", "border-indigo-200", "text-indigo-800");
+        mensajeEl.innerHTML = `<span class="flex items-center gap-0.5"><i data-lucide="arrow-up-right" class="w-3.5 h-3.5 text-indigo-500"></i> Entregar cambio al cliente</span>`;
+
+        if (currentModoRedepCambio === 'sugerido') {
+          const inventory = DB.get('inventory', {});
+          const denomsList = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
+          let remaining = montoCambio;
+          const suggested = {};
+
+          for (let d of denomsList) {
+            if (d > remaining) continue;
+            let stock = inventory[d] || 0;
+            if (stock > 0) {
+              let needed = Math.floor(remaining / d);
+              let toGive = Math.min(needed, stock);
+              if (toGive > 0) {
+                suggested[d] = toGive;
+                remaining = parseFloat((remaining - toGive * d).toFixed(2));
+              }
+            }
+          }
+
+          let gridHtml = '';
+          const activeDenoms = denomsList.filter(d => (suggested[d] || 0) > 0);
+
+          if (activeDenoms.length > 0) {
+            activeDenoms.forEach(d => {
+              const label = d === 0.5 ? '50¢' : `$${d}`;
+              const val = suggested[d];
+              gridHtml += `
+                <div class="flex flex-col items-center p-1.5 border border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-black rounded-xl transition shadow-2xs">
+                  <span class="text-[9px] font-black text-slate-500 dark:text-slate-400 mb-1">${label}</span>
+                  <div class="w-full text-center bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg py-1 text-xs font-black text-amber-900 dark:text-amber-100 select-none">
+                    ${val}
+                  </div>
+                </div>
+              `;
+            });
+          } else {
+            gridHtml = `
+              <div class="col-span-6 text-center py-2 text-xs font-bold text-slate-400">
+                Sin piezas sugeridas
+              </div>
+            `;
+          }
+
+          if (remaining <= 0.01) {
+            currentSugerenciaRedepCambio = suggested;
+            if (resultadoWrapper) {
+              resultadoWrapper.innerHTML = `
+                <div class="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-4 space-y-3">
+                  <div class="flex items-center justify-between border-b border-amber-200/60 dark:border-amber-900/30 pb-2">
+                    <div>
+                      <span class="text-[10px] font-black text-amber-800 dark:text-amber-400 uppercase tracking-wider block">DEVOLUCIÓN DE CAMBIO A CAJA</span>
+                      <span class="text-xs text-slate-500 font-bold block mt-0.5">Retiros + Efectivo: ${fmt.format(totalIngresado)} | Depósito: ${fmt.format(depositoDeseado)}</span>
+                    </div>
+                    <div class="text-right">
+                      <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider block">REQUERIDO</span>
+                      <span class="text-base font-black text-amber-700 dark:text-amber-400 font-mono">${fmt.format(montoCambio)}</span>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-6 gap-1.5">
+                    ${gridHtml}
+                  </div>
+                </div>
+                <div class="bg-amber-100/80 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3 text-center">
+                  <span class="text-[9px] font-black text-amber-800 dark:text-amber-300 uppercase tracking-wider block mb-0.5">PIEZAS SUGERIDAS DE CAMBIO (AUTO)</span>
+                  <span class="text-xl font-black text-amber-950 dark:text-amber-100 font-mono">Entregar: ${fmt.format(montoCambio)}</span>
+                </div>
+              `;
+            }
+            statusBadge.innerText = `✅ Listo para autorizar (Cambio: ${fmt.format(montoCambio)})`;
+            statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-emerald-50 dark:bg-emerald-950 border border-emerald-100 text-emerald-600";
+
+            if (btnProcesar) {
+              btnProcesar.disabled = false;
+              btnProcesar.classList.remove('opacity-50', 'cursor-not-allowed');
+              btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Autorizar Re-depósito`;
+            }
+          } else {
+            currentSugerenciaRedepCambio = null;
+            if (resultadoWrapper) {
+              resultadoWrapper.innerHTML = `
+                <div class="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-4 space-y-3">
+                  <div class="flex items-center justify-between border-b border-amber-200/60 dark:border-amber-900/30 pb-2">
+                    <div>
+                      <span class="text-[10px] font-black text-amber-800 dark:text-amber-400 uppercase tracking-wider block">DEVOLUCIÓN DE CAMBIO A CAJA</span>
+                      <span class="text-xs text-slate-500 font-bold block mt-0.5">Retiros + Efectivo: ${fmt.format(totalIngresado)} | Depósito: ${fmt.format(depositoDeseado)}</span>
+                    </div>
+                    <div class="text-right">
+                      <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider block">REQUERIDO</span>
+                      <span class="text-base font-black text-amber-700 dark:text-amber-400 font-mono">${fmt.format(montoCambio)}</span>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-6 gap-1.5">
+                    ${gridHtml}
+                  </div>
+                </div>
+                <div class="bg-rose-100/80 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded-2xl p-3 text-center">
+                  <span class="text-[9px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider block mb-0.5">⚠️ SIN PIEZAS SUFICIENTES EN INVENTARIO</span>
+                  <span class="text-xs font-bold text-rose-900 dark:text-rose-200">Falta stock para cubrir ${fmt.format(montoCambio)} de cambio</span>
+                </div>
+              `;
+            }
+            statusBadge.innerText = `⚠️ Sin piezas suficientes para cambio (${fmt.format(montoCambio)})`;
+            statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-amber-50 dark:bg-amber-950 border border-amber-200 text-amber-700";
+
+            if (btnProcesar) {
+              btnProcesar.disabled = true;
+              btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+              btnProcesar.innerHTML = `<i data-lucide="alert-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Sin Stock de Cambio`;
+            }
+          }
+        } else {
+          // Modo Manual (Charola / Desglose)
+          currentSugerenciaRedepCambio = null;
+          const denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
+          let gridHtml = '';
+          denoms.forEach(d => {
+            const label = d === 0.5 ? '50¢' : `$${d}`;
+            const val = redepositoCambioManualPiezas[d] || '';
+            gridHtml += `
+              <div class="flex flex-col items-center p-1.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-xl transition">
+                <span class="text-[9px] font-black text-slate-500 dark:text-slate-400 mb-1">${label}</span>
+                <input type="number" data-denom="${d}" value="${val}" placeholder="0" min="0" oninput="actualizarPiezaCambioManualRedep(this)" class="w-full text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1 text-xs font-black text-slate-800 dark:text-white focus:ring-2 focus:ring-amber-500">
+              </div>
+            `;
+          });
+
+          let sumManualCambio = 0;
+          Object.keys(redepositoCambioManualPiezas).forEach(d => {
+            sumManualCambio += parseFloat(d) * (parseInt(redepositoCambioManualPiezas[d]) || 0);
+          });
+
+          let statusHtml = '';
+          if (sumManualCambio < montoCambio) {
+            const falta = Math.round((montoCambio - sumManualCambio) * 100) / 100;
+            statusHtml = `
+              <div class="bg-amber-100/80 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3 text-center">
+                <span class="text-[9px] font-black text-amber-800 dark:text-amber-300 uppercase tracking-wider block mb-0.5">FALTA INGRESAR ${fmt.format(falta)} A LA CAJA</span>
+                <span class="text-xl font-black text-amber-950 dark:text-amber-100 font-mono">Devuelto: ${fmt.format(sumManualCambio)} / ${fmt.format(montoCambio)}</span>
+              </div>
+            `;
+            statusBadge.innerText = `❌ Falta ingresar piezas de cambio (${fmt.format(sumManualCambio)} / ${fmt.format(montoCambio)})`;
+            statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-amber-50 dark:bg-amber-950 border border-amber-200 text-amber-700";
+
+            if (btnProcesar) {
+              btnProcesar.disabled = true;
+              btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+              btnProcesar.innerHTML = `<i data-lucide="alert-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Falta Cambio (${fmt.format(falta)})`;
+            }
+          } else if (sumManualCambio === montoCambio) {
+            statusHtml = `
+              <div class="bg-emerald-100/80 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 rounded-2xl p-3 text-center">
+                <span class="text-[9px] font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wider block mb-0.5">CAMBIO CAPTURADO CORRECTAMENTE</span>
+                <span class="text-xl font-black text-emerald-950 dark:text-emerald-100 font-mono">Devuelto: ${fmt.format(sumManualCambio)} / ${fmt.format(montoCambio)}</span>
+              </div>
+            `;
+            statusBadge.innerText = `✅ Listo para autorizar (Cambio manual: ${fmt.format(montoCambio)})`;
+            statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-emerald-50 dark:bg-emerald-950 border border-emerald-100 text-emerald-600";
+
+            if (btnProcesar) {
+              btnProcesar.disabled = false;
+              btnProcesar.classList.remove('opacity-50', 'cursor-not-allowed');
+              btnProcesar.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Autorizar Re-depósito`;
+            }
+          } else {
+            const sobra = Math.round((sumManualCambio - montoCambio) * 100) / 100;
+            statusHtml = `
+              <div class="bg-rose-100/80 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded-2xl p-3 text-center">
+                <span class="text-[9px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider block mb-0.5">⚠️ TE EXCEDISTE POR ${fmt.format(sobra)} EN EL CAMBIO</span>
+                <span class="text-xl font-black text-rose-950 dark:text-rose-100 font-mono">Devuelto: ${fmt.format(sumManualCambio)} / ${fmt.format(montoCambio)}</span>
+              </div>
+            `;
+            statusBadge.innerText = `⚠️ Excedido por ${fmt.format(sobra)} en piezas de cambio`;
+            statusBadge.className = "p-2.5 rounded-xl text-center text-xs font-bold bg-rose-50 dark:bg-rose-950 border border-rose-200 text-rose-600";
+
+            if (btnProcesar) {
+              btnProcesar.disabled = true;
+              btnProcesar.classList.add('opacity-50', 'cursor-not-allowed');
+              btnProcesar.innerHTML = `<i data-lucide="x-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Excedido en ${fmt.format(sobra)}`;
+            }
+          }
+
+          if (resultadoWrapper) {
+            resultadoWrapper.innerHTML = `
+              <div class="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-4 space-y-3">
+                <div class="flex items-center justify-between border-b border-amber-200/60 dark:border-amber-900/30 pb-2">
+                  <div>
+                    <span class="text-[10px] font-black text-amber-800 dark:text-amber-400 uppercase tracking-wider block">DEVOLUCIÓN DE CAMBIO A CAJA (MANUAL)</span>
+                    <span class="text-xs text-slate-500 font-bold block mt-0.5">Retiros + Efectivo: ${fmt.format(totalIngresado)} | Depósito: ${fmt.format(depositoDeseado)}</span>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider block">REQUERIDO</span>
+                    <span class="text-base font-black text-amber-700 dark:text-amber-400 font-mono">${fmt.format(montoCambio)}</span>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-6 gap-1.5">
+                  ${gridHtml}
+                </div>
+              </div>
+              ${statusHtml}
+            `;
+          }
+        }
       }
       lucide.createIcons();
     }
@@ -5010,70 +5320,50 @@
         // CASO C: Se requiere dar cambio al cliente
         else {
           const cambio = parseFloat((sumRecibido - montoDep).toFixed(2));
-          
-          if (currentModoCambio === 'manual') {
-            resultadoWrapper.innerHTML = `
-              <div class="text-center py-4 bg-amber-600 rounded-2xl shadow-sm border border-amber-700 flex flex-col gap-0.5">
-                <span class="text-[10px] font-black text-amber-100 uppercase tracking-wider block">CAMBIO A DEVOLVER AL CLIENTE (MANUAL)</span>
-                <span class="text-3xl font-black text-white">${fmt.format(cambio)}</span>
-              </div>
-              <div id="op-cambio-manual-status" class="mt-3">
-                <!-- Cargado dinámicamente -->
-              </div>
-              <div class="space-y-2 mt-3">
-                <span class="text-[9px] font-black text-slate-500 uppercase tracking-wider block">Billetes y monedas devueltos (Desglose Manual):</span>
-                <div id="op-cambio-sugerencia-piezas" class="grid grid-cols-2 gap-2">
-                  <!-- Inputs manuales cargados abajo -->
-                </div>
-              </div>
-            `;
+          const denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
 
-            const denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
-            let inputsHTML = [];
+          if (currentModoCambio === 'manual') {
+            let gridHtml = '';
             denoms.forEach(d => {
               const label = d === 0.5 ? '50¢' : `$${d}`;
-              const val = currentManualCambioPieces[d] || 0;
-              
-              let colorClass = "";
-              if (d >= 20) colorClass = "bg-indigo-600 text-white";
-              else colorClass = "bg-amber-500 text-slate-900"; // Monedas
+              const val = currentManualCambioPieces[d] || '';
+              gridHtml += `
+                <div class="flex flex-col items-center p-1.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-xl transition focus-within:border-amber-500">
+                  <span class="text-[9px] font-black text-slate-500 dark:text-slate-400 mb-1">${label}</span>
+                  <input type="number" data-denom="${d}" value="${val}" placeholder="0" min="0" oninput="actualizarCambioManual()" class="manual-change-input w-full text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1 text-xs font-black text-slate-800 dark:text-white focus:ring-2 focus:ring-amber-500">
+                </div>
+              `;
+            });
 
-              inputsHTML.push(`
-                <div class="flex items-center gap-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl shadow-xs focus-within:border-amber-500 transition">
-                  <div class="w-14 text-center py-2 rounded-lg text-xs font-black ${colorClass} select-none shadow-xs">${label}</div>
-                  <div class="flex flex-col min-w-0 flex-grow">
-                    <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider">Cantidad</span>
-                    <input type="number" data-denom="${d}" value="${val}" min="0" oninput="actualizarCambioManual()" class="manual-change-input w-full bg-transparent text-sm font-black text-slate-800 dark:text-white outline-none border-b border-transparent focus:border-amber-500 text-center py-0.5">
+            resultadoWrapper.innerHTML = `
+              <div class="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-4 space-y-3">
+                <div class="flex items-center justify-between border-b border-amber-200/60 dark:border-amber-900/30 pb-2">
+                  <div>
+                    <span class="text-[10px] font-black text-amber-800 dark:text-amber-400 uppercase tracking-wider block">DEVOLUCIÓN DE CAMBIO A CAJA</span>
+                    <span class="text-xs text-slate-500 font-bold block mt-0.5">Recibido: ${fmt.format(sumRecibido)} | Depósito: ${fmt.format(montoDep)}</span>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider block">REQUERIDO</span>
+                    <span class="text-base font-black text-amber-700 dark:text-amber-400 font-mono">${fmt.format(cambio)}</span>
                   </div>
                 </div>
-              `);
-            });
-            document.getElementById('op-cambio-sugerencia-piezas').innerHTML = inputsHTML.join('');
+
+                <div class="grid grid-cols-6 gap-1.5">
+                  ${gridHtml}
+                </div>
+              </div>
+              <div id="op-cambio-manual-status" class="bg-amber-100/80 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3 text-center">
+                <!-- Actualizado dinámicamente -->
+              </div>
+            `;
             actualizarCambioManual();
           } else {
             // Modo Sugerido (Auto)
-            resultadoWrapper.innerHTML = `
-              <div class="text-center py-4 bg-orange-600 rounded-2xl shadow-sm border border-orange-700 flex flex-col gap-0.5">
-                <span class="text-[10px] font-black text-orange-100 uppercase tracking-wider block">CAMBIO A DEVOLVER AL CLIENTE</span>
-                <span class="text-3xl font-black text-white">${fmt.format(cambio)}</span>
-              </div>
-              <div class="space-y-2 mt-3">
-                <span class="text-[9px] font-black text-slate-500 uppercase tracking-wider block">Billetes y monedas a entregar (Sugerido):</span>
-                <div id="op-cambio-sugerencia-piezas" class="grid grid-cols-2 gap-2">
-                  <!-- Cargado dinámicamente -->
-                </div>
-              </div>
-            `;
-
-            // Sugerir piezas con el inventario disponible
             const inventory = DB.get('inventory', {});
-            // Cambiado a ordenamiento por valor descendente para un desglose natural y cómodo (ej. billetes grandes antes que monedas)
-            const searchList = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
-
             let remaining = cambio;
             const suggested = {};
 
-            for (let d of searchList) {
+            for (let d of denoms) {
               if (d > remaining) continue;
               let stock = inventory[d] || 0;
               if (stock > 0) {
@@ -5086,55 +5376,89 @@
               }
             }
 
-            if (remaining <= 0.01) {
-              // Desglose exitoso
-              currentSugerenciaCambio = suggested;
-              let badgesHTML = [];
-              Object.keys(suggested).forEach(d => {
-                const cant = suggested[d];
-                const denom = parseFloat(d);
-                const label = denom === 0.5 ? '50¢' : `$${denom}`;
-                
-                let colorClass = "";
-                if (denom === 1000) colorClass = "bg-indigo-600 text-white";
-                else if (denom === 500) colorClass = "bg-indigo-600 text-white";
-                else if (denom === 200) colorClass = "bg-indigo-600 text-white";
-                else if (denom === 100) colorClass = "bg-indigo-600 text-white";
-                else if (denom === 50) colorClass = "bg-indigo-600 text-white";
-                else if (denom === 20) colorClass = "bg-indigo-600 text-white";
-                else colorClass = "bg-amber-500 text-slate-900"; // Monedas
+            let gridHtml = '';
+            const activeDenoms = denoms.filter(d => (suggested[d] || 0) > 0);
 
-                badgesHTML.push(`
-                  <div class="flex items-center gap-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl shadow-xs hover:border-amber-400 transition">
-                    <div class="w-14 text-center py-2 rounded-lg text-xs font-black ${colorClass} select-none shadow-xs">${label}</div>
-                    <div class="flex flex-col min-w-0">
-                      <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider">Entregar</span>
-                      <span class="text-sm font-black text-slate-800 dark:text-white">${cant} pzs</span>
+            if (activeDenoms.length > 0) {
+              activeDenoms.forEach(d => {
+                const label = d === 0.5 ? '50¢' : `$${d}`;
+                const val = suggested[d];
+                gridHtml += `
+                  <div class="flex flex-col items-center p-1.5 border border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-black rounded-xl transition shadow-2xs">
+                    <span class="text-[9px] font-black text-slate-500 dark:text-slate-400 mb-1">${label}</span>
+                    <div class="w-full text-center bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-lg py-1 text-xs font-black text-amber-900 dark:text-amber-100 select-none">
+                      ${val}
                     </div>
                   </div>
-                `);
+                `;
               });
-              document.getElementById('op-cambio-sugerencia-piezas').innerHTML = badgesHTML.join('');
-              
+            } else {
+              gridHtml = `
+                <div class="col-span-6 text-center py-2 text-xs font-bold text-slate-400">
+                  Sin piezas sugeridas
+                </div>
+              `;
+            }
+
+            if (remaining <= 0.01) {
+              currentSugerenciaCambio = suggested;
+              resultadoWrapper.innerHTML = `
+                <div class="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-4 space-y-3">
+                  <div class="flex items-center justify-between border-b border-amber-200/60 dark:border-amber-900/30 pb-2">
+                    <div>
+                      <span class="text-[10px] font-black text-amber-800 dark:text-amber-400 uppercase tracking-wider block">DEVOLUCIÓN DE CAMBIO A CAJA</span>
+                      <span class="text-xs text-slate-500 font-bold block mt-0.5">Recibido: ${fmt.format(sumRecibido)} | Depósito: ${fmt.format(montoDep)}</span>
+                    </div>
+                    <div class="text-right">
+                      <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider block">REQUERIDO</span>
+                      <span class="text-base font-black text-amber-700 dark:text-amber-400 font-mono">${fmt.format(cambio)}</span>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-6 gap-1.5">
+                    ${gridHtml}
+                  </div>
+                </div>
+                <div class="bg-amber-100/80 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-2xl p-3 text-center">
+                  <span class="text-[9px] font-black text-amber-800 dark:text-amber-300 uppercase tracking-wider block mb-0.5">PIEZAS SUGERIDAS DE CAMBIO (AUTO)</span>
+                  <span class="text-xl font-black text-amber-950 dark:text-amber-100 font-mono">Entregar: ${fmt.format(cambio)}</span>
+                </div>
+              `;
+
               if (btn) {
                 btn.disabled = false;
                 btn.classList.remove('opacity-50', 'cursor-not-allowed');
                 btn.innerHTML = `<i data-lucide="check-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Registrar ${fmt.format(montoDep)}`;
               }
             } else {
-              // No alcanza el cambio exacto
               currentSugerenciaCambio = null;
-              document.getElementById('op-cambio-sugerencia-piezas').innerHTML = `
-                <div class="col-span-2 text-xs text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/30 p-3 rounded-xl border border-rose-100 dark:border-rose-900 flex flex-col gap-1 shadow-xs">
-                  <span class="font-black flex items-center gap-1"><i data-lucide="alert-circle" class="w-4 h-4 text-rose-500"></i> No hay cambio exacto en caja</span>
-                  <span class="text-[10px] text-slate-600 dark:text-slate-400 font-medium">No hay suficientes billetes/monedas en tu inventario para dar el cambio de ${fmt.format(cambio)} de forma exacta.</span>
+              resultadoWrapper.innerHTML = `
+                <div class="bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl p-4 space-y-3">
+                  <div class="flex items-center justify-between border-b border-amber-200/60 dark:border-amber-900/30 pb-2">
+                    <div>
+                      <span class="text-[10px] font-black text-amber-800 dark:text-amber-400 uppercase tracking-wider block">DEVOLUCIÓN DE CAMBIO A CAJA</span>
+                      <span class="text-xs text-slate-500 font-bold block mt-0.5">Recibido: ${fmt.format(sumRecibido)} | Depósito: ${fmt.format(montoDep)}</span>
+                    </div>
+                    <div class="text-right">
+                      <span class="text-[8px] font-black text-slate-400 uppercase tracking-wider block">REQUERIDO</span>
+                      <span class="text-base font-black text-amber-700 dark:text-amber-400 font-mono">${fmt.format(cambio)}</span>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-6 gap-1.5">
+                    ${gridHtml}
+                  </div>
+                </div>
+                <div class="bg-rose-100/80 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded-2xl p-3 text-center">
+                  <span class="text-[9px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider block mb-0.5">⚠️ SIN PIEZAS SUFICIENTES EN INVENTARIO</span>
+                  <span class="text-xs font-bold text-rose-900 dark:text-rose-200">Falta stock para cubrir ${fmt.format(cambio)} de cambio</span>
                 </div>
               `;
-              
+
               if (btn) {
                 btn.disabled = true;
                 btn.classList.add('opacity-50', 'cursor-not-allowed');
-                btn.innerHTML = `<i data-lucide="alert-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Falta Cambio en Caja`;
+                btn.innerHTML = `<i data-lucide="alert-circle" class="w-4.5 h-4.5 mr-1 inline"></i> Sin Stock de Cambio`;
               }
             }
           }
@@ -5210,11 +5534,10 @@
         currentSugerenciaCambio = null;
         if (statusDiv) {
           statusDiv.innerHTML = `
-            <div class="text-xs text-rose-700 bg-rose-50 p-3 rounded-xl border border-rose-100 flex flex-col gap-1 shadow-xs">
-              <span class="font-black flex items-center gap-1 text-rose-600"><i data-lucide="alert-circle" class="w-4 h-4 text-rose-500"></i> Stock Insuficiente</span>
-              <span class="text-[10px] text-slate-650 font-medium">No cuentas con suficientes piezas de <b>${denomError}</b> en caja para devolver como cambio.</span>
-            </div>
+            <span class="text-[9px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider block mb-0.5">STOCK INSUFICIENTE DE ${denomError}</span>
+            <span class="text-xs font-bold text-rose-900 dark:text-rose-200">No cuentas con suficientes piezas en caja para entregar.</span>
           `;
+          statusDiv.className = "bg-rose-100/80 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded-2xl p-3 text-center";
         }
         if (btn) {
           btn.disabled = true;
@@ -5225,10 +5548,10 @@
         currentSugerenciaCambio = localPieces; 
         if (statusDiv) {
           statusDiv.innerHTML = `
-            <div class="text-xs text-emerald-700 bg-emerald-50 p-3 rounded-xl border border-emerald-100 flex items-center gap-1.5 shadow-xs font-black">
-              <i data-lucide="check-circle" class="w-4 h-4 text-emerald-500"></i> Desglose de cambio exacto
-            </div>
+            <span class="text-[9px] font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wider block mb-0.5">CAMBIO CAPTURADO CORRECTAMENTE</span>
+            <span class="text-xl font-black text-emerald-950 dark:text-emerald-100 font-mono">Devuelto: ${fmt.format(sumManual)} / ${fmt.format(cambioRequerido)}</span>
           `;
+          statusDiv.className = "bg-emerald-100/80 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 rounded-2xl p-3 text-center";
         }
         if (btn) {
           btn.disabled = false;
@@ -5238,26 +5561,7 @@
       } else {
         currentSugerenciaCambio = null;
         const diff = parseFloat((cambioRequerido - sumManual).toFixed(2));
-        
-        let msg = '';
-        let btnText = '';
         if (diff > 0) {
-          msg = `Faltan <b>${fmt.format(diff)}</b> por desglosar como cambio.`;
-          btnText = `Faltan ${fmt.format(diff)}`;
-        } else {
-          msg = `Exceso de <b>${fmt.format(Math.abs(diff))}</b> en el desglose de cambio.`;
-          btnText = `Exceso ${fmt.format(Math.abs(diff))}`;
-        }
-
-        if (statusDiv) {
-          statusDiv.innerHTML = `
-            <div class="text-xs text-slate-700 bg-slate-100 p-3 rounded-xl border border-slate-200 flex flex-col gap-1 shadow-xs">
-              <span class="font-black flex items-center gap-1 text-slate-800"><i data-lucide="info" class="w-4 h-4 text-slate-500"></i> Ajuste requerido</span>
-              <span class="text-[10px] text-slate-650 font-medium">${msg}</span>
-            </div>
-          `;
-        }
-        if (btn) {
           btn.disabled = true;
           btn.classList.add('opacity-50', 'cursor-not-allowed');
           btn.innerHTML = `<i data-lucide="alert-circle" class="w-4.5 h-4.5 mr-1 inline"></i> ${btnText}`;
@@ -6559,6 +6863,7 @@
       ];
 
       let totalContado = 0;
+      let hasAnyPieceCounted = false;
       const countedInventory = {};
 
       // Obtener inventario esperado (cajón + bóveda combinados)
@@ -6567,7 +6872,9 @@
 
       denoms.forEach(d => {
         const input = document.getElementById(`cierre-pz-${d.id}`);
-        const pz = input ? parseInt(input.value) || 0 : 0;
+        const rawVal = input ? input.value.trim() : '';
+        const pz = input ? parseInt(rawVal) || 0 : 0;
+        if (rawVal !== '') hasAnyPieceCounted = true;
         countedInventory[d.id] = pz;
         if (d.id === '05') countedInventory['0.5'] = pz;
         totalContado += pz * d.val;
@@ -6770,9 +7077,39 @@
 
       // Calcular y refrescar la calculadora de suma rápida
       actualizarSumaRapidaCierre();
+
+      // Actualizar estado del botón de Firma (Sección 6)
+      const btnFirmar = document.getElementById('btn-firmar-cierre');
+
+      if (btnFirmar) {
+        if (!hasAnyPieceCounted) {
+          btnFirmar.disabled = true;
+          btnFirmar.className = "w-full bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-600 font-bold py-3.5 px-4 rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-not-allowed opacity-60";
+        } else if (Math.abs(diffTotal) < 0.01) {
+          btnFirmar.disabled = false;
+          btnFirmar.className = "w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 px-4 rounded-xl text-xs transition shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-1.5 cursor-pointer";
+        } else {
+          // Diferencia != 0 (Faltante o Excedente) -> Color Naranja Vibrante
+          btnFirmar.disabled = false;
+          btnFirmar.className = "w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3.5 px-4 rounded-xl text-xs transition shadow-lg shadow-amber-600/20 flex items-center justify-center gap-1.5 cursor-pointer";
+        }
+      }
+      lucide.createIcons();
     }
 
     function firmarYCerrarTurno() {
+      // Verificar si se han capturado piezas antes de abrir modal de PIN
+      const denomsCheck = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '05'];
+      let hasPieces = false;
+      denomsCheck.forEach(id => {
+        const input = document.getElementById(`cierre-pz-${id}`);
+        if (input && input.value.trim() !== '') hasPieces = true;
+      });
+
+      if (!hasPieces) {
+        mostrarToast("Debe capturar el arqueo de piezas físicas (Sección 1) antes de cerrar turno.", "error");
+        return;
+      }
       abrirPINModal("Firmar Corte de Caja", (opName) => {
         const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '05'];
         const countedInventory = {};
