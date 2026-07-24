@@ -961,12 +961,18 @@
 
     function limpiarDesglose(silent = false) {
       try {
-        // 1. Limpiar primero e incondicionalmente todos los campos de texto e inputs
-        ['op-monto-manual', 'op-concepto-transferencia', 'op-motivo-capital', 
-         'op-ubicacion-boveda', 'cap-motivo', 'cap-monto-terminal', 
-         'op-cambio-deposito', 'op-retiro-monto', 'op-recarga-monto'].forEach(id => {
+        // 1. Limpiar primero e incondicionalmente todos los campos de texto e inputs de TODAS las cajas
+        [
+          'op-monto-manual', 'op-concepto-transferencia', 'op-motivo-capital', 
+          'op-ubicacion-boveda', 'op-monto-boveda', 'cap-motivo', 'cap-monto-terminal', 
+          'op-cambio-deposito', 'op-retiro-monto', 'op-recarga-monto',
+          'redep-monto-retiro', 'redep-monto-deposito'
+        ].forEach(id => {
           const el = document.getElementById(id);
-          if (el) el.value = '';
+          if (el) {
+            el.value = '';
+            try { el.dispatchEvent(new Event('input')); } catch(e) {}
+          }
         });
 
         // 2. Limpiar todos los campos de denominación (charola)
@@ -981,7 +987,28 @@
           }
         });
 
-        // 3. Resetear etiquetas visuales de totales
+        // 3. Resetear cambio de efectivo
+        const idsCambioOut = [
+          'cambio-out-1000', 'cambio-out-500', 'cambio-out-200', 'cambio-out-100',
+          'cambio-out-50', 'cambio-out-20', 'cambio-out-m10', 'cambio-out-m5',
+          'cambio-out-m2', 'cambio-out-m1', 'cambio-out-m05'
+        ];
+        idsCambioOut.forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = '0';
+        });
+
+        // 4. Resetear estado de re-depósito
+        if (typeof redepositoRetiros !== 'undefined') redepositoRetiros = [];
+        if (typeof redepositoCambioManualPiezas !== 'undefined') redepositoCambioManualPiezas = {};
+        const redepRetiroInput = document.getElementById('redep-monto-retiro');
+        if (redepRetiroInput) redepRetiroInput.value = '';
+        const redepDepInput = document.getElementById('redep-monto-deposito');
+        if (redepDepInput) redepDepInput.value = '';
+        if (typeof renderListaRetiros === 'function') renderListaRetiros();
+        if (typeof calcularDiferenciaRedeposito === 'function') calcularDiferenciaRedeposito();
+
+        // 5. Resetear etiquetas visuales de totales
         const totalCharolaEl = document.getElementById('dash-charola-total');
         if (totalCharolaEl) totalCharolaEl.innerText = fmt.format(0);
 
@@ -996,6 +1023,7 @@
         try { setCambioModo('sugerido'); } catch(e) {}
         try { calcularTotalLocal(); } catch(e) {}
         try { calcularCambioOperacion(); } catch(e) {}
+        try { calcularCambioEfectivo(); } catch(e) {}
         try { calcularTotalAnexarCapital(); } catch(e) {}
 
         // Resetear campos de retiro asistido
@@ -1005,18 +1033,6 @@
 
         // Resetear campos de recarga
         try { actualizarMontoRecarga(); } catch(e) {}
-
-        // Resetear cambio de efectivo
-        const opService = document.getElementById('op-service');
-        if (opService && opService.value === 'cambio') {
-          const ids = [
-            'cambio-out-1000', 'cambio-out-500', 'cambio-out-200', 'cambio-out-100',
-            'cambio-out-50', 'cambio-out-20', 'cambio-out-m10', 'cambio-out-m5',
-            'cambio-out-m2', 'cambio-out-m1', 'cambio-out-m05'
-          ];
-          ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = '0'; });
-          try { calcularCambioOperacion(); } catch(e) {}
-        }
 
         if (!silent) {
           mostrarToast("Campos limpios", "info");
