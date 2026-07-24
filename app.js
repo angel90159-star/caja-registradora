@@ -1206,10 +1206,8 @@
             });
           }
         });
-        const sum = balances.capitalTerminal + balances.capitalEfectivo;
-        if (sum !== (balances.capital || 0)) {
-          balances.capitalTerminal = (balances.capital || 0) - balances.capitalEfectivo;
-        }
+        const sum = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
+        balances.capital = sum;
         DB.set('balances', balances);
       }
 
@@ -1362,7 +1360,8 @@
 
         const capEfectivo = balances.capitalEfectivo || 0;
         const capTerminal = balances.capitalTerminal || 0;
-        const capTotal = balances.capital || 0;
+        const capTotal = capEfectivo + capTerminal;
+        balances.capital = capTotal;
 
         const totalEl = document.getElementById('dash-total-operativo');
         if (totalEl) totalEl.className = "text-xl font-black text-yellow-300";
@@ -3751,6 +3750,7 @@
 
         mostrarToast(`Capital anexado: ${fmt.format(total)} → ${modoLabel}`, 'success');
         cargarSaldosDigitales();
+        cargarBitacora();
 
         // Limpiar inputs
         const inputTerminal = document.getElementById('cap-monto-terminal');
@@ -4467,6 +4467,9 @@
           else if (log.category === 'TCONECTA_RECARGA_EFECTIVO') friendlyCategory = 'T-Conecta (Recarga Efectivo)';
           else if (log.category === 'TCONECTA_RECARGA_TARJETA') friendlyCategory = 'T-Conecta (Recarga Tarjeta)';
           else if (log.category === 'TCONECTA_RETIRO') friendlyCategory = 'T-Conecta (Retiro Tarjeta)';
+          else if (log.category === 'CAPITAL_TERMINAL') friendlyCategory = 'Capital (Terminal)';
+          else if (log.category === 'CAPITAL_EFECTIVO') friendlyCategory = 'Capital (Efectivo)';
+          else if (log.category === 'CAPITAL_RETIRO') friendlyCategory = 'Retiro de Capital';
 
           const logDate = log.date || selectedDate;
 
