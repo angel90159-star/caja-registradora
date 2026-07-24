@@ -358,7 +358,10 @@
           const historical = DB.get('historical_logs_by_date', {});
           
           const formattedLogs = logsData.map((l, index) => {
-            let d = l.timestamp ? new Date(l.timestamp) : new Date();
+            let tsStr = l.timestamp ? String(l.timestamp).replace(' ', 'T') : '';
+            let d = tsStr ? new Date(tsStr) : new Date();
+            if (isNaN(d.getTime())) d = new Date();
+
             let dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             let timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             let idVal = l.id || (d.getTime() + index);
@@ -1387,7 +1390,6 @@
         bovedaTotal += parseInt(denom) * (inventoryBoveda[denom] || 0);
       });
       balances.boveda = bovedaTotal;
-      DB.set('balances', balances); // persistir el valor calculado
       document.getElementById('dash-bal-boveda').innerText = fmt.format(bovedaTotal);
 
       // Capital
@@ -4364,7 +4366,8 @@
       const newLog = {
         id: Date.now(),
         date: dateStr,
-        time: now.toLocaleTimeString(),
+        time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        timestamp: now.toISOString(),
         operator,
         category,
         amount,
@@ -4491,8 +4494,12 @@
       });
       dateLogs = uniqueDateLogs;
 
-      // Ordenar por ID descendente (el más reciente primero)
-      dateLogs.sort((a, b) => (b.id || 0) - (a.id || 0));
+      // Ordenar por fecha y hora descendente (el más reciente primero)
+      dateLogs.sort((a, b) => {
+        const timeA = a.timestamp ? new Date(String(a.timestamp).replace(' ', 'T')).getTime() : (typeof a.id === 'number' ? a.id : 0);
+        const timeB = b.timestamp ? new Date(String(b.timestamp).replace(' ', 'T')).getTime() : (typeof b.id === 'number' ? b.id : 0);
+        return timeB - timeA;
+      });
 
       // 2. Llenar selector de operadores dinámicamente según la base de datos de esa fecha
       const filtroOperadorSelect = document.getElementById('filtro-operador');
