@@ -292,19 +292,49 @@
         // Cargar bitácora desde Supabase
         const { data: logsData } = await supabaseClient.from('caja_logs').select('*').order('timestamp', { ascending: true });
         if (logsData && logsData.length > 0) {
-          const formattedLogs = logsData.map(l => ({
-            timestamp: l.timestamp,
-            type: l.type,
-            category: l.category,
-            amount: parseFloat(l.amount) || 0,
-            operator: l.operator,
-            details: l.details,
-            pieces: l.pieces,
-            redepExtraData: l.extra_data,
-            _synced: true
-          }));
-          dbCache['logs'] = formattedLogs;
-          localStorage.setItem('lc5_logs', JSON.stringify(formattedLogs));
+          const historical = DB.get('historical_logs_by_date', {});
+          
+          const formattedLogs = logsData.map((l, index) => {
+            const d = l.timestamp ? new Date(l.timestamp) : new Date();
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const dateStr = `${year}-${month}-${day}`;
+            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            const logObj = {
+              id: l.id || (d.getTime() + index),
+              date: dateStr,
+              time: timeStr,
+              timestamp: l.timestamp,
+              type: l.type || 'OPERACION',
+              category: l.category || 'GENERAL',
+              amount: parseFloat(l.amount) || 0,
+              operator: l.operator || 'ADMIN',
+              details: l.details || '',
+              pieces: l.pieces || null,
+              extraData: l.extra_data || null,
+              redepExtraData: l.extra_data || null,
+              _synced: true
+            };
+
+            if (!historical[dateStr]) historical[dateStr] = [];
+            if (!historical[dateStr].some(h => (h.id && h.id === logObj.id) || (h.timestamp === l.timestamp && h.amount === logObj.amount && h.category === logObj.category))) {
+              historical[dateStr].push(logObj);
+            }
+
+            return logObj;
+          });
+
+          // Guardar logs de sesión activa en orden descendente (recientes primero)
+          const activeLogs = [...formattedLogs].reverse();
+          dbCache['logs'] = activeLogs;
+          localStorage.setItem('lc5_logs', JSON.stringify(activeLogs));
+
+          dbCache['historical_logs_by_date'] = historical;
+          localStorage.setItem('lc5_historical_logs_by_date', JSON.stringify(historical));
+
+          if (typeof cargarBitacora === 'function') cargarBitacora();
         }
 
         // Recalcular Cierre de Turno únicamente si la subvista de cierre está activa
@@ -365,21 +395,42 @@
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'caja_logs' }, payload => {
             if (payload.new) {
               const logs = DB.get('logs', []);
-              if (!logs.some(l => l.timestamp === payload.new.timestamp && l.amount === payload.new.amount)) {
+              if (!logs.some(l => l.timestamp === payload.new.timestamp && l.amount === payload.new.amount && l.category === payload.new.category)) {
+                const d = payload.new.timestamp ? new Date(payload.new.timestamp) : new Date();
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const dateStr = `${year}-${month}-${day}`;
+                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
                 const formattedLog = {
+                  id: payload.new.id || d.getTime(),
+                  date: dateStr,
+                  time: timeStr,
                   timestamp: payload.new.timestamp,
-                  type: payload.new.type,
-                  category: payload.new.category,
+                  type: payload.new.type || 'OPERACION',
+                  category: payload.new.category || 'GENERAL',
                   amount: parseFloat(payload.new.amount) || 0,
-                  operator: payload.new.operator,
-                  details: payload.new.details,
-                  pieces: payload.new.pieces,
-                  redepExtraData: payload.new.extra_data,
+                  operator: payload.new.operator || 'ADMIN',
+                  details: payload.new.details || '',
+                  pieces: payload.new.pieces || null,
+                  extraData: payload.new.extra_data || null,
+                  redepExtraData: payload.new.extra_data || null,
                   _synced: true
                 };
-                logs.push(formattedLog);
+
+                logs.unshift(formattedLog);
                 dbCache['logs'] = logs;
                 localStorage.setItem('lc5_logs', JSON.stringify(logs));
+
+                const historical = DB.get('historical_logs_by_date', {});
+                if (!historical[dateStr]) historical[dateStr] = [];
+                if (!historical[dateStr].some(h => h.timestamp === payload.new.timestamp && h.amount === formattedLog.amount && h.category === formattedLog.category)) {
+                  historical[dateStr].unshift(formattedLog);
+                }
+                dbCache['historical_logs_by_date'] = historical;
+                localStorage.setItem('lc5_historical_logs_by_date', JSON.stringify(historical));
+
                 if (!isUserTyping() && typeof cargarBitacora === 'function') cargarBitacora();
               }
             }
