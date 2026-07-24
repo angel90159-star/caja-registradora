@@ -296,7 +296,46 @@
         }
 
         // Cargar bitácora desde Supabase
-        const { data: logsData } = await supabaseClient.from('caja_logs').select('*').order('timestamp', { ascending: true });
+        let { data: logsData } = await supabaseClient.from('caja_logs').select('*').order('timestamp', { ascending: true });
+        logsData = logsData || [];
+
+        // Auto-sincronización: detectar si hay movimientos locales en la Mac que no se hayan subido a la nube
+        const localLogs = DB.get('logs', []) || [];
+        const historicalObj = DB.get('historical_logs_by_date', {}) || {};
+        const allLocalLogs = [...localLogs];
+        Object.values(historicalObj).forEach(arr => {
+          if (Array.isArray(arr)) allLocalLogs.push(...arr);
+        });
+
+        const existingSigs = new Set(logsData.map(l => `${l.timestamp}_${l.amount}_${l.category}`));
+        const missingLocalRows = [];
+
+        allLocalLogs.forEach(l => {
+          if (l && l.amount !== undefined && l.category) {
+            const sig = `${l.timestamp || (l.date && l.time ? `${l.date} ${l.time}` : '')}_${l.amount}_${l.category}`;
+            if (!existingSigs.has(sig)) {
+              existingSigs.add(sig);
+              missingLocalRows.push({
+                timestamp: l.timestamp || new Date().toISOString(),
+                type: l.type || 'OPERACION',
+                category: l.category || 'GENERAL',
+                amount: parseFloat(l.amount) || 0,
+                operator: l.operator || 'ADMIN',
+                details: l.details || '',
+                pieces: l.pieces || null,
+                extra_data: l.redepExtraData || l.extraData || null
+              });
+            }
+          }
+        });
+
+        if (missingLocalRows.length > 0) {
+          console.log(`[Supabase Auto-Sync] Rescatando y subiendo ${missingLocalRows.length} movimientos locales antiguos a Supabase...`);
+          await supabaseClient.from('caja_logs').insert(missingLocalRows);
+          const { data: refreshedLogs } = await supabaseClient.from('caja_logs').select('*').order('timestamp', { ascending: true });
+          if (refreshedLogs) logsData = refreshedLogs;
+        }
+
         if (logsData && logsData.length > 0) {
           const historical = DB.get('historical_logs_by_date', {});
           
