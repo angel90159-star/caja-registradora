@@ -830,67 +830,69 @@
     }
 
     function limpiarDesglose(silent = false) {
-      const prefix = sessionActive ? 'dash' : 'apertura';
-      const inputs = document.querySelectorAll(`.denom-input-field[id^="${prefix}-"]`);
-      inputs.forEach(inp => {
-        inp.value = 0;
-        const sub = document.getElementById(`${prefix}-sub-${inp.getAttribute('data-denom')}`);
-        if (sub) sub.innerText = fmt.format(0);
-      });
-      document.getElementById('op-monto-manual').value = "";
-      document.getElementById('op-concepto-transferencia').value = "";
-      document.getElementById('op-motivo-capital').value = "";
-      document.getElementById('op-ubicacion-boveda').value = "";
-      const capMot = document.getElementById('cap-motivo');
-      if (capMot) capMot.value = "";
-      const capTerm = document.getElementById('cap-monto-terminal');
-      if (capTerm) capTerm.value = "";
-      
-      const inputDep = document.getElementById('op-cambio-deposito');
-      if (inputDep) inputDep.value = '';
-      currentSugerenciaCambio = null;
-      currentManualCambioPieces = {};
-      setCambioModo('sugerido');
-
-      // Resetear campos de retiro asistido
-      const inputRet = document.getElementById('op-retiro-monto');
-      if (inputRet) inputRet.value = '';
-      currentSugerenciaRetiro = null;
-      currentDevolucionRetiro = {};
-      setRetiroModo('sugerido');
-
-      // Resetear campos de recarga
-      const inputRec = document.getElementById('op-recarga-monto');
-      if (inputRec) inputRec.value = '';
-      actualizarMontoRecarga();
-
-      // Resetear cambio de efectivo
-      if (document.getElementById('op-service') && document.getElementById('op-service').value === 'cambio') {
-        const ids = [
-          'cambio-out-1000', 'cambio-out-500', 'cambio-out-200', 'cambio-out-100',
-          'cambio-out-50', 'cambio-out-20', 'cambio-out-m10', 'cambio-out-m5',
-          'cambio-out-m2', 'cambio-out-m1', 'cambio-out-m05'
-        ];
-        ids.forEach(id => {
-          const el = document.getElementById(id);
-          if (el) el.value = 0;
+      try {
+        const prefix = sessionActive ? 'dash' : 'apertura';
+        const inputs = document.querySelectorAll(`.denom-input-field[id^="${prefix}-"]`);
+        inputs.forEach(inp => {
+          inp.value = 0;
+          const sub = document.getElementById(`${prefix}-sub-${inp.getAttribute('data-denom')}`);
+          if (sub) sub.innerText = fmt.format(0);
         });
-        calcularCambioOperacion();
-      }
 
-      calcularTotalLocal();
-      
-      // Ejecutar validaciones correspondientes al tipo de operación activo para sincronizar el botón de envío
-      if (typeof currentOpType !== 'undefined') {
-        if (currentOpType === 'ingreso') {
-          calcularCambioOperacion();
-        } else if (currentOpType === 'salida') {
-          calcularRetiroOperacion();
+        // Null-safe: limpiar todos los campos de texto
+        const safeClean = (id) => { const el = document.getElementById(id); if (el) el.value = ''; };
+        safeClean('op-monto-manual');
+        safeClean('op-concepto-transferencia');
+        safeClean('op-motivo-capital');
+        safeClean('op-ubicacion-boveda');
+        safeClean('cap-motivo');
+        safeClean('cap-monto-terminal');
+        safeClean('op-cambio-deposito');
+        safeClean('op-retiro-monto');
+        safeClean('op-recarga-monto');
+
+        currentSugerenciaCambio = null;
+        currentManualCambioPieces = {};
+        try { setCambioModo('sugerido'); } catch(e) { console.warn('[limpiarDesglose] setCambioModo:', e.message); }
+
+        // Resetear campos de retiro asistido
+        currentSugerenciaRetiro = null;
+        currentDevolucionRetiro = {};
+        try { setRetiroModo('sugerido'); } catch(e) { console.warn('[limpiarDesglose] setRetiroModo:', e.message); }
+
+        // Resetear campos de recarga
+        try { actualizarMontoRecarga(); } catch(e) { console.warn('[limpiarDesglose] actualizarMontoRecarga:', e.message); }
+
+        // Resetear cambio de efectivo
+        const opService = document.getElementById('op-service');
+        if (opService && opService.value === 'cambio') {
+          const ids = [
+            'cambio-out-1000', 'cambio-out-500', 'cambio-out-200', 'cambio-out-100',
+            'cambio-out-50', 'cambio-out-20', 'cambio-out-m10', 'cambio-out-m5',
+            'cambio-out-m2', 'cambio-out-m1', 'cambio-out-m05'
+          ];
+          ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = 0; });
+          try { calcularCambioOperacion(); } catch(e) {}
         }
-      }
 
-      if (!silent) {
-        mostrarToast("Campos limpios", "info");
+        try { calcularTotalLocal(); } catch(e) { console.warn('[limpiarDesglose] calcularTotalLocal:', e.message); }
+        
+        // Ejecutar validaciones correspondientes al tipo de operación activo para sincronizar el botón de envío
+        if (typeof currentOpType !== 'undefined') {
+          try {
+            if (currentOpType === 'ingreso') {
+              calcularCambioOperacion();
+            } else if (currentOpType === 'salida') {
+              calcularRetiroOperacion();
+            }
+          } catch(e) { console.warn('[limpiarDesglose] validacion:', e.message); }
+        }
+
+        if (!silent) {
+          mostrarToast("Campos limpios", "info");
+        }
+      } catch(e) {
+        console.error('[limpiarDesglose] Error general:', e);
       }
     }
 
