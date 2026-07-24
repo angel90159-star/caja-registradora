@@ -1018,6 +1018,12 @@
         const recibidoLabel = document.getElementById('op-cambio-recibido-label');
         if (recibidoLabel) recibidoLabel.innerText = '$0.00';
 
+        const resWrap = document.getElementById('op-cambio-resultado-wrapper'); 
+        if (resWrap) { resWrap.classList.add('hidden'); resWrap.innerHTML = ''; }
+        
+        const retWrap = document.getElementById('op-retiro-resultado-wrapper'); 
+        if (retWrap) { retWrap.classList.add('hidden'); retWrap.innerHTML = ''; }
+
         currentSugerenciaCambio = null;
         currentManualCambioPieces = {};
         try { setCambioModo('sugerido'); } catch(e) {}
@@ -4672,7 +4678,7 @@
           let piecesBtn = '<span class="text-slate-300 text-xs font-semibold">-</span>';
           if (log.pieces && Object.keys(log.pieces).length > 0) {
             piecesBtn = `
-              <button onclick="abrirModalDesglose(${log.id})" class="text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-xl text-[10px] font-bold transition flex items-center justify-center gap-1 mx-auto border border-indigo-100 cursor-pointer" title="Ver Desglose de Piezas">
+              <button onclick="abrirModalDesglose('${log.id}')" class="text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-xl text-[10px] font-bold transition flex items-center justify-center gap-1 mx-auto border border-indigo-100 cursor-pointer" title="Ver Desglose de Piezas">
                 <i data-lucide="banknote" class="w-3.5 h-3.5"></i> Ver pz
               </button>
             `;
@@ -4757,11 +4763,12 @@
       const logs = DB.get('logs', []);
       const historical = DB.get('historical_logs_by_date', {});
       
+      const searchId = String(logId);
       // Buscar en logs de sesión, o en el histórico de cualquier fecha
-      let log = logs.find(l => l.id === logId);
+      let log = logs.find(l => String(l.id) === searchId);
       if (!log) {
         for (const date in historical) {
-          const found = historical[date].find(l => l.id === logId);
+          const found = historical[date].find(l => String(l.id) === searchId);
           if (found) {
             log = found;
             break;
