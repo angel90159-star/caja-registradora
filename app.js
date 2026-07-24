@@ -290,12 +290,19 @@
           localStorage.setItem('lc5_logs', JSON.stringify(formattedLogs));
         }
 
-        // Refrescar pantallas y recalcular Cierre de Turno si la vista está abierta
-        if (typeof refrescarPantallas === 'function') refrescarPantallas();
-        if (typeof calcularTotalCierre === 'function') calcularTotalCierre();
+        // Recalcular Cierre de Turno únicamente si la subvista de cierre está activa
+        const cierreView = document.getElementById('dash-cierre-view');
+        if (cierreView && !cierreView.classList.contains('hidden') && typeof calcularTotalCierre === 'function') {
+          calcularTotalCierre();
+        }
       } catch (err) {
         console.warn("[Supabase Initial Fetch] Notificación:", err.message || err);
       }
+    }
+
+    function isUserTyping() {
+      const activeEl = document.activeElement;
+      return activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
     }
 
     function suscribirseARealtimeSupabase() {
@@ -317,12 +324,19 @@
               };
               dbCache['balances'] = updatedBal;
               localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
-              if (typeof refrescarPantallas === 'function') refrescarPantallas();
+              
+              if (!isUserTyping() && typeof cargarSaldosDigitales === 'function') {
+                cargarSaldosDigitales();
+              }
             }
           })
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_inventory' }, () => {
-            fetchInitialFromSupabase();
-            if (typeof refrescarPantallas === 'function') refrescarPantallas();
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_inventory' }, payload => {
+            if (payload.new && payload.new.denom) {
+              const currentInv = DB.get('inventory', {});
+              currentInv[payload.new.denom] = parseInt(payload.new.count) || 0;
+              dbCache['inventory'] = currentInv;
+              localStorage.setItem('lc5_inventory', JSON.stringify(currentInv));
+            }
           })
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'caja_logs' }, payload => {
             if (payload.new) {
@@ -342,8 +356,7 @@
                 logs.push(formattedLog);
                 dbCache['logs'] = logs;
                 localStorage.setItem('lc5_logs', JSON.stringify(logs));
-                if (typeof cargarBitacora === 'function') cargarBitacora();
-                if (typeof refrescarPantallas === 'function') refrescarPantallas();
+                if (!isUserTyping() && typeof cargarBitacora === 'function') cargarBitacora();
               }
             }
           })
