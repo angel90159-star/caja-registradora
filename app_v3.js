@@ -4414,6 +4414,28 @@
       guardarEstadoActivoNube();
     }
 
+    function guardarEstadoActivoNube() {
+      try {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const activeState = {
+          balances: DB.get('balances', {}),
+          inventory: DB.get('inventory', {}),
+          sessionActive: typeof sessionActive !== 'undefined' ? sessionActive : true,
+          currentUser: typeof currentUser !== 'undefined' ? currentUser : null,
+          updatedAt: new Date().toISOString()
+        };
+        if (typeof syncToSupabase === 'function') {
+          syncToSupabase(`caja_state_${todayStr}`, activeState);
+        }
+      } catch (err) {
+        console.warn('[guardarEstadoActivoNube] warning:', err);
+      }
+    }
+
+    function sincronizarEstadoActivoInicial() {
+      guardarEstadoActivoNube();
+    }
+
     function setBitacoraTab(tab) {
       bitacoraActiveTab = tab;
       
