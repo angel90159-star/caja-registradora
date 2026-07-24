@@ -3657,10 +3657,20 @@
 
       if (!btnT || !btnE || !panelT) return;
 
+      // Ocultar/mostrar calculadora de cambio según modo
+      const panelCalc = document.getElementById('panel-calculadora-cambio');
+      const resultadoW = document.getElementById('op-cambio-resultado-wrapper');
+      const recibidoLabel = document.getElementById('op-cambio-recibido-label');
+
       if (modo === 'terminal') {
         btnT.className = 'flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-teal-500 text-teal-600 bg-teal-50 transition';
         btnE.className = 'flex-1 py-2.5 rounded-xl text-xs font-bold border-2 border-transparent text-slate-400 bg-slate-50 hover:bg-slate-100 transition';
         panelT.classList.remove('hidden');
+
+        // Terminal no maneja efectivo — ocultar calculadora de cambio
+        if (panelCalc) panelCalc.classList.add('hidden');
+        if (resultadoW) { resultadoW.classList.add('hidden'); resultadoW.innerHTML = ''; }
+        if (recibidoLabel) recibidoLabel.innerText = '$0.00';
 
         // Mostrar charola desactivada (opaca)
         if (fisicaSeccion) {
@@ -3682,6 +3692,9 @@
         if (limpiarBtn) limpiarBtn.classList.remove('hidden');
 
         toggleCharolaInputs(false); // Asegurar que no esté bloqueada
+
+        // Efectivo sí maneja la calculadora de cambio
+        calcularCambioOperacion();
       }
       calcularTotalAnexarCapital();
     }
@@ -3761,6 +3774,15 @@
 
         // Limpiar completamente charola, inputs y calculadora de cambio
         limpiarDesglose(true);
+
+        // Resetear explícitamente la calculadora de cambio visual
+        const resultadoW = document.getElementById('op-cambio-resultado-wrapper');
+        const recibidoLabel = document.getElementById('op-cambio-recibido-label');
+        const inputDep = document.getElementById('op-cambio-deposito');
+        if (resultadoW) { resultadoW.classList.add('hidden'); resultadoW.innerHTML = ''; }
+        if (recibidoLabel) recibidoLabel.innerText = '$0.00';
+        if (inputDep) inputDep.value = '';
+
         calcularTotalAnexarCapital();
 
         // Recargar lista de anexos
