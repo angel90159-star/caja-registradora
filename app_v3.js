@@ -958,6 +958,15 @@
 
     function limpiarDesglose(silent = false) {
       try {
+        // 1. Limpiar primero e incondicionalmente todos los campos de texto e inputs
+        ['op-monto-manual', 'op-concepto-transferencia', 'op-motivo-capital', 
+         'op-ubicacion-boveda', 'cap-motivo', 'cap-monto-terminal', 
+         'op-cambio-deposito', 'op-retiro-monto', 'op-recarga-monto'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = '';
+        });
+
+        // 2. Limpiar todos los campos de denominación (charola)
         const inputs = document.querySelectorAll('.denom-input-field');
         inputs.forEach(inp => {
           inp.value = '0';
@@ -969,19 +978,7 @@
           }
         });
 
-        // Null-safe: limpiar todos los campos de texto
-        const safeClean = (id) => { const el = document.getElementById(id); if (el) el.value = ''; };
-        safeClean('op-monto-manual');
-        safeClean('op-concepto-transferencia');
-        safeClean('op-motivo-capital');
-        safeClean('op-ubicacion-boveda');
-        safeClean('cap-motivo');
-        safeClean('cap-monto-terminal');
-        safeClean('op-cambio-deposito');
-        safeClean('op-retiro-monto');
-        safeClean('op-recarga-monto');
-
-        // Resetear etiquetas visuales de totales
+        // 3. Resetear etiquetas visuales de totales
         const totalCharolaEl = document.getElementById('dash-charola-total');
         if (totalCharolaEl) totalCharolaEl.innerText = fmt.format(0);
 
@@ -3848,7 +3845,9 @@
       return total;
     }
 
+    let isProcessingCapital = false;
     function procesarAnexarCapital() {
+      if (isProcessingCapital) return;
       const total = calcularTotalAnexarCapital();
       if (total <= 0) {
         mostrarToast('Ingresa un monto o piezas para anexar.', 'error');
@@ -3861,66 +3860,70 @@
 
       const modoLabel = modoAnexarCapital === 'terminal' ? 'Terminal Yastas' : 'Efectivo';
 
+      isProcessingCapital = true;
       abrirPINModal(`Autorizar Anexo de Capital — ${modoLabel}`, (opName) => {
-        const balances = DB.get('balances', {});
+        try {
+          const balances = DB.get('balances', {});
 
-        if (modoAnexarCapital === 'terminal') {
-          // Suma al saldo Terminal de Yastas
-          balances.yastasTerminal = (balances.yastasTerminal || 0) + total;
-          balances.capitalTerminal = (balances.capitalTerminal || 0) + total;
-          balances.capital = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
-          DB.set('balances', balances);
+          if (modoAnexarCapital === 'terminal') {
+            // Suma al saldo Terminal de Yastas
+            balances.yastasTerminal = (balances.yastasTerminal || 0) + total;
+            balances.capitalTerminal = (balances.capitalTerminal || 0) + total;
+            balances.capital = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
+            DB.set('balances', balances);
 
-          registrarMovimientoBitacora(opName, 'CAPITAL_TERMINAL', total,
-            `Anexo de capital a Terminal Yastas: ${fmt.format(total)}. ${motivoStr}`);
+            registrarMovimientoBitacora(opName, 'CAPITAL_TERMINAL', total,
+              `Anexo de capital a Terminal Yastas: ${fmt.format(total)}. ${motivoStr}`);
 
-        } else {
-          // Suma al saldo Efectivo de Yastas + actualiza inventario físico por denominación
-          const inventory = DB.get('inventory', {});
-          const piezasObj = {};
+          } else {
+            // Suma al saldo Efectivo de Yastas + actualiza inventario físico por denominación
+            const inventory = DB.get('inventory', {});
+            const piezasObj = {};
 
-          // Leer las piezas directamente de la charola global de la izquierda
-          const inputs = document.querySelectorAll('.denom-input-field[id^="dash-"]');
-          inputs.forEach(inp => {
-            const denom = parseFloat(inp.getAttribute('data-denom'));
-            const cant = parseInt(inp.value) || 0;
-            if (cant > 0) {
-              inventory[denom] = (inventory[denom] || 0) + cant;
-              piezasObj[denom] = cant;
-            }
+            // Leer las piezas directamente de la charola global de la izquierda
+            const inputs = document.querySelectorAll('.denom-input-field[id^="dash-"]');
+            inputs.forEach(inp => {
+              const denom = parseFloat(inp.getAttribute('data-denom'));
+              const cant = parseInt(inp.value) || 0;
+              if (cant > 0) {
+                inventory[denom] = (inventory[denom] || 0) + cant;
+                piezasObj[denom] = cant;
+              }
+            });
+
+            DB.set('inventory', inventory);
+
+            balances.yastasEfectivo = (balances.yastasEfectivo || 0) + total;
+            balances.capitalEfectivo = (balances.capitalEfectivo || 0) + total;
+            balances.capital = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
+            DB.set('balances', balances);
+
+            const piezasStr = Object.keys(piezasObj).map(d => `${piezasObj[d]}x$${d}`).join(', ');
+            registrarMovimientoBitacora(opName, 'CAPITAL_EFECTIVO', total,
+              `Anexo de capital en Efectivo Yastas: ${fmt.format(total)}. Piezas: ${piezasStr}. ${motivoStr}`, piezasObj);
+          }
+
+          mostrarToast(`Capital anexado: ${fmt.format(total)} → ${modoLabel}`, 'success');
+          cargarSaldosDigitales();
+
+          // Limpiar explícitamente todos los campos de texto e inputs de Anexo de Capital
+          ['cap-motivo', 'cap-monto-terminal', 'op-cambio-deposito'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
           });
 
-          DB.set('inventory', inventory);
+          // Limpiar completamente charola, inputs y calculadora de cambio
+          limpiarDesglose(true);
 
-          balances.yastasEfectivo = (balances.yastasEfectivo || 0) + total;
-          balances.capitalEfectivo = (balances.capitalEfectivo || 0) + total;
-          balances.capital = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
-          DB.set('balances', balances);
+          try { calcularTotalLocal(); } catch(e) {}
+          try { calcularCambioOperacion(); } catch(e) {}
+          try { calcularTotalAnexarCapital(); } catch(e) {}
 
-          const piezasStr = Object.keys(piezasObj).map(d => `${piezasObj[d]}x$${d}`).join(', ');
-          registrarMovimientoBitacora(opName, 'CAPITAL_EFECTIVO', total,
-            `Anexo de capital en Efectivo Yastas: ${fmt.format(total)}. Piezas: ${piezasStr}. ${motivoStr}`, piezasObj);
+          cargarBitacora();
+          cargarAnexosCapitalDia();
+        } finally {
+          isProcessingCapital = false;
         }
-
-        mostrarToast(`Capital anexado: ${fmt.format(total)} → ${modoLabel}`, 'success');
-        cargarSaldosDigitales();
-        cargarBitacora();
-
-        // Limpiar completamente charola, inputs y calculadora de cambio
-        limpiarDesglose(true);
-
-        // Resetear explícitamente la calculadora de cambio visual
-        const resultadoW = document.getElementById('op-cambio-resultado-wrapper');
-        const recibidoLabel = document.getElementById('op-cambio-recibido-label');
-        const inputDep = document.getElementById('op-cambio-deposito');
-        if (resultadoW) { resultadoW.classList.add('hidden'); resultadoW.innerHTML = ''; }
-        if (recibidoLabel) recibidoLabel.innerText = '$0.00';
-        if (inputDep) inputDep.value = '';
-
-        calcularTotalAnexarCapital();
-
-        // Recargar lista de anexos
-        cargarAnexosCapitalDia();
       });
     }
 
