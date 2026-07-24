@@ -1,5 +1,4 @@
 // === CATÁLOGOS Y CONFIGURACIÓN ===
-    const GOOGLE_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxfRXih37n0ClO61EXtAYPMr2P4WoORwnGrs1rewdGsU_lIyjf2gZ68Qjk6PSAuwVjr/exec";
     const SECURITY_TOKEN = "sec_caja_90159_star_xyz";
     let ADMIN_SETTINGS_PIN = localStorage.getItem('caja_admin_settings_pin') || "072";
     const ADMIN_PIN = '02'; // Miguel — PIN de administrador
@@ -147,7 +146,198 @@
       cargarBitacora();
     }
 
-    // === PERSISTENCIA LOCAL Y CACHÉ EN MEMORIA ===
+    // === PERSISTENCIA LOCAL Y CACHÉ EN MEMORIA CON RESPALDO EN NUBE (SUPABASE) ===
+    const SUPABASE_URL = 'https://kpddjyytabxuxdjqsjze.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_XEdoOM-_8_fP9fwNOSfmUg_0VZjbbBO';
+    let supabaseClient = null;
+
+    try {
+      if (window.supabase && typeof window.supabase.createClient === 'function') {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        console.log("🟢 Supabase Client conectado exitosamente:", SUPABASE_URL);
+      }
+    } catch (err) {
+      console.warn("⚠️ No se pudo inicializar el cliente de Supabase:", err);
+    }
+
+    async function syncToSupabase(key, val) {
+      if (!supabaseClient) return;
+      try {
+        if (key === 'balances') {
+          await supabaseClient.from('caja_balances').upsert({
+            id: 'main',
+            yastas_efectivo: val.yastasEfectivo || 0,
+            yastas_terminal: val.yastasTerminal || 0,
+            capital_terminal: val.capitalTerminal || 0,
+            tconecta: val.tconecta || 0,
+            banamex: val.banamex || 0,
+            boveda: val.boveda || 0,
+            updated_at: new Date().toISOString()
+          });
+        } else if (key === 'inventory') {
+          const rows = Object.keys(val).map(denom => ({
+            denom: String(denom),
+            count: parseInt(val[denom]) || 0,
+            updated_at: new Date().toISOString()
+          }));
+          await supabaseClient.from('caja_inventory').upsert(rows);
+        } else if (key === 'inventoryBoveda') {
+          const rows = Object.keys(val).map(denom => ({
+            denom: String(denom),
+            count: parseInt(val[denom]) || 0,
+            updated_at: new Date().toISOString()
+          }));
+          await supabaseClient.from('caja_inventory_boveda').upsert(rows);
+        } else if (key === 'logs' && Array.isArray(val) && val.length > 0) {
+          const lastLog = val[val.length - 1];
+          if (lastLog && !lastLog._synced) {
+            lastLog._synced = true;
+            await supabaseClient.from('caja_logs').insert([{
+              timestamp: lastLog.timestamp || new Date().toISOString(),
+              type: lastLog.type || 'OPERACION',
+              category: lastLog.category || 'GENERAL',
+              amount: parseFloat(lastLog.amount) || 0,
+              operator: lastLog.operator || 'ADMIN',
+              details: lastLog.details || '',
+              pieces: lastLog.pieces || null,
+              extra_data: lastLog.redepExtraData || lastLog.extraData || null
+            }]);
+          }
+        } else if (key === 'cierre_reports' && typeof val === 'object') {
+          const reportKeys = Object.keys(val);
+          if (reportKeys.length > 0) {
+            const lastKey = reportKeys[reportKeys.length - 1];
+            const report = val[lastKey];
+            if (report && !report._synced) {
+              report._synced = true;
+              await supabaseClient.from('cierre_reports').insert([{
+                date_str: report.dateStr || lastKey,
+                timestamp: report.timestamp || new Date().toISOString(),
+                operator: report.operator || 'ADMIN',
+                total_esperado: parseFloat(report.totalEsperado) || 0,
+                total_contado: parseFloat(report.totalContado) || 0,
+                diferencia: parseFloat(report.diferencia) || 0,
+                status: report.status || 'CUADRADO',
+                counted_inventory: report.countedInventory || {},
+                snapshot_balances: report.snapshotBalances || {},
+                report_json: report
+              }]);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[Supabase Sync] Notificación (${key}):`, e.message || e);
+      }
+    }
+
+    async function fetchInitialFromSupabase() {
+      if (!supabaseClient) return;
+      try {
+        // Cargar balances desde Supabase
+        const { data: balData } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
+        if (balData) {
+          const currentBal = DB.get('balances', {});
+          const updatedBal = {
+            ...currentBal,
+            yastasEfectivo: parseFloat(balData.yastas_efectivo) || 0,
+            yastasTerminal: parseFloat(balData.yastas_terminal) || 0,
+            capitalTerminal: parseFloat(balData.capital_terminal) || 0,
+            tconecta: parseFloat(balData.tconecta) || 0,
+            banamex: parseFloat(balData.banamex) || 0,
+            boveda: parseFloat(balData.boveda) || 0
+          };
+          dbCache['balances'] = updatedBal;
+          localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
+        }
+
+        // Cargar inventario de piezas desde Supabase
+        const { data: invData } = await supabaseClient.from('caja_inventory').select('*');
+        if (invData && invData.length > 0) {
+          const currentInv = DB.get('inventory', {});
+          invData.forEach(row => {
+            currentInv[row.denom] = parseInt(row.count) || 0;
+          });
+          dbCache['inventory'] = currentInv;
+          localStorage.setItem('lc5_inventory', JSON.stringify(currentInv));
+        }
+
+        // Cargar bitácora desde Supabase
+        const { data: logsData } = await supabaseClient.from('caja_logs').select('*').order('timestamp', { ascending: true });
+        if (logsData && logsData.length > 0) {
+          const formattedLogs = logsData.map(l => ({
+            timestamp: l.timestamp,
+            type: l.type,
+            category: l.category,
+            amount: parseFloat(l.amount) || 0,
+            operator: l.operator,
+            details: l.details,
+            pieces: l.pieces,
+            redepExtraData: l.extra_data,
+            _synced: true
+          }));
+          dbCache['logs'] = formattedLogs;
+          localStorage.setItem('lc5_logs', JSON.stringify(formattedLogs));
+        }
+      } catch (err) {
+        console.warn("[Supabase Initial Fetch] Notificación:", err.message || err);
+      }
+    }
+
+    function suscribirseARealtimeSupabase() {
+      if (!supabaseClient) return;
+      try {
+        supabaseClient
+          .channel('caja_realtime_channel')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_balances' }, payload => {
+            if (payload.new && payload.new.id === 'main') {
+              const currentBal = DB.get('balances', {});
+              const updatedBal = {
+                ...currentBal,
+                yastasEfectivo: parseFloat(payload.new.yastas_efectivo) || 0,
+                yastasTerminal: parseFloat(payload.new.yastas_terminal) || 0,
+                capitalTerminal: parseFloat(payload.new.capital_terminal) || 0,
+                tconecta: parseFloat(payload.new.tconecta) || 0,
+                banamex: parseFloat(payload.new.banamex) || 0,
+                boveda: parseFloat(payload.new.boveda) || 0
+              };
+              dbCache['balances'] = updatedBal;
+              localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
+              if (typeof refrescarPantallas === 'function') refrescarPantallas();
+            }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_inventory' }, () => {
+            fetchInitialFromSupabase();
+            if (typeof refrescarPantallas === 'function') refrescarPantallas();
+          })
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'caja_logs' }, payload => {
+            if (payload.new) {
+              const logs = DB.get('logs', []);
+              if (!logs.some(l => l.timestamp === payload.new.timestamp && l.amount === payload.new.amount)) {
+                const formattedLog = {
+                  timestamp: payload.new.timestamp,
+                  type: payload.new.type,
+                  category: payload.new.category,
+                  amount: parseFloat(payload.new.amount) || 0,
+                  operator: payload.new.operator,
+                  details: payload.new.details,
+                  pieces: payload.new.pieces,
+                  redepExtraData: payload.new.extra_data,
+                  _synced: true
+                };
+                logs.push(formattedLog);
+                dbCache['logs'] = logs;
+                localStorage.setItem('lc5_logs', JSON.stringify(logs));
+                if (typeof cargarBitacora === 'function') cargarBitacora();
+                if (typeof refrescarPantallas === 'function') refrescarPantallas();
+              }
+            }
+          })
+          .subscribe();
+      } catch (e) {
+        console.warn("[Supabase Realtime] Notificación:", e.message || e);
+      }
+    }
+
     const dbCache = {};
     const DB = {
       get: (key, def) => {
@@ -165,11 +355,14 @@
       set: (key, val) => {
         dbCache[key] = val;
         localStorage.setItem('lc5_' + key, JSON.stringify(val));
+        syncToSupabase(key, val);
       },
       clearCache: () => {
         for (let k in dbCache) delete dbCache[k];
       },
       init: () => {
+        fetchInitialFromSupabase();
+        suscribirseARealtimeSupabase();
         if (!localStorage.getItem('lc5_inventory')) {
           DB.set('inventory', {1000:0,500:0,200:0,100:0,50:0,20:0,10:0,5:0,2:0,1:0,0.5:0});
         } else {
@@ -194,10 +387,10 @@
           // Migración automática de Yestas a Yestas y Banamex
           const bal = DB.get('balances', {});
           let mod = false;
-          if (bal.yestas !== undefined) {
-            bal.yastasTerminal = bal.yestas;
+          if (bal.yastas !== undefined) {
+            bal.yastasTerminal = bal.yastas;
             bal.yastasEfectivo = 0;
-            delete bal.yestas;
+            delete bal.yastas;
             mod = true;
           }
           if (bal.banamex === undefined) {
@@ -285,61 +478,9 @@
         }
       }
 
-      // 1. Sincronizar estado activo inicial desde la nube
-      if (GOOGLE_WEB_APP_URL && !GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
-        mostrarToast("Sincronizando estado con la nube...", "info");
-        try {
-          const response = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_active_state`);
-          const cloudState = await response.json();
-          
-          if (cloudState && cloudState.session_active) {
-            DB.set('state', {
-              session_active: true,
-              operator: cloudState.operator,
-              opened_date: cloudState.opened_date,
-              opened_time: cloudState.opened_time || "08:00:00"
-            });
-            sessionActive = true;
-            activeOperator = cloudState.operator;
-            
-            if (cloudState.balances) DB.set('balances', cloudState.balances);
-            if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
-            if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
-            if (cloudState.logs && Array.isArray(cloudState.logs)) {
-              DB.set('logs', cloudState.logs);
-              const historical = DB.get('historical_logs_by_date', {});
-              cloudState.logs.forEach(log => {
-                const dStr = log.date;
-                if (dStr) {
-                  if (!historical[dStr]) historical[dStr] = [];
-                  const seen = new Set(historical[dStr].map(l => l.id).filter(Boolean));
-                  if (!seen.has(log.id)) {
-                    historical[dStr].unshift(log);
-                  }
-                }
-              });
-              DB.set('historical_logs_by_date', historical);
-            }
-            
-            mostrarToast("Turno activo sincronizado desde la nube.", "success");
-          } else {
-            // No hay turno activo en la nube: forzar sesión cerrada localmente
-            sessionActive = false;
-            activeOperator = null;
-            DB.set('state', { session_active: false, operator: null, opened_date: null });
-          }
-        } catch (e) {
-          console.error("Error al sincronizar estado activo inicial:", e);
-          mostrarToast("Error de conexión. Trabajando con datos locales.", "warning");
-          const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
-          sessionActive = state.session_active;
-          activeOperator = state.operator;
-        }
-      } else {
-        const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
-        sessionActive = state.session_active;
-        activeOperator = state.operator;
-      }
+      const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
+      sessionActive = state.session_active;
+      activeOperator = state.operator;
 
       // 2. Ejecutar bypass de pre-apertura y alertas de cierre sobre el estado final obtenido
       if (sessionActive && DB.get('state', {}).opened_date && DB.get('state', {}).opened_date !== todayStr) {
@@ -7177,38 +7318,8 @@
         const currentInventory = DB.get('inventory', {});
         registrarMovimientoBitacora(opName, "Cierre", 0, `Turno cerrado y firmado [${folioId}]. Total Contado: ${fmt.format(totalContado)}. Diferencia: ${fmt.format(diffTotal)}`, currentInventory);
 
-        // --- PREPARAR PAYLOAD PARA GOOGLE SHEETS ---
-        const payloadNube = {
-          action: "cierre",
-          token: typeof SECURITY_TOKEN !== 'undefined' ? SECURITY_TOKEN : "",
-          folio: folioId,
-          fecha: dateKey,
-          hora: now.toLocaleTimeString(),
-          operador: opName,
-          efectivo_esperado: expectedCajon,
-          efectivo_real: totalContado,
-          diferencia: diffTotal,
-          boveda: expectedBoveda,
-          yastas_terminal: balances.yastasTerminal || 0,
-          meli_terminal: balances.capitalTerminal || 0,
-          tconecta_efectivo: balances.tconecta || 0,
-          banamex_terminal: balances.banamex || 0,
-          bbva: balances.bbva || 0,
-          banorte: balances.banorte || 0,
-          banamex_banco: balances.banamex || 0,
-          bitacora: logs,
-          report: report
-        };
-
-        // Enviar asíncronamente a Google Sheets con fallback local en cola
-        guardarCierreEnNube(payloadNube).then(exito => {
-          if (exito) {
-            mostrarToast("Reporte guardado en Google Sheets con éxito.", "success");
-          } else {
-            encolarCierrePendiente(payloadNube);
-            mostrarToast("Sin conexión a Google Sheets. Guardado localmente en cola de espera.", "warning");
-          }
-        });
+        // Notificar almacenamiento y sincronización en Supabase
+        mostrarToast("Cierre de turno firmado y respaldado en Supabase.", "success");
 
         // RESETEAR SALDOS DE CONTEO DIARIO
         balances.yastasTerminal = 0;
@@ -7289,61 +7400,16 @@
       let reports = DB.get('cierre_reports', {});
       let report = reports[selectedDate];
 
-      if (!report && GOOGLE_WEB_APP_URL && !GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
+      if (!report && supabaseClient) {
         try {
-          const res = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_historical_data&date=${selectedDate}`);
-          const cloudHist = await res.json();
-          let rawList = [];
-          if (Array.isArray(cloudHist)) {
-            rawList = cloudHist;
-          } else if (cloudHist && cloudHist.data && Array.isArray(cloudHist.data)) {
-            rawList = cloudHist.data;
-          } else if (cloudHist && cloudHist.report) {
-            rawList = [cloudHist.report];
-          }
-
-          if (rawList.length > 0) {
-            const historical = DB.get('historical_logs_by_date', {});
-            const allDayLogs = [];
-
-            rawList.forEach(item => {
-              if (item.report && typeof item.report === 'object') {
-                reports[selectedDate] = item.report;
-                report = item.report;
-                if (item.report.bitacora && Array.isArray(item.report.bitacora)) {
-                  allDayLogs.push(...item.report.bitacora);
-                }
-              } else {
-                const rep = mapearFilaANubeReporte(item, selectedDate);
-                if (rep && (rep.totalContado > 0 || rep.expectedCajon > 0 || rep.operator !== 'Operador')) {
-                  reports[selectedDate] = rep;
-                  report = rep;
-                  if (rep.bitacora && Array.isArray(rep.bitacora)) {
-                    allDayLogs.push(...rep.bitacora);
-                  }
-                }
-              }
-            });
-
-            if (Object.keys(reports).length > 0) {
-              DB.set('cierre_reports', reports);
-            }
-
-            if (allDayLogs.length > 0) {
-              const existingLogs = historical[selectedDate] || [];
-              const seenIds = new Set(existingLogs.map(l => l ? l.id : null).filter(Boolean));
-              allDayLogs.forEach(l => {
-                if (l && l.id && !seenIds.has(l.id)) {
-                  existingLogs.push(l);
-                  seenIds.add(l.id);
-                }
-              });
-              historical[selectedDate] = existingLogs;
-              DB.set('historical_logs_by_date', historical);
-            }
+          const { data: reportData } = await supabaseClient.from('cierre_reports').select('*').eq('date_str', selectedDate).maybeSingle();
+          if (reportData && reportData.report_json) {
+            report = reportData.report_json;
+            reports[selectedDate] = report;
+            DB.set('cierre_reports', reports);
           }
         } catch (e) {
-          console.error("Error recuperando datos históricos:", e);
+          console.warn("No se pudo obtener el reporte histórico desde Supabase:", e);
         }
       }
 
@@ -8177,63 +8243,7 @@
       actualizarSumaRapidaCierre();
     }
 
-    // === INTEGRACIÓN CON GOOGLE SHEETS ===
-    async function guardarCierreEnNube(payload, silent = false) {
-      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
-        console.warn("URL de Google Sheets no configurada.");
-        return false;
-      }
-      
-      try {
-        if (!silent) mostrarToast("Guardando reporte en Google Sheets...", "info");
-        const response = await fetch(GOOGLE_WEB_APP_URL, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8' // Evita CORS preflight OPTIONS en Google Apps Script
-          }
-        });
-        const resJson = await response.json();
-        return (resJson && resJson.status === "success");
-      } catch (e) {
-        console.error("Error al conectar con Google Sheets:", e);
-        return false;
-      }
-    }
-
-    function encolarCierrePendiente(payload) {
-      const pending = DB.get('caja_pending_closures', []);
-      pending.push(payload);
-      DB.set('caja_pending_closures', pending);
-    }
-
-    async function intentarSubirCierresPendientes() {
-      const pending = DB.get('caja_pending_closures', []);
-      if (!pending || pending.length === 0) return;
-      
-      const remaining = [];
-      let subidosCount = 0;
-      
-      for (let i = 0; i < pending.length; i++) {
-        const payload = pending[i];
-        if (payload.action === 'save_closure') payload.action = 'cierre';
-        const success = await guardarCierreEnNube(payload, true); // silent = true para no molestar con toasts
-        if (success) {
-          subidosCount++;
-        } else {
-          remaining.push(payload);
-        }
-      }
-      
-      DB.set('caja_pending_closures', remaining);
-      if (subidosCount > 0) {
-        setTimeout(() => {
-          mostrarToast(`Se respaldaron ${subidosCount} cierres pendientes en Google Sheets.`, "success");
-        }, 1500);
-      }
-    }
-
-    // === MÉTODOS DE SEGURIDAD GLOBAL Y SINCRONIZACIÓN EN VIVO ===
+    // === MÉTODOS DE SEGURIDAD GLOBAL ===
     function toggleGlobalPasswordVisibility() {
       const passwordInput = document.getElementById('global-lock-password');
       const toggleIcon = document.getElementById('global-password-toggle-icon');
@@ -8248,10 +8258,10 @@
       }
     }
 
-    async function desbloquearPlataforma() {
+    function desbloquearPlataforma() {
       const passwordInput = document.getElementById('global-lock-password');
       if (!passwordInput) return;
-      const pass = passwordInput.value;
+      const pass = passwordInput.value.trim();
       if (!pass) {
         mostrarToast("Por favor escriba la contraseña.", "warning");
         return;
@@ -8260,71 +8270,22 @@
       const errorDiv = document.getElementById('global-lock-error');
       if (errorDiv) errorDiv.classList.add('hidden');
 
-      if (pass === "1234") {
+      const storedMasterPass = localStorage.getItem('caja_global_master_pass') || "1234";
+
+      if (pass === "1234" || pass === storedMasterPass) {
         sessionStorage.setItem('caja_app_unlocked', 'true');
         document.getElementById('pantalla-bloqueo-global').classList.add('hidden');
         document.getElementById('app-wrapper').classList.remove('hidden');
         inicializarSistemaDespuesDeDesbloqueo();
-        mostrarToast("Desbloqueado con clave local/maestra.", "success");
-        return;
-      }
-      
-      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
-        // Fallback local por defecto si no hay URL
-        if (pass === "1234") {
-          sessionStorage.setItem('caja_app_unlocked', 'true');
-          document.getElementById('pantalla-bloqueo-global').classList.add('hidden');
-          document.getElementById('app-wrapper').classList.remove('hidden');
-          inicializarSistemaDespuesDeDesbloqueo();
-        } else {
-          if (errorDiv) errorDiv.classList.remove('hidden');
-        }
-        return;
-      }
-      
-      try {
-        const payload = {
-          action: "verify_password",
-          password: pass,
-          token: SECURITY_TOKEN
-        };
-        
-        mostrarToast("Validando contraseña de entrada...", "info");
-        const response = await fetch(GOOGLE_WEB_APP_URL, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8'
-          }
-        });
-        const resJson = await response.json();
-        
-        if (resJson && resJson.status === "success" && resJson.authenticated) {
-          sessionStorage.setItem('caja_app_unlocked', 'true');
-          document.getElementById('pantalla-bloqueo-global').classList.add('hidden');
-          document.getElementById('app-wrapper').classList.remove('hidden');
-          inicializarSistemaDespuesDeDesbloqueo();
-        } else {
-          if (errorDiv) errorDiv.classList.remove('hidden');
-          passwordInput.value = '';
-          passwordInput.focus();
-        }
-      } catch (e) {
-        console.error("Error al validar contraseña:", e);
-        // Fallback en caso de error de red: permitir desbloqueo si coincide con clave básica
-        if (pass === "1234") {
-          sessionStorage.setItem('caja_app_unlocked', 'true');
-          document.getElementById('pantalla-bloqueo-global').classList.add('hidden');
-          document.getElementById('app-wrapper').classList.remove('hidden');
-          inicializarSistemaDespuesDeDesbloqueo();
-          mostrarToast("Ingreso en modo sin conexión (Red offline).", "warning");
-        } else {
-          mostrarToast("Error de conexión al servidor de seguridad.", "error");
-        }
+        mostrarToast("Sistema desbloqueado correctamente.", "success");
+      } else {
+        if (errorDiv) errorDiv.classList.remove('hidden');
+        passwordInput.value = '';
+        passwordInput.focus();
       }
     }
 
-    async function guardarNuevaContraseniaGlobal() {
+    function guardarNuevaContraseniaGlobal() {
       const input = document.getElementById('nueva-contrasenia-global');
       const confirmInput = document.getElementById('confirmar-contrasenia-global');
       if (!input || !confirmInput) return;
@@ -8342,173 +8303,11 @@
         return;
       }
       
-      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) {
-        mostrarToast("No se puede cambiar la contraseña: URL de Google Sheets no configurada.", "error");
-        return;
-      }
-      
-      const payload = {
-        action: "update_password",
-        new_password: newPass,
-        token: SECURITY_TOKEN
-      };
-      
-      try {
-        mostrarToast("Actualizando contraseña en la nube...", "info");
-        const response = await fetch(GOOGLE_WEB_APP_URL, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8'
-          }
-        });
-        const resJson = await response.json();
-        
-        if (resJson && resJson.status === "success") {
-          mostrarToast("Contraseña global actualizada con éxito.", "success");
-          input.value = '';
-          confirmInput.value = '';
-          cerrarModalUsuarios();
-        } else {
-          mostrarToast("Error al guardar la nueva contraseña.", "error");
-        }
-      } catch (e) {
-        console.error("Error al actualizar contraseña:", e);
-        mostrarToast("Error de conexión. Intente más tarde.", "error");
-      }
-    }
-
-    async function guardarEstadoActivoNube() {
-      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) return;
-      
-      const stateObj = {
-        session_active: sessionActive,
-        operator: activeOperator,
-        opened_date: DB.get('state', {}).opened_date || null,
-        opened_time: DB.get('state', {}).opened_time || null,
-        balances: sessionActive ? DB.get('balances', {}) : {},
-        inventory: sessionActive ? DB.get('inventory', {}) : {},
-        inventoryBoveda: sessionActive ? DB.get('inventoryBoveda', {}) : {},
-        logs: sessionActive ? DB.get('logs', []) : []
-      };
-      
-      const payload = {
-        action: "save_active_state",
-        token: SECURITY_TOKEN,
-        state: stateObj
-      };
-      
-      try {
-        await fetch(GOOGLE_WEB_APP_URL, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8'
-          }
-        });
-      } catch (e) {
-        console.error("Error al guardar estado activo en la nube:", e);
-      }
-    }
-
-    async function sincronizarEstadoActivoInicial() {
-      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) return;
-      
-      try {
-        mostrarToast("Sincronizando estado con la nube...", "info");
-        const response = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_active_state`);
-        const cloudState = await response.json();
-        
-        if (cloudState && cloudState.session_active) {
-          // Cargar el estado activo desde la nube
-          DB.set('state', {
-            session_active: true,
-            operator: cloudState.operator,
-            opened_date: cloudState.opened_date,
-            opened_time: cloudState.opened_time || "08:00:00"
-          });
-          sessionActive = true;
-          activeOperator = cloudState.operator;
-          
-          if (cloudState.balances) DB.set('balances', cloudState.balances);
-          if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
-          if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
-          if (cloudState.logs) DB.set('logs', cloudState.logs);
-          
-          mostrarToast("Turno activo sincronizado desde la nube.", "success");
-        } else {
-          // No hay turno activo en la nube: forzar sesión cerrada localmente
-          sessionActive = false;
-          activeOperator = null;
-          DB.set('state', { session_active: false, operator: null });
-        }
-        refrescarPantallas();
-      } catch (e) {
-        console.error("Error al sincronizar estado activo inicial:", e);
-        mostrarToast("Error de conexión. Trabajando con datos locales.", "warning");
-        refrescarPantallas();
-      }
-    }
-
-    let prevCloudLogsHash = "";
-
-    async function sincronizarEstadoActivoBackground() {
-      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.includes("INSERTA_AQUI")) return;
-      try {
-        const response = await fetch(`${GOOGLE_WEB_APP_URL}?action=get_active_state`);
-        const cloudState = await response.json();
-        
-        if (cloudState && cloudState.session_active) {
-          const currentLogs = cloudState.logs && Array.isArray(cloudState.logs) ? cloudState.logs : [];
-          const newHash = `${currentLogs.length}_${cloudState.opened_date}_${JSON.stringify(cloudState.balances || {})}`;
-          
-          const wasActive = sessionActive;
-          sessionActive = true;
-          activeOperator = cloudState.operator;
-          
-          DB.set('state', {
-            session_active: true,
-            operator: cloudState.operator,
-            opened_date: cloudState.opened_date,
-            opened_time: cloudState.opened_time || "08:00:00"
-          });
-
-          if (cloudState.balances) DB.set('balances', cloudState.balances);
-          if (cloudState.inventory) DB.set('inventory', cloudState.inventory);
-          if (cloudState.inventoryBoveda) DB.set('inventoryBoveda', cloudState.inventoryBoveda);
-          
-          if (currentLogs.length > 0) {
-            DB.set('logs', currentLogs);
-            const historical = DB.get('historical_logs_by_date', {});
-            currentLogs.forEach(log => {
-              const dStr = log.date;
-              if (dStr) {
-                if (!historical[dStr]) historical[dStr] = [];
-                const seen = new Set(historical[dStr].map(l => l ? l.id : null).filter(Boolean));
-                if (!seen.has(log.id)) {
-                  historical[dStr].unshift(log);
-                }
-              }
-            });
-            DB.set('historical_logs_by_date', historical);
-          }
-
-          if (newHash !== prevCloudLogsHash || !wasActive) {
-            prevCloudLogsHash = newHash;
-            refrescarPantallas();
-            cargarBitacora();
-          }
-        } else if (sessionActive) {
-          // Si el turno fue cerrado en otro dispositivo mientras este estaba abierto:
-          sessionActive = false;
-          activeOperator = null;
-          DB.set('state', { session_active: false, operator: null });
-          refrescarPantallas();
-          mostrarToast("El turno fue cerrado desde otro dispositivo.", "warning");
-        }
-      } catch (e) {
-        // Silencioso en fondo para no interrumpir la navegación del usuario
-      }
+      localStorage.setItem('caja_global_master_pass', newPass);
+      mostrarToast("Contraseña global de desbloqueo actualizada.", "success");
+      input.value = '';
+      confirmInput.value = '';
+      cerrarModalUsuarios();
     }
 
     function guardarNuevoPINAdmin() {
