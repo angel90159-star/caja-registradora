@@ -841,6 +841,10 @@
       document.getElementById('op-concepto-transferencia').value = "";
       document.getElementById('op-motivo-capital').value = "";
       document.getElementById('op-ubicacion-boveda').value = "";
+      const capMot = document.getElementById('cap-motivo');
+      if (capMot) capMot.value = "";
+      const capTerm = document.getElementById('cap-monto-terminal');
+      if (capTerm) capTerm.value = "";
       
       const inputDep = document.getElementById('op-cambio-deposito');
       if (inputDep) inputDep.value = '';
@@ -3755,16 +3759,8 @@
         cargarSaldosDigitales();
         cargarBitacora();
 
-        // Limpiar inputs
-        const inputTerminal = document.getElementById('cap-monto-terminal');
-        if (inputTerminal) inputTerminal.value = '';
-        
-        // Limpiar la charola principal de la izquierda
-        const inputsLeft = document.querySelectorAll('.denom-input-field[id^="dash-"]');
-        inputsLeft.forEach(inp => { inp.value = ''; });
-        calcularTotalLocal(); // Recalcular subtotales de la charola
-
-        if (motivoInput) motivoInput.value = '';
+        // Limpiar completamente charola, inputs y calculadora de cambio
+        limpiarDesglose(true);
         calcularTotalAnexarCapital();
 
         // Recargar lista de anexos
