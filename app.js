@@ -196,19 +196,22 @@
           }));
           await supabaseClient.from('caja_inventory_boveda').upsert(rows);
         } else if (key === 'logs' && Array.isArray(val) && val.length > 0) {
-          const lastLog = val[val.length - 1];
-          if (lastLog && !lastLog._synced) {
-            lastLog._synced = true;
-            await supabaseClient.from('caja_logs').insert([{
-              timestamp: lastLog.timestamp || new Date().toISOString(),
-              type: lastLog.type || 'OPERACION',
-              category: lastLog.category || 'GENERAL',
-              amount: parseFloat(lastLog.amount) || 0,
-              operator: lastLog.operator || 'ADMIN',
-              details: lastLog.details || '',
-              pieces: lastLog.pieces || null,
-              extra_data: lastLog.redepExtraData || lastLog.extraData || null
-            }]);
+          const unsyncedLogs = val.filter(l => l && !l._synced);
+          if (unsyncedLogs.length > 0) {
+            const rowsToInsert = unsyncedLogs.map(l => {
+              l._synced = true;
+              return {
+                timestamp: l.timestamp || new Date().toISOString(),
+                type: l.type || 'OPERACION',
+                category: l.category || 'GENERAL',
+                amount: parseFloat(l.amount) || 0,
+                operator: l.operator || 'ADMIN',
+                details: l.details || '',
+                pieces: l.pieces || null,
+                extra_data: l.redepExtraData || l.extraData || null
+              };
+            });
+            await supabaseClient.from('caja_logs').insert(rowsToInsert);
           }
         } else if (key === 'cierre_reports' && typeof val === 'object') {
           const reportKeys = Object.keys(val);
