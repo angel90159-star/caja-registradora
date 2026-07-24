@@ -3845,9 +3845,7 @@
       return total;
     }
 
-    let isProcessingCapital = false;
     function procesarAnexarCapital() {
-      if (isProcessingCapital) return;
       const total = calcularTotalAnexarCapital();
       if (total <= 0) {
         mostrarToast('Ingresa un monto o piezas para anexar.', 'error');
@@ -3860,70 +3858,92 @@
 
       const modoLabel = modoAnexarCapital === 'terminal' ? 'Terminal Yastas' : 'Efectivo';
 
-      isProcessingCapital = true;
       abrirPINModal(`Autorizar Anexo de Capital — ${modoLabel}`, (opName) => {
-        try {
-          const balances = DB.get('balances', {});
+        const balances = DB.get('balances', {});
 
-          if (modoAnexarCapital === 'terminal') {
-            // Suma al saldo Terminal de Yastas
-            balances.yastasTerminal = (balances.yastasTerminal || 0) + total;
-            balances.capitalTerminal = (balances.capitalTerminal || 0) + total;
-            balances.capital = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
-            DB.set('balances', balances);
+        if (modoAnexarCapital === 'terminal') {
+          // Suma al saldo Terminal de Yastas
+          balances.yastasTerminal = (balances.yastasTerminal || 0) + total;
+          balances.capitalTerminal = (balances.capitalTerminal || 0) + total;
+          balances.capital = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
+          DB.set('balances', balances);
 
-            registrarMovimientoBitacora(opName, 'CAPITAL_TERMINAL', total,
-              `Anexo de capital a Terminal Yastas: ${fmt.format(total)}. ${motivoStr}`);
+          registrarMovimientoBitacora(opName, 'CAPITAL_TERMINAL', total,
+            `Anexo de capital a Terminal Yastas: ${fmt.format(total)}. ${motivoStr}`);
 
-          } else {
-            // Suma al saldo Efectivo de Yastas + actualiza inventario físico por denominación
-            const inventory = DB.get('inventory', {});
-            const piezasObj = {};
+        } else {
+          // Suma al saldo Efectivo de Yastas + actualiza inventario físico por denominación
+          const inventory = DB.get('inventory', {});
+          const piezasObj = {};
 
-            // Leer las piezas directamente de la charola global de la izquierda
-            const inputs = document.querySelectorAll('.denom-input-field[id^="dash-"]');
-            inputs.forEach(inp => {
-              const denom = parseFloat(inp.getAttribute('data-denom'));
-              const cant = parseInt(inp.value) || 0;
-              if (cant > 0) {
-                inventory[denom] = (inventory[denom] || 0) + cant;
-                piezasObj[denom] = cant;
-              }
-            });
-
-            DB.set('inventory', inventory);
-
-            balances.yastasEfectivo = (balances.yastasEfectivo || 0) + total;
-            balances.capitalEfectivo = (balances.capitalEfectivo || 0) + total;
-            balances.capital = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
-            DB.set('balances', balances);
-
-            const piezasStr = Object.keys(piezasObj).map(d => `${piezasObj[d]}x$${d}`).join(', ');
-            registrarMovimientoBitacora(opName, 'CAPITAL_EFECTIVO', total,
-              `Anexo de capital en Efectivo Yastas: ${fmt.format(total)}. Piezas: ${piezasStr}. ${motivoStr}`, piezasObj);
-          }
-
-          mostrarToast(`Capital anexado: ${fmt.format(total)} → ${modoLabel}`, 'success');
-          cargarSaldosDigitales();
-
-          // Limpiar explícitamente todos los campos de texto e inputs de Anexo de Capital
-          ['cap-motivo', 'cap-monto-terminal', 'op-cambio-deposito'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
+          // Leer las piezas directamente de la charola global de la izquierda
+          const inputs = document.querySelectorAll('.denom-input-field[id^="dash-"]');
+          inputs.forEach(inp => {
+            const denom = parseFloat(inp.getAttribute('data-denom'));
+            const cant = parseInt(inp.value) || 0;
+            if (cant > 0) {
+              inventory[denom] = (inventory[denom] || 0) + cant;
+              piezasObj[denom] = cant;
+            }
           });
 
-          // Limpiar completamente charola, inputs y calculadora de cambio
-          limpiarDesglose(true);
+          DB.set('inventory', inventory);
 
-          try { calcularTotalLocal(); } catch(e) {}
-          try { calcularCambioOperacion(); } catch(e) {}
-          try { calcularTotalAnexarCapital(); } catch(e) {}
+          balances.yastasEfectivo = (balances.yastasEfectivo || 0) + total;
+          balances.capitalEfectivo = (balances.capitalEfectivo || 0) + total;
+          balances.capital = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
+          DB.set('balances', balances);
 
-          cargarBitacora();
-          cargarAnexosCapitalDia();
-        } finally {
-          isProcessingCapital = false;
+          const piezasStr = Object.keys(piezasObj).map(d => `${piezasObj[d]}x$${d}`).join(', ');
+          registrarMovimientoBitacora(opName, 'CAPITAL_EFECTIVO', total,
+            `Anexo de capital en Efectivo Yastas: ${fmt.format(total)}. Piezas: ${piezasStr}. ${motivoStr}`, piezasObj);
         }
+
+        mostrarToast(`Capital anexado: ${fmt.format(total)} → ${modoLabel}`, 'success');
+        cargarSaldosDigitales();
+
+        // Limpiar EXPLÍCITAMENTE todos los campos en el DOM de forma directa e incondicional
+        const safeClearValue = (id) => { const el = document.getElementById(id); if (el) el.value = ''; };
+        safeClearValue('cap-motivo');
+        safeClearValue('cap-monto-terminal');
+        safeClearValue('op-cambio-deposito');
+
+        // Limpiar todas las denominaciones en la charola
+        const denomInputs = document.querySelectorAll('.denom-input-field');
+        denomInputs.forEach(inp => {
+          inp.value = '0';
+          const denom = inp.getAttribute('data-denom');
+          if (denom) {
+            const prefix = inp.id ? inp.id.split('-')[0] : 'dash';
+            const sub = document.getElementById(`${prefix}-sub-${denom}`);
+            if (sub) sub.innerText = fmt.format(0);
+          }
+        });
+
+        // Limpiar totales visuales
+        const totalCharolaEl = document.getElementById('dash-charola-total');
+        if (totalCharolaEl) totalCharolaEl.innerText = fmt.format(0);
+
+        const capTotalDisplay = document.getElementById('cap-total-display');
+        if (capTotalDisplay) capTotalDisplay.innerText = fmt.format(0);
+
+        const recibidoLabel = document.getElementById('op-cambio-recibido-label');
+        if (recibidoLabel) recibidoLabel.innerText = '$0.00';
+
+        const resultadoWrapper = document.getElementById('op-cambio-resultado-wrapper');
+        if (resultadoWrapper) {
+          resultadoWrapper.classList.add('hidden');
+          resultadoWrapper.innerHTML = '';
+        }
+
+        limpiarDesglose(true);
+
+        try { calcularTotalLocal(); } catch(e) {}
+        try { calcularCambioOperacion(); } catch(e) {}
+        try { calcularTotalAnexarCapital(); } catch(e) {}
+
+        cargarBitacora();
+        cargarAnexosCapitalDia();
       });
     }
 
@@ -4445,16 +4465,31 @@
 
       if (selectedDate === todayStr || selectedDate === activeOpenedDate) {
         const activeLogs = DB.get('logs', []) || [];
-        const seenIds = new Set(dateLogs.map(l => l.id).filter(Boolean));
-        
         activeLogs.forEach(log => {
           const logDate = log.date || activeOpenedDate || todayStr;
-          if (logDate === selectedDate && !seenIds.has(log.id)) {
+          if (logDate === selectedDate) {
             dateLogs.push(log);
-            seenIds.add(log.id);
           }
         });
       }
+
+      // Deduplicar de forma infalible por contenido o ID para evitar entradas x2
+      const uniqueDateLogs = [];
+      const seenSigs = new Set();
+
+      dateLogs.forEach(l => {
+        if (!l) return;
+        const detailsClean = (l.details || '').trim();
+        const contentSig = `${l.amount}_${l.category}_${l.operator || ''}_${detailsClean}_${l.time || ''}`;
+        const idSig = l.id ? `id_${l.id}` : contentSig;
+
+        if (!seenSigs.has(contentSig) && !seenSigs.has(idSig)) {
+          seenSigs.add(contentSig);
+          seenSigs.add(idSig);
+          uniqueDateLogs.push(l);
+        }
+      });
+      dateLogs = uniqueDateLogs;
 
       // Ordenar por ID descendente (el más reciente primero)
       dateLogs.sort((a, b) => (b.id || 0) - (a.id || 0));
