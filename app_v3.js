@@ -392,21 +392,25 @@
         fetchInitialFromSupabase();
         suscribirseARealtimeSupabase();
         if (!localStorage.getItem('lc5_inventory')) {
-          DB.set('inventory', {1000:0,500:0,200:0,100:0,50:0,20:0,10:0,5:0,2:0,1:0,0.5:0});
+          dbCache['inventory'] = {1000:0,500:0,200:0,100:0,50:0,20:0,10:0,5:0,2:0,1:0,0.5:0};
+          localStorage.setItem('lc5_inventory', JSON.stringify(dbCache['inventory']));
         } else {
           const inv = DB.get('inventory', {});
           if (inv['0.5'] === undefined) {
             inv['0.5'] = 0;
-            DB.set('inventory', inv);
+            dbCache['inventory'] = inv;
+            localStorage.setItem('lc5_inventory', JSON.stringify(inv));
           }
         }
         if (!localStorage.getItem('lc5_inventoryBoveda')) {
-          DB.set('inventoryBoveda', {1000:0,500:0,200:0,100:0,50:0,20:0,10:0,5:0,2:0,1:0,0.5:0});
+          dbCache['inventoryBoveda'] = {1000:0,500:0,200:0,100:0,50:0,20:0,10:0,5:0,2:0,1:0,0.5:0};
+          localStorage.setItem('lc5_inventoryBoveda', JSON.stringify(dbCache['inventoryBoveda']));
         } else {
           const invB = DB.get('inventoryBoveda', {});
           if (invB['0.5'] === undefined) {
             invB['0.5'] = 0;
-            DB.set('inventoryBoveda', invB);
+            dbCache['inventoryBoveda'] = invB;
+            localStorage.setItem('lc5_inventoryBoveda', JSON.stringify(invB));
           }
         }
         if (!localStorage.getItem('lc5_balances')) {
@@ -1043,6 +1047,7 @@
         cargarBitacora();
       } else if (vista === 'cierre') {
         if (cierreView) cierreView.classList.remove('hidden');
+        if (typeof calcularTotalCierre === 'function') calcularTotalCierre();
       } else {
         if (mainView) mainView.classList.remove('hidden');
         if (btnBitacora) {
