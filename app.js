@@ -299,7 +299,23 @@
         let { data: logsData } = await supabaseClient.from('caja_logs').select('*').order('timestamp', { ascending: true });
         logsData = logsData || [];
 
-        // Auto-sincronización: detectar si hay movimientos locales en la Mac que no se hayan subido a la nube
+        // Helper para derivar la estampa de tiempo ISO exacta desde date + time
+        function deriveIsoTimestamp(l) {
+          if (l.timestamp && !l.timestamp.startsWith('2026-07-24T15:06')) return l.timestamp;
+          if (l.date && l.time) {
+            try {
+              let tClean = l.time.replace(/a\.?\s*m\.?/i, ' AM').replace(/p\.?\s*m\.?/i, ' PM').trim();
+              const parsed = new Date(`${l.date} ${tClean}`);
+              if (!isNaN(parsed.getTime())) return parsed.toISOString();
+            } catch(e) {}
+          }
+          if (l.id && typeof l.id === 'number' && l.id > 1600000000000) {
+            return new Date(l.id).toISOString();
+          }
+          return l.timestamp || new Date().toISOString();
+        }
+
+        // Obtener todos los logs locales originales para emparejar tiempos y fechas exactas
         const localLogs = DB.get('logs', []) || [];
         const historicalObj = DB.get('historical_logs_by_date', {}) || {};
         const allLocalLogs = [...localLogs];
@@ -307,16 +323,27 @@
           if (Array.isArray(arr)) allLocalLogs.push(...arr);
         });
 
-        const existingSigs = new Set(logsData.map(l => `${l.timestamp}_${l.amount}_${l.category}`));
+        // Crear mapa para emparejar tiempos y fechas exactas de logs locales
+        const localLogsMap = new Map();
+        allLocalLogs.forEach(l => {
+          if (l && l.amount !== undefined && l.category && l.time && l.date) {
+            const key = `${l.date}_${parseFloat(l.amount) || 0}_${l.category}_${l.operator || ''}`;
+            if (!localLogsMap.has(key)) localLogsMap.set(key, []);
+            localLogsMap.get(key).push(l);
+          }
+        });
+
+        // Auto-sincronizar registros locales que no estén en la nube
+        const existingSigs = new Set(logsData.map(l => `${l.amount}_${l.category}_${l.details || ''}`));
         const missingLocalRows = [];
 
         allLocalLogs.forEach(l => {
           if (l && l.amount !== undefined && l.category) {
-            const sig = `${l.timestamp || (l.date && l.time ? `${l.date} ${l.time}` : '')}_${l.amount}_${l.category}`;
+            const sig = `${parseFloat(l.amount) || 0}_${l.category}_${l.details || ''}`;
             if (!existingSigs.has(sig)) {
               existingSigs.add(sig);
               missingLocalRows.push({
-                timestamp: l.timestamp || new Date().toISOString(),
+                timestamp: deriveIsoTimestamp(l),
                 type: l.type || 'OPERACION',
                 category: l.category || 'GENERAL',
                 amount: parseFloat(l.amount) || 0,
@@ -330,7 +357,7 @@
         });
 
         if (missingLocalRows.length > 0) {
-          console.log(`[Supabase Auto-Sync] Rescatando y subiendo ${missingLocalRows.length} movimientos locales antiguos a Supabase...`);
+          console.log(`[Supabase Auto-Sync] Rescatando y subiendo ${missingLocalRows.length} movimientos locales antiguos a Supabase con hora exacta...`);
           await supabaseClient.from('caja_logs').insert(missingLocalRows);
           const { data: refreshedLogs } = await supabaseClient.from('caja_logs').select('*').order('timestamp', { ascending: true });
           if (refreshedLogs) logsData = refreshedLogs;
@@ -344,11 +371,22 @@
             const year = d.getFullYear();
             const month = String(d.getMonth() + 1).padStart(2, '0');
             const day = String(d.getDate()).padStart(2, '0');
-            const dateStr = `${year}-${month}-${day}`;
-            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            let dateStr = `${year}-${month}-${day}`;
+            let timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            let idVal = l.id || (d.getTime() + index);
+
+            // Buscar coincidencia exacta en logs locales para conservar hora y fecha original si fueron subidos de golpe
+            const matchKey = `${dateStr}_${parseFloat(l.amount) || 0}_${l.category}_${l.operator || ''}`;
+            const matches = localLogsMap.get(matchKey);
+            if (matches && matches.length > 0) {
+              const localMatch = matches.shift();
+              if (localMatch.time) timeStr = localMatch.time;
+              if (localMatch.date) dateStr = localMatch.date;
+              if (localMatch.id) idVal = localMatch.id;
+            }
 
             const logObj = {
-              id: l.id || (d.getTime() + index),
+              id: idVal,
               date: dateStr,
               time: timeStr,
               timestamp: l.timestamp,
