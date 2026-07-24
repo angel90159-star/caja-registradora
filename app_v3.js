@@ -960,14 +960,12 @@
       try {
         const inputs = document.querySelectorAll('.denom-input-field');
         inputs.forEach(inp => {
-          inp.value = '';
+          inp.value = '0';
           const denom = inp.getAttribute('data-denom');
           if (denom) {
-            const prefix = inp.id ? inp.id.split('-')[0] : '';
-            if (prefix) {
-              const sub = document.getElementById(`${prefix}-sub-${denom}`);
-              if (sub) sub.innerText = fmt.format(0);
-            }
+            const prefix = inp.id ? inp.id.split('-')[0] : 'dash';
+            const sub = document.getElementById(`${prefix}-sub-${denom}`);
+            if (sub) sub.innerText = fmt.format(0);
           }
         });
 
@@ -990,14 +988,13 @@
         const capTotalDisplay = document.getElementById('cap-total-display');
         if (capTotalDisplay) capTotalDisplay.innerText = fmt.format(0);
 
-        const resultadoW = document.getElementById('op-cambio-resultado-wrapper');
         const recibidoLabel = document.getElementById('op-cambio-recibido-label');
-        if (resultadoW) { resultadoW.classList.add('hidden'); resultadoW.innerHTML = ''; }
         if (recibidoLabel) recibidoLabel.innerText = '$0.00';
 
         currentSugerenciaCambio = null;
         currentManualCambioPieces = {};
         try { setCambioModo('sugerido'); } catch(e) {}
+        try { calcularTotalLocal(); } catch(e) {}
         try { calcularCambioOperacion(); } catch(e) {}
         try { calcularTotalAnexarCapital(); } catch(e) {}
 
@@ -1017,11 +1014,9 @@
             'cambio-out-50', 'cambio-out-20', 'cambio-out-m10', 'cambio-out-m5',
             'cambio-out-m2', 'cambio-out-m1', 'cambio-out-m05'
           ];
-          ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+          ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = '0'; });
           try { calcularCambioOperacion(); } catch(e) {}
         }
-
-        try { calcularTotalLocal(); } catch(e) {}
 
         if (!silent) {
           mostrarToast("Campos limpios", "info");
