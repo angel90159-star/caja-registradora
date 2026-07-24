@@ -169,7 +169,9 @@
             yastas_efectivo: val.yastasEfectivo || 0,
             yastas_terminal: val.yastasTerminal || 0,
             capital_terminal: val.capitalTerminal || 0,
+            capital_efectivo: val.capitalEfectivo || 0,
             tconecta: val.tconecta || 0,
+            tconecta_terminal: val.tconectaTerminal || 0,
             banamex: val.banamex || 0,
             boveda: val.boveda || 0,
             meli: val.meli || 0,
@@ -247,24 +249,28 @@
         const { data: balData } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
         if (balData) {
           const currentBal = DB.get('balances', {});
+          const remoteData = balData.data || {};
           const updatedBal = {
             ...currentBal,
-            ...(balData.data || {}),
-            yastasEfectivo: (balData.data && balData.data.yastasEfectivo !== undefined) ? balData.data.yastasEfectivo : (parseFloat(balData.yastas_efectivo) || 0),
-            yastasTerminal: (balData.data && balData.data.yastasTerminal !== undefined) ? balData.data.yastasTerminal : (parseFloat(balData.yastas_terminal) || 0),
-            capitalTerminal: (balData.data && balData.data.capitalTerminal !== undefined) ? balData.data.capitalTerminal : (parseFloat(balData.capital_terminal) || 0),
-            tconecta: (balData.data && balData.data.tconecta !== undefined) ? balData.data.tconecta : (parseFloat(balData.tconecta) || 0),
-            banamex: (balData.data && balData.data.banamex !== undefined) ? balData.data.banamex : (parseFloat(balData.banamex) || 0),
-            boveda: (balData.data && balData.data.boveda !== undefined) ? balData.data.boveda : (parseFloat(balData.boveda) || 0),
-            meli: (balData.data && balData.data.meli !== undefined) ? balData.data.meli : (parseFloat(balData.meli) || 0),
-            meliBase: (balData.data && balData.data.meliBase !== undefined) ? balData.data.meliBase : (parseFloat(balData.meli_base) || 0),
-            banorte: (balData.data && balData.data.banorte !== undefined) ? balData.data.banorte : (parseFloat(balData.banorte) || 0),
-            transferencia: (balData.data && balData.data.transferencia !== undefined) ? balData.data.transferencia : (parseFloat(balData.transferencia) || 0),
-            bbva: (balData.data && balData.data.bbva !== undefined) ? balData.data.bbva : (parseFloat(balData.bbva) || 0),
-            capital: (balData.data && balData.data.capital !== undefined) ? balData.data.capital : (parseFloat(balData.capital) || 0)
+            ...remoteData,
+            yastasEfectivo: remoteData.yastasEfectivo !== undefined ? remoteData.yastasEfectivo : (parseFloat(balData.yastas_efectivo) || 0),
+            yastasTerminal: remoteData.yastasTerminal !== undefined ? remoteData.yastasTerminal : (parseFloat(balData.yastas_terminal) || 0),
+            capitalTerminal: remoteData.capitalTerminal !== undefined ? remoteData.capitalTerminal : (parseFloat(balData.capital_terminal) || 0),
+            capitalEfectivo: remoteData.capitalEfectivo !== undefined ? remoteData.capitalEfectivo : (parseFloat(balData.capital_efectivo) || 0),
+            tconecta: remoteData.tconecta !== undefined ? remoteData.tconecta : (parseFloat(balData.tconecta) || 0),
+            tconectaTerminal: remoteData.tconectaTerminal !== undefined ? remoteData.tconectaTerminal : (parseFloat(balData.tconecta_terminal) || 0),
+            banamex: remoteData.banamex !== undefined ? remoteData.banamex : (parseFloat(balData.banamex) || 0),
+            boveda: remoteData.boveda !== undefined ? remoteData.boveda : (parseFloat(balData.boveda) || 0),
+            meli: remoteData.meli !== undefined ? remoteData.meli : (parseFloat(balData.meli) || 0),
+            meliBase: remoteData.meliBase !== undefined ? remoteData.meliBase : (parseFloat(balData.meli_base) || 0),
+            banorte: remoteData.banorte !== undefined ? remoteData.banorte : (parseFloat(balData.banorte) || 0),
+            transferencia: remoteData.transferencia !== undefined ? remoteData.transferencia : (parseFloat(balData.transferencia) || 0),
+            bbva: remoteData.bbva !== undefined ? remoteData.bbva : (parseFloat(balData.bbva) || 0),
+            capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(balData.capital) || 0)
           };
           dbCache['balances'] = updatedBal;
           localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
+          if (typeof cargarSaldosDigitales === 'function') cargarSaldosDigitales();
         }
 
         // Cargar inventario de piezas en charola desde Supabase
@@ -360,21 +366,24 @@
           .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_balances' }, payload => {
             if (payload.new && payload.new.id === 'main') {
               const currentBal = DB.get('balances', {});
+              const remoteData = payload.new.data || {};
               const updatedBal = {
                 ...currentBal,
-                ...(payload.new.data || {}),
-                yastasEfectivo: (payload.new.data && payload.new.data.yastasEfectivo !== undefined) ? payload.new.data.yastasEfectivo : (parseFloat(payload.new.yastas_efectivo) || 0),
-                yastasTerminal: (payload.new.data && payload.new.data.yastasTerminal !== undefined) ? payload.new.data.yastasTerminal : (parseFloat(payload.new.yastas_terminal) || 0),
-                capitalTerminal: (payload.new.data && payload.new.data.capitalTerminal !== undefined) ? payload.new.data.capitalTerminal : (parseFloat(payload.new.capital_terminal) || 0),
-                tconecta: (payload.new.data && payload.new.data.tconecta !== undefined) ? payload.new.data.tconecta : (parseFloat(payload.new.tconecta) || 0),
-                banamex: (payload.new.data && payload.new.data.banamex !== undefined) ? payload.new.data.banamex : (parseFloat(payload.new.banamex) || 0),
-                boveda: (payload.new.data && payload.new.data.boveda !== undefined) ? payload.new.data.boveda : (parseFloat(payload.new.boveda) || 0),
-                meli: (payload.new.data && payload.new.data.meli !== undefined) ? payload.new.data.meli : (parseFloat(payload.new.meli) || 0),
-                meliBase: (payload.new.data && payload.new.data.meliBase !== undefined) ? payload.new.data.meliBase : (parseFloat(payload.new.meli_base) || 0),
-                banorte: (payload.new.data && payload.new.data.banorte !== undefined) ? payload.new.data.banorte : (parseFloat(payload.new.banorte) || 0),
-                transferencia: (payload.new.data && payload.new.data.transferencia !== undefined) ? payload.new.data.transferencia : (parseFloat(payload.new.transferencia) || 0),
-                bbva: (payload.new.data && payload.new.data.bbva !== undefined) ? payload.new.data.bbva : (parseFloat(payload.new.bbva) || 0),
-                capital: (payload.new.data && payload.new.data.capital !== undefined) ? payload.new.data.capital : (parseFloat(payload.new.capital) || 0)
+                ...remoteData,
+                yastasEfectivo: remoteData.yastasEfectivo !== undefined ? remoteData.yastasEfectivo : (parseFloat(payload.new.yastas_efectivo) || 0),
+                yastasTerminal: remoteData.yastasTerminal !== undefined ? remoteData.yastasTerminal : (parseFloat(payload.new.yastas_terminal) || 0),
+                capitalTerminal: remoteData.capitalTerminal !== undefined ? remoteData.capitalTerminal : (parseFloat(payload.new.capital_terminal) || 0),
+                capitalEfectivo: remoteData.capitalEfectivo !== undefined ? remoteData.capitalEfectivo : (parseFloat(payload.new.capital_efectivo) || 0),
+                tconecta: remoteData.tconecta !== undefined ? remoteData.tconecta : (parseFloat(payload.new.tconecta) || 0),
+                tconectaTerminal: remoteData.tconectaTerminal !== undefined ? remoteData.tconectaTerminal : (parseFloat(payload.new.tconecta_terminal) || 0),
+                banamex: remoteData.banamex !== undefined ? remoteData.banamex : (parseFloat(payload.new.banamex) || 0),
+                boveda: remoteData.boveda !== undefined ? remoteData.boveda : (parseFloat(payload.new.boveda) || 0),
+                meli: remoteData.meli !== undefined ? remoteData.meli : (parseFloat(payload.new.meli) || 0),
+                meliBase: remoteData.meliBase !== undefined ? remoteData.meliBase : (parseFloat(payload.new.meli_base) || 0),
+                banorte: remoteData.banorte !== undefined ? remoteData.banorte : (parseFloat(payload.new.banorte) || 0),
+                transferencia: remoteData.transferencia !== undefined ? remoteData.transferencia : (parseFloat(payload.new.transferencia) || 0),
+                bbva: remoteData.bbva !== undefined ? remoteData.bbva : (parseFloat(payload.new.bbva) || 0),
+                capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(payload.new.capital) || 0)
               };
               dbCache['balances'] = updatedBal;
               localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
@@ -1244,11 +1253,12 @@
       // Inicializar el saldo base de Meli al valor actual si no está definido
       if (typeof balances.meliBase === 'undefined') {
         balances.meliBase = balances.meli || 0;
-        DB.set('balances', balances);
+        dbCache['balances'] = balances;
+        localStorage.setItem('lc5_balances', JSON.stringify(balances));
       }
 
-      // Reconstrucción del desglose de Capital Terminal/Efectivo si no existe
-      if (typeof balances.capitalTerminal === 'undefined' || typeof balances.capitalEfectivo === 'undefined') {
+      // Reconstrucción del desglose de Capital Terminal/Efectivo si no existe y no hay capital previo
+      if ((typeof balances.capitalTerminal === 'undefined' || typeof balances.capitalEfectivo === 'undefined') && !balances.capital) {
         balances.capitalTerminal = 0;
         balances.capitalEfectivo = 0;
         const historical = DB.get('historical_logs_by_date', {}) || {};
@@ -1268,7 +1278,8 @@
         });
         const sum = (balances.capitalTerminal || 0) + (balances.capitalEfectivo || 0);
         balances.capital = sum;
-        DB.set('balances', balances);
+        dbCache['balances'] = balances;
+        localStorage.setItem('lc5_balances', JSON.stringify(balances));
       }
 
       document.getElementById('dash-bal-yastas-terminal').innerText = fmt.format(balances.yastasTerminal || 0);
