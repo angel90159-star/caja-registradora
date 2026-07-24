@@ -250,7 +250,7 @@
           localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
         }
 
-        // Cargar inventario de piezas desde Supabase
+        // Cargar inventario de piezas en charola desde Supabase
         const { data: invData } = await supabaseClient.from('caja_inventory').select('*');
         if (invData && invData.length > 0) {
           const currentInv = DB.get('inventory', {});
@@ -259,6 +259,17 @@
           });
           dbCache['inventory'] = currentInv;
           localStorage.setItem('lc5_inventory', JSON.stringify(currentInv));
+        }
+
+        // Cargar inventario de piezas en bóveda desde Supabase
+        const { data: bovedaData } = await supabaseClient.from('caja_inventory_boveda').select('*');
+        if (bovedaData && bovedaData.length > 0) {
+          const currentBoveda = DB.get('inventoryBoveda', {});
+          bovedaData.forEach(row => {
+            currentBoveda[row.denom] = parseInt(row.count) || 0;
+          });
+          dbCache['inventoryBoveda'] = currentBoveda;
+          localStorage.setItem('lc5_inventoryBoveda', JSON.stringify(currentBoveda));
         }
 
         // Cargar bitácora desde Supabase
@@ -278,6 +289,10 @@
           dbCache['logs'] = formattedLogs;
           localStorage.setItem('lc5_logs', JSON.stringify(formattedLogs));
         }
+
+        // Refrescar pantallas y recalcular Cierre de Turno si la vista está abierta
+        if (typeof refrescarPantallas === 'function') refrescarPantallas();
+        if (typeof calcularTotalCierre === 'function') calcularTotalCierre();
       } catch (err) {
         console.warn("[Supabase Initial Fetch] Notificación:", err.message || err);
       }
