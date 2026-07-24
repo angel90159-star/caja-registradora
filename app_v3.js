@@ -172,6 +172,13 @@
             tconecta: val.tconecta || 0,
             banamex: val.banamex || 0,
             boveda: val.boveda || 0,
+            meli: val.meli || 0,
+            meli_base: val.meliBase || 0,
+            banorte: val.banorte || 0,
+            transferencia: val.transferencia || 0,
+            bbva: val.bbva || 0,
+            capital: val.capital || 0,
+            data: val,
             updated_at: new Date().toISOString()
           });
         } else if (key === 'inventory') {
@@ -239,12 +246,19 @@
           const currentBal = DB.get('balances', {});
           const updatedBal = {
             ...currentBal,
-            yastasEfectivo: parseFloat(balData.yastas_efectivo) || 0,
-            yastasTerminal: parseFloat(balData.yastas_terminal) || 0,
-            capitalTerminal: parseFloat(balData.capital_terminal) || 0,
-            tconecta: parseFloat(balData.tconecta) || 0,
-            banamex: parseFloat(balData.banamex) || 0,
-            boveda: parseFloat(balData.boveda) || 0
+            ...(balData.data || {}),
+            yastasEfectivo: (balData.data && balData.data.yastasEfectivo !== undefined) ? balData.data.yastasEfectivo : (parseFloat(balData.yastas_efectivo) || 0),
+            yastasTerminal: (balData.data && balData.data.yastasTerminal !== undefined) ? balData.data.yastasTerminal : (parseFloat(balData.yastas_terminal) || 0),
+            capitalTerminal: (balData.data && balData.data.capitalTerminal !== undefined) ? balData.data.capitalTerminal : (parseFloat(balData.capital_terminal) || 0),
+            tconecta: (balData.data && balData.data.tconecta !== undefined) ? balData.data.tconecta : (parseFloat(balData.tconecta) || 0),
+            banamex: (balData.data && balData.data.banamex !== undefined) ? balData.data.banamex : (parseFloat(balData.banamex) || 0),
+            boveda: (balData.data && balData.data.boveda !== undefined) ? balData.data.boveda : (parseFloat(balData.boveda) || 0),
+            meli: (balData.data && balData.data.meli !== undefined) ? balData.data.meli : (parseFloat(balData.meli) || 0),
+            meliBase: (balData.data && balData.data.meliBase !== undefined) ? balData.data.meliBase : (parseFloat(balData.meli_base) || 0),
+            banorte: (balData.data && balData.data.banorte !== undefined) ? balData.data.banorte : (parseFloat(balData.banorte) || 0),
+            transferencia: (balData.data && balData.data.transferencia !== undefined) ? balData.data.transferencia : (parseFloat(balData.transferencia) || 0),
+            bbva: (balData.data && balData.data.bbva !== undefined) ? balData.data.bbva : (parseFloat(balData.bbva) || 0),
+            capital: (balData.data && balData.data.capital !== undefined) ? balData.data.capital : (parseFloat(balData.capital) || 0)
           };
           dbCache['balances'] = updatedBal;
           localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
@@ -315,12 +329,19 @@
               const currentBal = DB.get('balances', {});
               const updatedBal = {
                 ...currentBal,
-                yastasEfectivo: parseFloat(payload.new.yastas_efectivo) || 0,
-                yastasTerminal: parseFloat(payload.new.yastas_terminal) || 0,
-                capitalTerminal: parseFloat(payload.new.capital_terminal) || 0,
-                tconecta: parseFloat(payload.new.tconecta) || 0,
-                banamex: parseFloat(payload.new.banamex) || 0,
-                boveda: parseFloat(payload.new.boveda) || 0
+                ...(payload.new.data || {}),
+                yastasEfectivo: (payload.new.data && payload.new.data.yastasEfectivo !== undefined) ? payload.new.data.yastasEfectivo : (parseFloat(payload.new.yastas_efectivo) || 0),
+                yastasTerminal: (payload.new.data && payload.new.data.yastasTerminal !== undefined) ? payload.new.data.yastasTerminal : (parseFloat(payload.new.yastas_terminal) || 0),
+                capitalTerminal: (payload.new.data && payload.new.data.capitalTerminal !== undefined) ? payload.new.data.capitalTerminal : (parseFloat(payload.new.capital_terminal) || 0),
+                tconecta: (payload.new.data && payload.new.data.tconecta !== undefined) ? payload.new.data.tconecta : (parseFloat(payload.new.tconecta) || 0),
+                banamex: (payload.new.data && payload.new.data.banamex !== undefined) ? payload.new.data.banamex : (parseFloat(payload.new.banamex) || 0),
+                boveda: (payload.new.data && payload.new.data.boveda !== undefined) ? payload.new.data.boveda : (parseFloat(payload.new.boveda) || 0),
+                meli: (payload.new.data && payload.new.data.meli !== undefined) ? payload.new.data.meli : (parseFloat(payload.new.meli) || 0),
+                meliBase: (payload.new.data && payload.new.data.meliBase !== undefined) ? payload.new.data.meliBase : (parseFloat(payload.new.meli_base) || 0),
+                banorte: (payload.new.data && payload.new.data.banorte !== undefined) ? payload.new.data.banorte : (parseFloat(payload.new.banorte) || 0),
+                transferencia: (payload.new.data && payload.new.data.transferencia !== undefined) ? payload.new.data.transferencia : (parseFloat(payload.new.transferencia) || 0),
+                bbva: (payload.new.data && payload.new.data.bbva !== undefined) ? payload.new.data.bbva : (parseFloat(payload.new.bbva) || 0),
+                capital: (payload.new.data && payload.new.data.capital !== undefined) ? payload.new.data.capital : (parseFloat(payload.new.capital) || 0)
               };
               dbCache['balances'] = updatedBal;
               localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
