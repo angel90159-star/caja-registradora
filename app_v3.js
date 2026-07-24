@@ -3879,7 +3879,7 @@
         if (vacio) vacio.classList.add('hidden');
 
         capitalLogs.forEach(log => {
-          const time = log.id ? new Date(log.id).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+          const time = log.time || (log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : (log.id && typeof log.id === 'number' ? new Date(log.id).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''));
           const op = log.operator || 'Operador';
           sumTotal += log.amount || 0;
 
