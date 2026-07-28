@@ -1520,7 +1520,7 @@
       if (colRetiro) colRetiro.classList.add('hidden');
 
       if (activeSrv === 'yastas') {
-        const yastasEfectivoVal = balances.yastasEfectivo || 0;
+        const yastasEfectivoVal = inventarioTotalVal > 0 ? inventarioTotalVal : (balances.yastasEfectivo || 0);
         const terminalVal = balances.yastasTerminal || 0;
         const totalOperativo = yastasEfectivoVal + terminalVal;
 
