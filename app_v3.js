@@ -236,6 +236,17 @@
               }]);
             }
           }
+        } else if (key === 'state' && typeof val === 'object') {
+          await supabaseClient.from('caja_state').upsert({
+            id: 'main',
+            session_active: !!val.session_active,
+            opened_date: val.opened_date || null,
+            opened_time: val.opened_time || null,
+            operator: val.operator || null,
+            precarga_completada: !!val.precarga_completada,
+            precarga_data: val.precarga_data || null,
+            updated_at: new Date().toISOString()
+          });
         }
       } catch (e) {
         console.warn(`[Supabase Sync] Notificación (${key}):`, e.message || e);
@@ -245,6 +256,22 @@
     async function fetchInitialFromSupabase() {
       if (!supabaseClient) return;
       try {
+        // Cargar estado remoto de caja
+        const { data: stData } = await supabaseClient.from('caja_state').select('*').eq('id', 'main').maybeSingle();
+        if (stData) {
+          const remoteState = {
+            session_active: !!stData.session_active,
+            opened_date: stData.opened_date,
+            opened_time: stData.opened_time,
+            operator: stData.operator,
+            precarga_completada: !!stData.precarga_completada,
+            precarga_data: stData.precarga_data || null
+          };
+          dbCache['state'] = remoteState;
+          localStorage.setItem('lc5_state', JSON.stringify(remoteState));
+          sessionActive = remoteState.session_active;
+          activeOperator = remoteState.operator;
+        }
         // Cargar balances desde Supabase
         const { data: balData } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
         if (balData) {
@@ -418,6 +445,7 @@
         if (cierreView && !cierreView.classList.contains('hidden') && typeof calcularTotalCierre === 'function') {
           calcularTotalCierre();
         }
+        if (typeof refrescarPantallas === 'function') refrescarPantallas();
       } catch (err) {
         console.warn("[Supabase Initial Fetch] Notificación:", err.message || err);
       }
@@ -1399,8 +1427,10 @@
       document.getElementById('dash-bal-bbva').innerText = fmt.format(balances.bbva || 0);
       const balTermEl = document.getElementById('dash-bal-tconecta-term');
       const balBanamexEl = document.getElementById('dash-bal-tconecta-banamex');
-      if (balTermEl) balTermEl.innerText = `Term: ${fmt.format(balances.tconectaTerminal || 0)}`;
-      if (balBanamexEl) balBanamexEl.innerText = `Banamex: ${fmt.format(balances.banamex || 0)}`;
+      const containerTconecta = document.getElementById('dash-bal-tconecta');
+      if (containerTconecta) containerTconecta.classList.remove('hidden');
+      if (balTermEl) balTermEl.innerText = `DISPONIBLE TERMINAL: ${fmt.format(balances.tconectaTerminal || 0)}`;
+      if (balBanamexEl) balBanamexEl.innerText = `SALDO CUENTA BANAMEX: ${fmt.format(balances.banamex || 0)}`;
       const balTransf = document.getElementById('dash-bal-transferencia');
       if (balTransf) {
         balTransf.innerText = fmt.format(balances.transferencia || 0);
@@ -4186,8 +4216,8 @@
       balances.banamex = newBanamex;
       DB.set('balances', balances);
 
-      registrarMovimientoBitacora('Admin', 'AJUSTE_TCONECTA', 0,
-        `Saldos ajustados manualmente. Terminal T-Conecta: ${fmt.format(oldTerm)} -> ${fmt.format(newTerm)}. Banamex: ${fmt.format(oldBanamex)} -> ${fmt.format(newBanamex)}.`);
+      registrarMovimientoBitacora('Admin', 'AJUSTE_DE_SALDO', 0,
+        `Ajuste manual de saldo base. Terminal T-Conecta: ${fmt.format(oldTerm)} -> ${fmt.format(newTerm)}. Banamex: ${fmt.format(oldBanamex)} -> ${fmt.format(newBanamex)}.`);
 
       cerrarAjusteSaldoTConecta();
       mostrarToast("Saldos de T-Conecta y Banamex actualizados con éxito.", "success");

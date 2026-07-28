@@ -199,9 +199,9 @@
         <!-- Yastas Card (Morado) -->
         <div id="card-yastas" onclick="seleccionarServicioCard('yastas')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-purple-600 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
           <span class="text-[10px] font-bold text-purple-600 dark:text-purple-400 tracking-wider uppercase text-center">Yastas</span>
-          <div class="hidden">
-            <span id="dash-bal-yastas-terminal">$0.00</span>
-            <span id="dash-bal-yastas-efectivo">$0.00</span>
+          <div class="flex flex-col items-center mt-1 space-y-0.5">
+            <span id="dash-bal-yastas-terminal" class="text-[9px] font-bold text-purple-600 dark:text-purple-400">$0.00</span>
+            <span id="dash-bal-yastas-efectivo" class="hidden">$0.00</span>
           </div>
         </div>
 
@@ -245,9 +245,9 @@
             </button>
           </div>
           <span class="text-[10px] font-bold text-sky-500 dark:text-sky-400 tracking-wider uppercase text-center">T-Conecta</span>
-          <div id="dash-bal-tconecta" class="hidden flex flex-col items-center mt-1 space-y-0.5">
-            <span id="dash-bal-tconecta-term" class="text-xs font-black text-sky-600 dark:text-sky-400">Term: $0.00</span>
-            <span id="dash-bal-tconecta-banamex" class="text-[10px] font-bold text-slate-500 dark:text-slate-400">Banamex: $0.00</span>
+          <div id="dash-bal-tconecta" class="flex flex-col items-center mt-1 space-y-0.5">
+            <span id="dash-bal-tconecta-term" class="text-[10px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-tight">DISPONIBLE TERMINAL: $0.00</span>
+            <span id="dash-bal-tconecta-banamex" class="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tight">SALDO CUENTA BANAMEX: $0.00</span>
           </div>
         </div>
 
@@ -2325,6 +2325,6 @@
   <!-- ==========================================
        LÓGICA EN JAVASCRIPT
        ========================================== -->
-  <script src="app.js?v=20260724_07"></script>
+  <script src="app.js?v=20260728_V3"></script>
 </body>
 </html>
