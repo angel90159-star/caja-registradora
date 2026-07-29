@@ -260,24 +260,20 @@
         const { data: stData } = await supabaseClient.from('caja_state').select('*').eq('id', 'main').maybeSingle();
         if (stData) {
           const remoteActive = !!stData.session_active;
-          if (sessionActive && !remoteActive) {
-            console.log("Sesión activa local preservada durante la carga inicial.");
-          } else {
-            const remoteState = {
-              session_active: remoteActive,
-              opened_date: stData.opened_date,
-              opened_time: stData.opened_time,
-              operator: stData.operator,
-              precarga_completada: !!stData.precarga_completada,
-              precarga_data: stData.precarga_data || null
-            };
-            dbCache['state'] = remoteState;
-            localStorage.setItem('lc5_state', JSON.stringify(remoteState));
-            sessionActive = remoteActive;
-            activeOperator = remoteState.operator;
-            if (typeof refrescarPantallas === 'function') {
-              refrescarPantallas();
-            }
+          const remoteState = {
+            session_active: remoteActive,
+            opened_date: stData.opened_date,
+            opened_time: stData.opened_time,
+            operator: stData.operator,
+            precarga_completada: !!stData.precarga_completada,
+            precarga_data: stData.precarga_data || null
+          };
+          dbCache['state'] = remoteState;
+          localStorage.setItem('lc5_state', JSON.stringify(remoteState));
+          sessionActive = remoteActive;
+          activeOperator = remoteState.operator;
+          if (typeof refrescarPantallas === 'function') {
+            refrescarPantallas();
           }
         }
         // Cargar balances desde Supabase
@@ -472,10 +468,6 @@
           .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_state' }, payload => {
             if (payload.new && payload.new.id === 'main') {
               const remoteActive = !!payload.new.session_active;
-              if (sessionActive && !remoteActive) {
-                console.log("Sesión activa local preservada en evento Realtime.");
-                return;
-              }
               const remoteState = {
                 session_active: remoteActive,
                 opened_date: payload.new.opened_date,
@@ -1384,10 +1376,44 @@
           btnBitacora.setAttribute('title', "Ver Bitácora de Movimientos");
         }
 
+        if (typeof cargarDropdownOperadores === 'function') {
+          cargarDropdownOperadores();
+        }
         const opSel = document.getElementById('apertura-operator');
         if (opSel) opSel.value = "";
-        document.getElementById('apertura-yastas').value = "";
-        limpiarDesglose(true);
+        
+        // Consumir Pre-carga Nocturna si está completada
+        const state = DB.get('state', {});
+        if (state.precarga_completada && state.precarga_data) {
+          const precarga = state.precarga_data;
+          const yastasInput = document.getElementById('apertura-yastas');
+          if (yastasInput) {
+            const yastasVal = precarga.balances && typeof precarga.balances.yastasTerminal !== 'undefined'
+              ? precarga.balances.yastasTerminal
+              : 0;
+            yastasInput.value = yastasVal > 0 ? yastasVal.toFixed(2) : '';
+          }
+          
+          const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '05'];
+          denoms.forEach(id => {
+            const elementId = id === '05' ? 'apertura-0.5' : `apertura-${id}`;
+            const input = document.getElementById(elementId);
+            const pz = precarga.inventory && precarga.inventory[id] ? precarga.inventory[id] : 0;
+            if (input) {
+              input.value = pz > 0 ? pz : '';
+            }
+          });
+          
+          calcularTotalLocal();
+          
+          mostrarToast("Campos pre-llenados con la captura nocturna del cierre anterior. Verifique antes de confirmar.", "info");
+        } else {
+          document.getElementById('apertura-yastas').value = "";
+          limpiarDesglose(true);
+        }
+      }
+      if (typeof evaluarGatekeeper === 'function') {
+        evaluarGatekeeper();
       }
     }
 
@@ -1872,7 +1898,15 @@
         return;
       }
 
-      const operatorName = "Turno Activo";
+      const opSel = document.getElementById('apertura-operator');
+      let operatorName = "Turno Activo";
+      if (opSel && opSel.value) {
+        const ops = getOperators();
+        operatorName = ops[opSel.value] || "Turno Activo";
+      } else {
+        mostrarToast("Seleccione el Cajero de Turno.", "error");
+        return;
+      }
 
       // Configurar inventario inicial de la charola
       DB.set('inventory', startingInventory);
@@ -1930,7 +1964,18 @@
         syncToSupabase('state', newState);
       }
 
-      registrarMovimientoBitacora("Apertura", "Apertura", startingCashSum, `Inicio de turno. Efectivo base: ${fmt.format(startingCashSum)}. Yastas: ${fmt.format(startingYastas)}`, startingInventory);
+      // Capturar observación de apertura
+      const obsInput = document.getElementById('apertura-observacion');
+      const obsText = obsInput ? obsInput.value.trim() : '';
+      const extraDetails = obsText ? ` | Obs: ${obsText}` : '';
+
+      registrarMovimientoBitacora("Apertura", "Apertura", startingCashSum, `Inicio de turno. Efectivo base: ${fmt.format(startingCashSum)}. Yastas: ${fmt.format(startingYastas)}${extraDetails}`, startingInventory);
+
+      if (obsInput) {
+        obsInput.value = '';
+        const container = document.getElementById('apertura-obs-container');
+        if (container) container.classList.add('hidden');
+      }
 
       mostrarToast("Turno iniciado.", "success");
       refrescarPantallas();
@@ -8122,7 +8167,8 @@
       let loadedSum = 0;
       
       denoms.forEach(id => {
-        const input = document.getElementById(`apertura-${id}`);
+        const elementId = id === '05' ? 'apertura-0.5' : `apertura-${id}`;
+        const input = document.getElementById(elementId);
         const pz = lastReport.countedInventory[id] || 0;
         if (input) {
           input.value = pz > 0 ? pz : '';
@@ -8742,16 +8788,31 @@
       const btnHeaderUsers = document.getElementById('btn-header-users');
       const btnHeaderBitacora = document.getElementById('btn-abrir-bitacora');
 
+      const cards = [
+        document.getElementById('card-yastas'),
+        document.getElementById('card-banorte'),
+        document.getElementById('card-meli'),
+        document.getElementById('card-bbva'),
+        document.getElementById('card-tconecta'),
+        document.getElementById('card-capital')
+      ];
+
       if (bloquear) {
         if (btnHeaderCalc) btnHeaderCalc.classList.add('opacity-40', 'pointer-events-none');
         if (btnHeaderIva) btnHeaderIva.classList.add('opacity-40', 'pointer-events-none');
         if (btnHeaderUsers) btnHeaderUsers.classList.add('opacity-40', 'pointer-events-none');
         if (btnHeaderBitacora) btnHeaderBitacora.classList.add('opacity-40', 'pointer-events-none');
+        cards.forEach(card => {
+          if (card) card.classList.add('opacity-40', 'pointer-events-none');
+        });
       } else {
         if (btnHeaderCalc) btnHeaderCalc.classList.remove('opacity-40', 'pointer-events-none');
         if (btnHeaderIva) btnHeaderIva.classList.remove('opacity-40', 'pointer-events-none');
         if (btnHeaderUsers) btnHeaderUsers.classList.remove('opacity-40', 'pointer-events-none');
         if (btnHeaderBitacora) btnHeaderBitacora.classList.remove('opacity-40', 'pointer-events-none');
+        cards.forEach(card => {
+          if (card) card.classList.remove('opacity-40', 'pointer-events-none');
+        });
       }
     }
 

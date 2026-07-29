@@ -117,7 +117,12 @@
           <div class="bg-slate-50 dark:bg-slate-800 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700 space-y-4">
             <h3 class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Configuración de Entrada</h3>
             
-
+            <div>
+              <label class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Cajero de Turno</label>
+              <select id="apertura-operator" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white dark:focus:bg-slate-900 transition duration-150">
+                <option value="" disabled selected>Seleccione Cajero</option>
+              </select>
+            </div>
 
             <div>
               <label class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Saldo Inicial Terminal Yastas</label>
@@ -152,6 +157,17 @@
               <i data-lucide="play" class="w-4 h-4"></i>
               <span>CONFIRMAR E INICIAR TURNO</span>
             </button>
+
+            <!-- Observaciones de Apertura (Opcional) -->
+            <div class="mt-3 space-y-2">
+              <button type="button" onclick="const container = document.getElementById('apertura-obs-container'); if(container) container.classList.toggle('hidden')" class="w-full py-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition flex items-center justify-center gap-1 cursor-pointer">
+                <i data-lucide="message-square" class="w-3.5 h-3.5"></i>
+                <span>Agregar Observaciones de Apertura (Opcional)</span>
+              </button>
+              <div id="apertura-obs-container" class="hidden">
+                <textarea id="apertura-observacion" placeholder="Escriba aquí cualquier discrepancia u observación de la apertura..." class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-700 dark:text-slate-300 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-150 resize-none h-16"></textarea>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2412,6 +2428,6 @@
   <!-- ==========================================
        LÓGICA EN JAVASCRIPT
        ========================================== -->
-  <script src="app.js?v=20260728_BUNKER"></script>
+  <script src="app.js?v=20260728_9PUNTOS"></script>
 </body>
 </html>
