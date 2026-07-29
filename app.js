@@ -459,10 +459,17 @@
             return logObj;
           });
 
-          // Filtrar logs de la sesión activa únicamente para el día de hoy
+          // Filtrar logs de la sesión activa únicamente si la sesión está ABIERTA
           const now = new Date();
           const todayDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-          const activeLogs = formattedLogs.filter(l => l.date === todayDateStr).reverse();
+          const currentSt = DB.get('state', {});
+          
+          let activeLogs = [];
+          if (currentSt.session_active) {
+            const activeOpenedDate = currentSt.opened_date || todayDateStr;
+            activeLogs = formattedLogs.filter(l => l.date === activeOpenedDate).reverse();
+          }
+          
           dbCache['logs'] = activeLogs;
           localStorage.setItem('lc5_logs', JSON.stringify(activeLogs));
 
@@ -4698,11 +4705,31 @@
       });
       dateLogs = uniqueDateLogs;
 
-      // Ordenar por fecha y hora descendente (el más reciente primero)
+      // Ordenar por fecha y hora descendente (el más reciente primero) de forma infalible entre local y Supabase
+      function getLogMs(l) {
+        if (!l) return 0;
+        if (l.timestamp) {
+          let tsStr = String(l.timestamp).replace(' ', 'T');
+          let t = new Date(tsStr).getTime();
+          if (!isNaN(t) && t > 1000000000000) return t;
+        }
+        if (l.date) {
+          const dt = parseLocalDateAndTime(l.date, l.time);
+          if (dt && !isNaN(dt.getTime())) return dt.getTime();
+        }
+        if (typeof l.id === 'number' && l.id > 1600000000000) {
+          return l.id;
+        }
+        return 0;
+      }
+
       dateLogs.sort((a, b) => {
-        const timeA = a.timestamp ? new Date(String(a.timestamp).replace(' ', 'T')).getTime() : (typeof a.id === 'number' ? a.id : 0);
-        const timeB = b.timestamp ? new Date(String(b.timestamp).replace(' ', 'T')).getTime() : (typeof b.id === 'number' ? b.id : 0);
-        return timeB - timeA;
+        const timeA = getLogMs(a);
+        const timeB = getLogMs(b);
+        if (timeA > 0 && timeB > 0 && timeA !== timeB) {
+          return timeB - timeA;
+        }
+        return (b.id || 0) - (a.id || 0);
       });
 
       // 2. Llenar selector de operadores dinámicamente según la base de datos de esa fecha
