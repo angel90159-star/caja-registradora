@@ -4301,11 +4301,13 @@
       balances.banamex = newBanamex;
       DB.set('balances', balances);
 
+      // Cerrar modal PRIMERO para evitar que quede abierto si algo falla después
+      cerrarAjusteSaldoTConecta();
+      mostrarToast("Saldos de T-Conecta y Banamex actualizados con éxito.", "success");
+
       registrarMovimientoBitacora('Admin', 'AJUSTE_DE_SALDO', 0,
         `Ajuste manual de saldo base. Terminal T-Conecta: ${fmt.format(oldTerm)} -> ${fmt.format(newTerm)}. Banamex: ${fmt.format(oldBanamex)} -> ${fmt.format(newBanamex)}.`);
 
-      cerrarAjusteSaldoTConecta();
-      mostrarToast("Saldos de T-Conecta y Banamex actualizados con éxito.", "success");
       refrescarPantallas();
     }
 
