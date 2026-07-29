@@ -1376,11 +1376,6 @@
           btnBitacora.setAttribute('title', "Ver Bitácora de Movimientos");
         }
 
-        if (typeof cargarDropdownOperadores === 'function') {
-          cargarDropdownOperadores();
-        }
-        const opSel = document.getElementById('apertura-operator');
-        if (opSel) opSel.value = "";
         
         // Consumir Pre-carga Nocturna si está completada
         const state = DB.get('state', {});
@@ -1898,15 +1893,7 @@
         return;
       }
 
-      const opSel = document.getElementById('apertura-operator');
-      let operatorName = "Turno Activo";
-      if (opSel && opSel.value) {
-        const ops = getOperators();
-        operatorName = ops[opSel.value] || "Turno Activo";
-      } else {
-        mostrarToast("Seleccione el Cajero de Turno.", "error");
-        return;
-      }
+      const operatorName = "Turno Activo";
 
       // Configurar inventario inicial de la charola
       DB.set('inventory', startingInventory);
