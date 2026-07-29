@@ -1871,20 +1871,26 @@
       const balances = DB.get('balances', {});
       const carryOverBanorte = balances.banorte || 0;
       const carryOverMeli = balances.meli || 0;
+      const carryOverTconectaTerminal = balances.tconectaTerminal || 0;
+      const carryOverBanamex = balances.banamex || 0;
 
       // Yastas: terminal declarada en apertura; efectivo = suma del efectivo físico inicial
       balances.yastasTerminal = startingYastas; 
-      balances.yastasEfectivo = startingCashSum; // El efectivo físico inicial VA al efectivo de Yastas
+      balances.yastasEfectivo = startingCashSum;
+      
+      // Plataformas persistentes (NO se borran al abrir turno)
       balances.banorte = carryOverBanorte; 
       balances.meli = carryOverMeli; 
+      balances.tconectaTerminal = carryOverTconectaTerminal;
+      balances.banamex = carryOverBanamex;
       
-      // Restablecer flujos diarios
+      // Restablecer flujos diarios (BBVA, T-Conecta recargas/retiros, Transferencias, Capital)
       balances.tconecta = 0;
       balances.transferencia = 0;
       balances.bbva = 0;
-      balances.banamex = 0;
-      balances.capital = (typeof balances.capital !== 'undefined') ? balances.capital : 0;
-      // NOTA: balances.boveda se recalcula desde inventoryBoveda — no se resetea
+      balances.capital = 0;
+      balances.capitalTerminal = 0;
+      balances.capitalEfectivo = 0;
       
       DB.set('balances', balances);
 
@@ -7684,7 +7690,7 @@
         // Notificar almacenamiento y sincronización en Supabase
         mostrarToast("Cierre de turno firmado y respaldado en Supabase.", "success");
 
-        // RESETEAR SALDOS DE CONTEO DIARIO
+        // RESETEAR SALDOS Y FLUJOS DIARIOS (BBVA, T-CONECTA FLUJO DIARIO, TRANSFERENCIA, CAPITAL, YASTAS)
         balances.yastasTerminal = 0;
         balances.yastasEfectivo = 0;
         balances.tconecta = 0;
@@ -7693,11 +7699,23 @@
         balances.capital = 0;
         balances.capitalTerminal = 0;
         balances.capitalEfectivo = 0;
-        balances.boveda = 0; // Se recoge de bóveda
-        // NOTA: balances.tconectaTerminal y balances.banamex NO SE RESETEAN (Se conservan acumulativamente entre turnos)
-        DB.set('inventoryBoveda', {}); // Bóveda vacía
+        balances.boveda = 0;
+
+        // SALDOS PERSISTENTES DE PLATAFORMAS (NO SE BORRAN Y CONTINÚAN EN SIGUIENTES TURNOS):
+        // - balances.banorte
+        // - balances.meli & balances.meliBase
+        // - balances.tconectaTerminal (Disponible Terminal T-Conecta)
+        // - balances.banamex (Saldo Cuenta Banamex)
+
+        DB.set('inventoryBoveda', {});
         DB.set('balances', balances);
         DB.set('logs', []);
+
+        if (typeof syncToSupabase === 'function') {
+          syncToSupabase('balances', balances);
+          syncToSupabase('inventory', {});
+          syncToSupabase('inventoryBoveda', {});
+        }
 
         // Guardar estado de sesión cerrada
         DB.set('state', { session_active: false, operator: null, precarga_completada: false });
