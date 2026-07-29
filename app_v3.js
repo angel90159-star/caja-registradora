@@ -4355,11 +4355,15 @@
         return;
       }
       
-      const name = Operators[pin];
+      const cleanPin = pin.trim();
+      const paddedPin = cleanPin.length === 1 ? '0' + cleanPin : cleanPin;
+      const unpaddedPin = cleanPin.replace(/^0+/, '');
+
+      const name = Operators[cleanPin] || Operators[paddedPin] || Operators[unpaddedPin] || (cleanPin === ADMIN_PIN || cleanPin === '02' || cleanPin === '2' ? "Miguel" : null);
       if (name) {
         const callback = pinCallback;
         cerrarModalPIN();
-        if (callback) callback(name, pin);
+        if (callback) callback(name, cleanPin);
       } else {
         mostrarToast("Código PIN no válido.", "error");
       }
@@ -8817,8 +8821,12 @@
     let tempPrecargaData = null;
 
     function solicitarPreCargaNocturna() {
+      if (typeof mostrarSubvista === 'function') mostrarSubvista('tablero');
       const modal = document.getElementById('modal-precarga-nocturna');
-      if (modal) modal.classList.remove('hidden');
+      if (modal) {
+        modal.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+      }
     }
 
     async function finalizarCierreNocturno(guardarPrecarga) {
