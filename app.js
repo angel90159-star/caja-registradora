@@ -259,8 +259,9 @@
         // Cargar estado remoto de caja
         const { data: stData } = await supabaseClient.from('caja_state').select('*').eq('id', 'main').maybeSingle();
         if (stData) {
+          const remoteActive = !!stData.session_active;
           const remoteState = {
-            session_active: !!stData.session_active,
+            session_active: remoteActive,
             opened_date: stData.opened_date,
             opened_time: stData.opened_time,
             operator: stData.operator,
@@ -269,8 +270,11 @@
           };
           dbCache['state'] = remoteState;
           localStorage.setItem('lc5_state', JSON.stringify(remoteState));
-          sessionActive = remoteState.session_active;
+          sessionActive = remoteActive;
           activeOperator = remoteState.operator;
+          if (typeof refrescarPantallas === 'function') {
+            refrescarPantallas();
+          }
         }
         // Cargar balances desde Supabase
         const { data: balData } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
@@ -461,6 +465,26 @@
       try {
         supabaseClient
           .channel('caja_realtime_channel')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_state' }, payload => {
+            if (payload.new && payload.new.id === 'main') {
+              const remoteActive = !!payload.new.session_active;
+              const remoteState = {
+                session_active: remoteActive,
+                opened_date: payload.new.opened_date,
+                opened_time: payload.new.opened_time,
+                operator: payload.new.operator,
+                precarga_completada: !!payload.new.precarga_completada,
+                precarga_data: payload.new.precarga_data || null
+              };
+              dbCache['state'] = remoteState;
+              localStorage.setItem('lc5_state', JSON.stringify(remoteState));
+              sessionActive = remoteActive;
+              activeOperator = remoteState.operator;
+              if (typeof refrescarPantallas === 'function') {
+                refrescarPantallas();
+              }
+            }
+          })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_balances' }, payload => {
             if (payload.new && payload.new.id === 'main') {
               const currentBal = DB.get('balances', {});
@@ -1352,10 +1376,44 @@
           btnBitacora.setAttribute('title', "Ver Bitácora de Movimientos");
         }
 
+        if (typeof cargarDropdownOperadores === 'function') {
+          cargarDropdownOperadores();
+        }
         const opSel = document.getElementById('apertura-operator');
         if (opSel) opSel.value = "";
-        document.getElementById('apertura-yastas').value = "";
-        limpiarDesglose(true);
+        
+        // Consumir Pre-carga Nocturna si está completada
+        const state = DB.get('state', {});
+        if (state.precarga_completada && state.precarga_data) {
+          const precarga = state.precarga_data;
+          const yastasInput = document.getElementById('apertura-yastas');
+          if (yastasInput) {
+            const yastasVal = precarga.balances && typeof precarga.balances.yastasTerminal !== 'undefined'
+              ? precarga.balances.yastasTerminal
+              : 0;
+            yastasInput.value = yastasVal > 0 ? yastasVal.toFixed(2) : '';
+          }
+          
+          const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '05'];
+          denoms.forEach(id => {
+            const elementId = id === '05' ? 'apertura-0.5' : `apertura-${id}`;
+            const input = document.getElementById(elementId);
+            const pz = precarga.inventory && precarga.inventory[id] ? precarga.inventory[id] : 0;
+            if (input) {
+              input.value = pz > 0 ? pz : '';
+            }
+          });
+          
+          calcularTotalLocal();
+          
+          mostrarToast("Campos pre-llenados con la captura nocturna del cierre anterior. Verifique antes de confirmar.", "info");
+        } else {
+          document.getElementById('apertura-yastas').value = "";
+          limpiarDesglose(true);
+        }
+      }
+      if (typeof evaluarGatekeeper === 'function') {
+        evaluarGatekeeper();
       }
     }
 
@@ -1808,6 +1866,15 @@
 
     // === INICIO Y CIERRE DE TURNO ===
     function intentarIniciarTurno() {
+      const currentState = DB.get('state', {});
+      if (sessionActive || currentState.session_active) {
+        mostrarToast("Ya existe un turno activo en el sistema. Redirigiendo al tablero...", "info");
+        sessionActive = true;
+        activeOperator = currentState.operator || "Turno Activo";
+        refrescarPantallas();
+        return;
+      }
+
       const startingYastas = parseFloat(document.getElementById('apertura-yastas').value);
 
       if (isNaN(startingYastas) || startingYastas < 0) {
@@ -1831,7 +1898,15 @@
         return;
       }
 
-      const operatorName = "Turno Activo";
+      const opSel = document.getElementById('apertura-operator');
+      let operatorName = "Turno Activo";
+      if (opSel && opSel.value) {
+        const ops = getOperators();
+        operatorName = ops[opSel.value] || "Turno Activo";
+      } else {
+        mostrarToast("Seleccione el Cajero de Turno.", "error");
+        return;
+      }
 
       // Configurar inventario inicial de la charola
       DB.set('inventory', startingInventory);
@@ -1840,20 +1915,26 @@
       const balances = DB.get('balances', {});
       const carryOverBanorte = balances.banorte || 0;
       const carryOverMeli = balances.meli || 0;
+      const carryOverTconectaTerminal = balances.tconectaTerminal || 0;
+      const carryOverBanamex = balances.banamex || 0;
 
       // Yastas: terminal declarada en apertura; efectivo = suma del efectivo físico inicial
       balances.yastasTerminal = startingYastas; 
-      balances.yastasEfectivo = startingCashSum; // El efectivo físico inicial VA al efectivo de Yastas
+      balances.yastasEfectivo = startingCashSum;
+      
+      // Plataformas persistentes (NO se borran al abrir turno)
       balances.banorte = carryOverBanorte; 
       balances.meli = carryOverMeli; 
+      balances.tconectaTerminal = carryOverTconectaTerminal;
+      balances.banamex = carryOverBanamex;
       
-      // Restablecer flujos diarios
+      // Restablecer flujos diarios (BBVA, T-Conecta recargas/retiros, Transferencias, Capital)
       balances.tconecta = 0;
       balances.transferencia = 0;
       balances.bbva = 0;
-      balances.banamex = 0;
-      balances.capital = (typeof balances.capital !== 'undefined') ? balances.capital : 0;
-      // NOTA: balances.boveda se recalcula desde inventoryBoveda — no se resetea
+      balances.capital = 0;
+      balances.capitalTerminal = 0;
+      balances.capitalEfectivo = 0;
       
       DB.set('balances', balances);
 
@@ -1869,16 +1950,32 @@
 
       // Guardar el estado con fecha y hora de apertura
       const timeStr = now.toLocaleTimeString();
-      DB.set('state', { 
+      const newState = { 
         session_active: true, 
         operator: operatorName, 
         opened_date: todayStr,
         opened_time: timeStr
-      });
+      };
+      DB.set('state', newState);
       sessionActive = true;
       activeOperator = operatorName;
 
-      registrarMovimientoBitacora("Apertura", "Apertura", startingCashSum, `Inicio de turno. Efectivo base: ${fmt.format(startingCashSum)}. Yastas: ${fmt.format(startingYastas)}`, startingInventory);
+      if (typeof syncToSupabase === 'function') {
+        syncToSupabase('state', newState);
+      }
+
+      // Capturar observación de apertura
+      const obsInput = document.getElementById('apertura-observacion');
+      const obsText = obsInput ? obsInput.value.trim() : '';
+      const extraDetails = obsText ? ` | Obs: ${obsText}` : '';
+
+      registrarMovimientoBitacora("Apertura", "Apertura", startingCashSum, `Inicio de turno. Efectivo base: ${fmt.format(startingCashSum)}. Yastas: ${fmt.format(startingYastas)}${extraDetails}`, startingInventory);
+
+      if (obsInput) {
+        obsInput.value = '';
+        const container = document.getElementById('apertura-obs-container');
+        if (container) container.classList.add('hidden');
+      }
 
       mostrarToast("Turno iniciado.", "success");
       refrescarPantallas();
@@ -8098,7 +8195,8 @@
       let loadedSum = 0;
       
       denoms.forEach(id => {
-        const input = document.getElementById(`apertura-${id}`);
+        const elementId = id === '05' ? 'apertura-0.5' : `apertura-${id}`;
+        const input = document.getElementById(elementId);
         const pz = lastReport.countedInventory[id] || 0;
         if (input) {
           input.value = pz > 0 ? pz : '';
@@ -8683,4 +8781,212 @@
       input.value = '';
       confirmInput.value = '';
       cerrarModalUsuarios();
+    }
+
+    // === GATEKEEPER Y CONTROL DE TURNOS (REFACTORIZACIÓN LA CENTRAL) ===
+    function evaluarGatekeeper() {
+      const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const todayStr = `${year}-${month}-${day}`;
+
+      const gatekeeperModal = document.getElementById('modal-gatekeeper-alerta');
+      
+      // Si el turno previo sigue ABIERTO de un día anterior y tiene movimientos
+      if (sessionActive && state.opened_date && state.opened_date !== todayStr) {
+        const currentLogs = DB.get('logs', []) || [];
+        const nonOpeningLogs = currentLogs.filter(log => log.category !== 'Apertura');
+        if (nonOpeningLogs.length > 0) {
+          if (gatekeeperModal) gatekeeperModal.classList.remove('hidden');
+          bloquearInterfazGatekeeper(true);
+          return true;
+        }
+      }
+
+      if (gatekeeperModal) gatekeeperModal.classList.add('hidden');
+      bloquearInterfazGatekeeper(!sessionActive);
+      return false;
+    }
+
+    function bloquearInterfazGatekeeper(bloquear) {
+      const btnHeaderCalc = document.getElementById('btn-header-calc');
+      const btnHeaderIva = document.getElementById('btn-header-iva');
+      const btnHeaderUsers = document.getElementById('btn-header-users');
+      const btnHeaderBitacora = document.getElementById('btn-abrir-bitacora');
+
+      const cards = [
+        document.getElementById('card-yastas'),
+        document.getElementById('card-banorte'),
+        document.getElementById('card-meli'),
+        document.getElementById('card-bbva'),
+        document.getElementById('card-tconecta'),
+        document.getElementById('card-capital')
+      ];
+
+      if (bloquear) {
+        if (btnHeaderCalc) btnHeaderCalc.classList.add('opacity-40', 'pointer-events-none');
+        if (btnHeaderIva) btnHeaderIva.classList.add('opacity-40', 'pointer-events-none');
+        if (btnHeaderUsers) btnHeaderUsers.classList.add('opacity-40', 'pointer-events-none');
+        if (btnHeaderBitacora) btnHeaderBitacora.classList.add('opacity-40', 'pointer-events-none');
+        cards.forEach(card => {
+          if (card) card.classList.add('opacity-40', 'pointer-events-none');
+        });
+      } else {
+        if (btnHeaderCalc) btnHeaderCalc.classList.remove('opacity-40', 'pointer-events-none');
+        if (btnHeaderIva) btnHeaderIva.classList.remove('opacity-40', 'pointer-events-none');
+        if (btnHeaderUsers) btnHeaderUsers.classList.remove('opacity-40', 'pointer-events-none');
+        if (btnHeaderBitacora) btnHeaderBitacora.classList.remove('opacity-40', 'pointer-events-none');
+        cards.forEach(card => {
+          if (card) card.classList.remove('opacity-40', 'pointer-events-none');
+        });
+      }
+    }
+
+    function forzarCierreTurnoPendiente() {
+      const gatekeeperModal = document.getElementById('modal-gatekeeper-alerta');
+      if (gatekeeperModal) gatekeeperModal.classList.add('hidden');
+      cerrarTurno();
+    }
+
+    // === CIERRE NOCTURNO EN 2 PASOS ===
+    let tempPrecargaData = null;
+
+    function solicitarPreCargaNocturna() {
+      const modal = document.getElementById('modal-precarga-nocturna');
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    async function finalizarCierreNocturno(guardarPrecarga) {
+      const modal = document.getElementById('modal-precarga-nocturna');
+      if (modal) modal.classList.add('hidden');
+
+      const balances = DB.get('balances', {});
+
+      // RESETEAR SALDOS Y FLUJOS DIARIOS (BBVA, T-CONECTA FLUJO DIARIO, TRANSFERENCIA, CAPITAL, YASTAS)
+      balances.yastasTerminal = 0;
+      balances.yastasEfectivo = 0;
+      balances.tconecta = 0;
+      balances.transferencia = 0;
+      balances.bbva = 0;
+      balances.capital = 0;
+      balances.capitalTerminal = 0;
+      balances.capitalEfectivo = 0;
+      balances.boveda = 0;
+
+      // SALDOS PERSISTENTES DE PLATAFORMAS (BANORTE, MELI, T-CONECTA DISPONIBLE TERMINAL, BANAMEX): NO SE BORRAN
+
+      DB.set('inventoryBoveda', {});
+      DB.set('balances', balances);
+      DB.set('logs', []);
+
+      if (typeof syncToSupabase === 'function') {
+        await syncToSupabase('balances', balances);
+        await syncToSupabase('inventory', {});
+        await syncToSupabase('inventoryBoveda', {});
+      }
+
+      const state = DB.get('state', {});
+      state.session_active = false;
+      state.operator = null;
+      state.opened_date = null;
+      state.precarga_completada = !!guardarPrecarga;
+
+      if (guardarPrecarga && tempPrecargaData) {
+        state.precarga_data = tempPrecargaData;
+      } else {
+        state.precarga_data = null;
+      }
+
+      DB.set('state', state);
+      if (typeof syncToSupabase === 'function') {
+        await syncToSupabase('state', state);
+      }
+
+      sessionActive = false;
+      activeOperator = null;
+      tempPrecargaData = null;
+
+      refrescarPantallas();
+      evaluarGatekeeper();
+      mostrarToast(guardarPrecarga ? "Corte de caja firmado y Pre-carga nocturna guardada con éxito." : "Corte de caja firmado y sesión cerrada exitosamente.", "success");
+    }
+
+    // === ARQUEO CIEGO ===
+    function abrirModalArqueoCiego() {
+      if (!sessionActive) return;
+      const container = document.getElementById('arqueo-ciego-inputs-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const listDenoms = [...Denominations.billetes, ...Denominations.monedas];
+      listDenoms.forEach(d => {
+        const denomLabel = d === 0.5 ? '50¢' : `$${d}`;
+        const div = document.createElement('div');
+        div.className = "bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center items-center space-y-1";
+        div.innerHTML = `
+          <span class="text-xs font-black text-slate-700 dark:text-slate-200">${denomLabel}</span>
+          <input type="number" min="0" placeholder="0" data-denom="${d}" class="input-arqueo-ciego w-full text-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl py-1.5 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500">
+        `;
+        container.appendChild(div);
+      });
+
+      document.getElementById('modal-arqueo-ciego').classList.remove('hidden');
+    }
+
+    function cerrarModalArqueoCiego() {
+      const modal = document.getElementById('modal-arqueo-ciego');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function confirmarArqueoCiego() {
+      const inputs = document.querySelectorAll('.input-arqueo-ciego');
+      let totalDeclarado = 0;
+      const recPiezas = {};
+
+      inputs.forEach(inp => {
+        const d = parseFloat(inp.getAttribute('data-denom'));
+        const count = parseInt(inp.value, 10) || 0;
+        recPiezas[d] = count;
+        totalDeclarado += d * count;
+      });
+
+      const actualInv = DB.get('inventory', {});
+      let totalTeorico = 0;
+      for (let k in actualInv) {
+        totalTeorico += parseFloat(k) * (parseInt(actualInv[k]) || 0);
+      }
+
+      const diff = totalDeclarado - totalTeorico;
+      cerrarModalArqueoCiego();
+
+      registrarMovimientoBitacora(
+        "Admin",
+        "AJUSTE_ARQUEO_CIEGO",
+        diff,
+        `Arqueo Ciego ejecutado por ${activeOperator || 'Operador'}. Declarado: ${fmt.format(totalDeclarado)} vs Teórico: ${fmt.format(totalTeorico)} (Diferencia: ${fmt.format(diff)})`,
+        recPiezas
+      );
+
+      mostrarToast(`Declaración Ciega registrada. Total: ${fmt.format(totalDeclarado)} (Diferencia: ${fmt.format(diff)})`, diff === 0 ? "success" : "info");
+    }
+
+    // === FILTRADO POR CORRESPONSALÍAS ===
+    function filtrarPorCorresponsalia(corresponsalia) {
+      const selectCuenta = document.getElementById('filtro-cuenta');
+      if (selectCuenta) {
+        selectCuenta.value = corresponsalia;
+      }
+      
+      const btns = document.querySelectorAll('.tab-corresponsalia-btn');
+      btns.forEach(b => {
+        if (b.getAttribute('data-target') === corresponsalia) {
+          b.className = "tab-corresponsalia-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-indigo-600 text-white cursor-pointer";
+        } else {
+          b.className = "tab-corresponsalia-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 cursor-pointer";
+        }
+      });
+
+      cargarBitacora();
     }
