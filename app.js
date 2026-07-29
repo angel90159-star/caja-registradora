@@ -7750,6 +7750,19 @@
         balances.capitalTerminal = 0;
         balances.capitalEfectivo = 0;
         balances.boveda = 0;
+
+        // SALDOS PERSISTENTES — Protección explícita: NO se deben borrar jamás
+        // banorte: total acumulado se hereda como inicial del siguiente turno
+        // meli: terminal y fondo base se conservan para cuadrar
+        // tconectaTerminal y banamex: saldos de plataforma persistentes
+        console.log('[Cierre] Saldos persistentes preservados:', {
+          banorte: balances.banorte,
+          meli: balances.meli,
+          meliBase: balances.meliBase,
+          tconectaTerminal: balances.tconectaTerminal,
+          banamex: balances.banamex
+        });
+
         await DB.set('inventoryBoveda', {});
         await DB.set('balances', balances);
         await DB.set('logs', []);
@@ -8865,14 +8878,23 @@
       balances.capitalEfectivo = 0;
       balances.boveda = 0;
 
-      // SALDOS PERSISTENTES DE PLATAFORMAS (BANORTE, MELI, T-CONECTA DISPONIBLE TERMINAL, BANAMEX): NO SE BORRAN
+      // SALDOS PERSISTENTES — Protección explícita: NO se deben borrar jamás
+      // banorte: total acumulado se hereda como inicial del siguiente turno
+      // meli: terminal y fondo base se conservan para cuadrar
+      // tconectaTerminal y banamex: saldos de plataforma persistentes
+      console.log('[Cierre Nocturno] Saldos persistentes preservados:', {
+        banorte: balances.banorte,
+        meli: balances.meli,
+        meliBase: balances.meliBase,
+        tconectaTerminal: balances.tconectaTerminal,
+        banamex: balances.banamex
+      });
 
-      DB.set('inventoryBoveda', {});
-      DB.set('balances', balances);
+      await DB.set('inventoryBoveda', {});
+      await DB.set('balances', balances);
       DB.set('logs', []);
 
       if (typeof syncToSupabase === 'function') {
-        await syncToSupabase('balances', balances);
         await syncToSupabase('inventory', {});
         await syncToSupabase('inventoryBoveda', {});
       }
