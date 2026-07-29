@@ -7702,51 +7702,17 @@
         const currentInventory = DB.get('inventory', {});
         registrarMovimientoBitacora(opName, "Cierre", 0, `Turno cerrado y firmado [${folioId}]. Total Contado: ${fmt.format(totalContado)}. Diferencia: ${fmt.format(diffTotal)}`, currentInventory);
 
-        // Notificar almacenamiento y sincronización en Supabase
-        mostrarToast("Cierre de turno firmado y respaldado en Supabase.", "success");
+        // Guardar datos temporales para el Paso 2: Pre-carga Nocturna
+        tempPrecargaData = {
+          inventory: countedInventory,
+          balances: JSON.parse(JSON.stringify(balances))
+        };
 
-        // RESETEAR SALDOS Y FLUJOS DIARIOS (BBVA, T-CONECTA FLUJO DIARIO, TRANSFERENCIA, CAPITAL, YASTAS)
-        balances.yastasTerminal = 0;
-        balances.yastasEfectivo = 0;
-        balances.tconecta = 0;
-        balances.transferencia = 0;
-        balances.bbva = 0;
-        balances.capital = 0;
-        balances.capitalTerminal = 0;
-        balances.capitalEfectivo = 0;
-        balances.boveda = 0;
-
-        // SALDOS PERSISTENTES DE PLATAFORMAS (NO SE BORRAN Y CONTINÚAN EN SIGUIENTES TURNOS):
-        // - balances.banorte
-        // - balances.meli & balances.meliBase
-        // - balances.tconectaTerminal (Disponible Terminal T-Conecta)
-        // - balances.banamex (Saldo Cuenta Banamex)
-
-        DB.set('inventoryBoveda', {});
-        DB.set('balances', balances);
-        DB.set('logs', []);
-
-        if (typeof syncToSupabase === 'function') {
-          syncToSupabase('balances', balances);
-          syncToSupabase('inventory', {});
-          syncToSupabase('inventoryBoveda', {});
-        }
-
-        // Guardar estado de sesión cerrada
-        DB.set('state', { session_active: false, operator: null, precarga_completada: false });
-        sessionActive = false;
-        activeOperator = null;
-        guardarEstadoActivoNube();
-
-        // Ocultar modal y mostrar éxito
+        // Ocultar modal de cierre y desplegar Paso 2 (Pre-carga Nocturna)
         cerrarCierreCajaModal();
         mostrarToast("Corte de Caja firmado con éxito. Procediendo a Pre-carga Nocturna...", "success");
-        refrescarPantallas();
 
-        // Abrir Paso 2: Pre-carga de Fondo Base Nocturna
-        setTimeout(() => {
-          solicitarPreCargaNocturna();
-        }, 500);
+        solicitarPreCargaNocturna();
       });
     }
 
@@ -8796,6 +8762,8 @@
     }
 
     // === CIERRE NOCTURNO EN 2 PASOS ===
+    let tempPrecargaData = null;
+
     function solicitarPreCargaNocturna() {
       const modal = document.getElementById('modal-precarga-nocturna');
       if (modal) modal.classList.remove('hidden');
@@ -8805,17 +8773,39 @@
       const modal = document.getElementById('modal-precarga-nocturna');
       if (modal) modal.classList.add('hidden');
 
+      const balances = DB.get('balances', {});
+
+      // RESETEAR SALDOS Y FLUJOS DIARIOS (BBVA, T-CONECTA FLUJO DIARIO, TRANSFERENCIA, CAPITAL, YASTAS)
+      balances.yastasTerminal = 0;
+      balances.yastasEfectivo = 0;
+      balances.tconecta = 0;
+      balances.transferencia = 0;
+      balances.bbva = 0;
+      balances.capital = 0;
+      balances.capitalTerminal = 0;
+      balances.capitalEfectivo = 0;
+      balances.boveda = 0;
+
+      // SALDOS PERSISTENTES DE PLATAFORMAS (BANORTE, MELI, T-CONECTA DISPONIBLE TERMINAL, BANAMEX): NO SE BORRAN
+
+      DB.set('inventoryBoveda', {});
+      DB.set('balances', balances);
+      DB.set('logs', []);
+
+      if (typeof syncToSupabase === 'function') {
+        await syncToSupabase('balances', balances);
+        await syncToSupabase('inventory', {});
+        await syncToSupabase('inventoryBoveda', {});
+      }
+
       const state = DB.get('state', {});
       state.session_active = false;
       state.operator = null;
       state.opened_date = null;
       state.precarga_completada = !!guardarPrecarga;
 
-      if (guardarPrecarga) {
-        state.precarga_data = {
-          inventory: DB.get('inventory', {}),
-          balances: DB.get('balances', {})
-        };
+      if (guardarPrecarga && tempPrecargaData) {
+        state.precarga_data = tempPrecargaData;
       } else {
         state.precarga_data = null;
       }
@@ -8827,9 +8817,11 @@
 
       sessionActive = false;
       activeOperator = null;
+      tempPrecargaData = null;
+
       refrescarPantallas();
       evaluarGatekeeper();
-      mostrarToast(guardarPrecarga ? "Pre-carga nocturna guardada exitosamente. Sesión cerrada." : "Sesión cerrada exitosamente.", "success");
+      mostrarToast(guardarPrecarga ? "Corte de caja firmado y Pre-carga nocturna guardada con éxito." : "Corte de caja firmado y sesión cerrada exitosamente.", "success");
     }
 
     // === ARQUEO CIEGO ===
