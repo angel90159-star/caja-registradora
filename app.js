@@ -259,20 +259,25 @@
         // Cargar estado remoto de caja
         const { data: stData } = await supabaseClient.from('caja_state').select('*').eq('id', 'main').maybeSingle();
         if (stData) {
-          const remoteState = {
-            session_active: !!stData.session_active,
-            opened_date: stData.opened_date,
-            opened_time: stData.opened_time,
-            operator: stData.operator,
-            precarga_completada: !!stData.precarga_completada,
-            precarga_data: stData.precarga_data || null
-          };
-          dbCache['state'] = remoteState;
-          localStorage.setItem('lc5_state', JSON.stringify(remoteState));
-          sessionActive = remoteState.session_active;
-          activeOperator = remoteState.operator;
-          if (typeof refrescarPantallas === 'function') {
-            refrescarPantallas();
+          const remoteActive = !!stData.session_active;
+          if (sessionActive && !remoteActive) {
+            console.log("Sesión activa local preservada durante la carga inicial.");
+          } else {
+            const remoteState = {
+              session_active: remoteActive,
+              opened_date: stData.opened_date,
+              opened_time: stData.opened_time,
+              operator: stData.operator,
+              precarga_completada: !!stData.precarga_completada,
+              precarga_data: stData.precarga_data || null
+            };
+            dbCache['state'] = remoteState;
+            localStorage.setItem('lc5_state', JSON.stringify(remoteState));
+            sessionActive = remoteActive;
+            activeOperator = remoteState.operator;
+            if (typeof refrescarPantallas === 'function') {
+              refrescarPantallas();
+            }
           }
         }
         // Cargar balances desde Supabase
@@ -466,8 +471,13 @@
           .channel('caja_realtime_channel')
           .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_state' }, payload => {
             if (payload.new && payload.new.id === 'main') {
+              const remoteActive = !!payload.new.session_active;
+              if (sessionActive && !remoteActive) {
+                console.log("Sesión activa local preservada en evento Realtime.");
+                return;
+              }
               const remoteState = {
-                session_active: !!payload.new.session_active,
+                session_active: remoteActive,
                 opened_date: payload.new.opened_date,
                 opened_time: payload.new.opened_time,
                 operator: payload.new.operator,
@@ -476,7 +486,7 @@
               };
               dbCache['state'] = remoteState;
               localStorage.setItem('lc5_state', JSON.stringify(remoteState));
-              sessionActive = remoteState.session_active;
+              sessionActive = remoteActive;
               activeOperator = remoteState.operator;
               if (typeof refrescarPantallas === 'function') {
                 refrescarPantallas();
@@ -1906,14 +1916,19 @@
 
       // Guardar el estado con fecha y hora de apertura
       const timeStr = now.toLocaleTimeString();
-      DB.set('state', { 
+      const newState = { 
         session_active: true, 
         operator: operatorName, 
         opened_date: todayStr,
         opened_time: timeStr
-      });
+      };
+      DB.set('state', newState);
       sessionActive = true;
       activeOperator = operatorName;
+
+      if (typeof syncToSupabase === 'function') {
+        syncToSupabase('state', newState);
+      }
 
       registrarMovimientoBitacora("Apertura", "Apertura", startingCashSum, `Inicio de turno. Efectivo base: ${fmt.format(startingCashSum)}. Yastas: ${fmt.format(startingYastas)}`, startingInventory);
 
