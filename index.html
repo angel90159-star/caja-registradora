@@ -927,6 +927,16 @@
         </div>
       </div>
 
+      <!-- Pestañas de Segmentación por Corresponsalías -->
+      <div class="flex items-center gap-2 overflow-x-auto pb-1 mb-4 scrollbar-none">
+        <span class="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider shrink-0 mr-1">Corresponsalía:</span>
+        <button onclick="filtrarPorCorresponsalia('todas')" class="tab-corresponsalia-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-indigo-600 text-white cursor-pointer" data-target="todas">Todas</button>
+        <button onclick="filtrarPorCorresponsalia('YASTAS')" class="tab-corresponsalia-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 cursor-pointer" data-target="YASTAS">Yastás</button>
+        <button onclick="filtrarPorCorresponsalia('MELI')" class="tab-corresponsalia-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 cursor-pointer" data-target="MELI">Mercado Libre (Meli)</button>
+        <button onclick="filtrarPorCorresponsalia('BANORTE')" class="tab-corresponsalia-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 cursor-pointer" data-target="BANORTE">Banorte</button>
+        <button onclick="filtrarPorCorresponsalia('TCONECTA')" class="tab-corresponsalia-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 cursor-pointer" data-target="TCONECTA">T-Conecta / Banamex</button>
+      </div>
+
       <!-- Barra de Filtros de la Bitácora (Fecha/Calendario, Tipo, Cuenta y Operador) -->
       <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm dark:shadow-slate-950/20 border border-slate-100 dark:border-slate-800 p-5 grid grid-cols-1 sm:grid-cols-4 gap-4 transition-colors duration-200">
         <!-- Filtro: Fecha -->
@@ -2319,12 +2329,89 @@
     </div>
   </div>
 
+  <!-- MODAL GATEKEEPER: ALERTA DE TURNO ANTERIOR ABIERTO -->
+  <div id="modal-gatekeeper-alerta" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/50 space-y-5">
+      <div class="w-14 h-14 bg-rose-100 dark:bg-rose-950/60 rounded-2xl flex items-center justify-center text-rose-600 dark:text-rose-400 mx-auto">
+        <i data-lucide="shield-alert" class="w-8 h-8"></i>
+      </div>
+      <div class="text-center space-y-2">
+        <h3 class="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Atención: Turno No Cerrado</h3>
+        <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+          El turno del día anterior no fue cerrado formalmente. Por favor realiza el cierre para continuar.
+        </p>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button onclick="forzarCierreTurnoPendiente()" class="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl text-xs transition shadow-md shadow-rose-600/20 flex items-center justify-center gap-2 cursor-pointer">
+          <i data-lucide="log-out" class="w-4 h-4"></i> Ir a Realizar Cierre del Turno
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL CIERRE NOCTURNO: PASO 2 PRE-CARGA DE FONDO BASE -->
+  <div id="modal-precarga-nocturna" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[90] flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-900 rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-indigo-100 dark:border-slate-800 space-y-5">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
+            <i data-lucide="moon" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">Cierre Nocturno - Paso 2: Pre-carga de Fondo Base</h3>
+            <p class="text-[10px] text-slate-400 font-semibold">Pre-llenado voluntario de efectivo para la apertura del día siguiente</p>
+          </div>
+        </div>
+      </div>
+      <p class="text-xs text-slate-600 dark:text-slate-300">
+        ¿Deseas guardar el desglose físico actual de efectivo como pre-carga para la apertura matutina de mañana?
+      </p>
+      <div class="flex gap-3 pt-3">
+        <button onclick="finalizarCierreNocturno(false)" class="flex-1 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-2xl text-xs transition cursor-pointer">
+          Omitir y Salir
+        </button>
+        <button onclick="finalizarCierreNocturno(true)" class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs transition shadow-md shadow-indigo-600/20 cursor-pointer">
+          Guardar Pre-carga y Salir
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL ARQUEO CIEGO -->
+  <div id="modal-arqueo-ciego" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[80] flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-indigo-100 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 rounded-xl flex items-center justify-center">
+            <i data-lucide="eye-off" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">Arqueo Ciego de Efectivo</h3>
+            <p class="text-[10px] text-slate-400 font-semibold">Declare las piezas físicas sin conocer el total esperado</p>
+          </div>
+        </div>
+        <button onclick="cerrarModalArqueoCiego()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg cursor-pointer">✕</button>
+      </div>
+      <div id="arqueo-ciego-inputs-container" class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <!-- Generado dinámicamente -->
+      </div>
+      <div class="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+        <button onclick="cerrarModalArqueoCiego()" class="flex-1 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold rounded-2xl text-xs transition cursor-pointer">
+          Cancelar
+        </button>
+        <button onclick="confirmarArqueoCiego()" class="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs transition shadow-md shadow-indigo-600/20 cursor-pointer">
+          Confirmar Declaración Ciega
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- NOTIFICACIÓN TIPO TOAST -->
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
   <!-- ==========================================
        LÓGICA EN JAVASCRIPT
        ========================================== -->
-  <script src="app.js?v=20260728_V3"></script>
+  <script src="app.js?v=20260728_BUNKER"></script>
 </body>
 </html>

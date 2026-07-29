@@ -271,6 +271,9 @@
           localStorage.setItem('lc5_state', JSON.stringify(remoteState));
           sessionActive = remoteState.session_active;
           activeOperator = remoteState.operator;
+          if (typeof refrescarPantallas === 'function') {
+            refrescarPantallas();
+          }
         }
         // Cargar balances desde Supabase
         const { data: balData } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
@@ -461,6 +464,25 @@
       try {
         supabaseClient
           .channel('caja_realtime_channel')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_state' }, payload => {
+            if (payload.new && payload.new.id === 'main') {
+              const remoteState = {
+                session_active: !!payload.new.session_active,
+                opened_date: payload.new.opened_date,
+                opened_time: payload.new.opened_time,
+                operator: payload.new.operator,
+                precarga_completada: !!payload.new.precarga_completada,
+                precarga_data: payload.new.precarga_data || null
+              };
+              dbCache['state'] = remoteState;
+              localStorage.setItem('lc5_state', JSON.stringify(remoteState));
+              sessionActive = remoteState.session_active;
+              activeOperator = remoteState.operator;
+              if (typeof refrescarPantallas === 'function') {
+                refrescarPantallas();
+              }
+            }
+          })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_balances' }, payload => {
             if (payload.new && payload.new.id === 'main') {
               const currentBal = DB.get('balances', {});
@@ -1808,6 +1830,15 @@
 
     // === INICIO Y CIERRE DE TURNO ===
     function intentarIniciarTurno() {
+      const currentState = DB.get('state', {});
+      if (sessionActive || currentState.session_active) {
+        mostrarToast("Ya existe un turno activo en el sistema. Redirigiendo al tablero...", "info");
+        sessionActive = true;
+        activeOperator = currentState.operator || "Turno Activo";
+        refrescarPantallas();
+        return;
+      }
+
       const startingYastas = parseFloat(document.getElementById('apertura-yastas').value);
 
       if (isNaN(startingYastas) || startingYastas < 0) {
@@ -7669,15 +7700,20 @@
         DB.set('logs', []);
 
         // Guardar estado de sesión cerrada
-        DB.set('state', { session_active: false, operator: null });
+        DB.set('state', { session_active: false, operator: null, precarga_completada: false });
         sessionActive = false;
         activeOperator = null;
         guardarEstadoActivoNube();
 
         // Ocultar modal y mostrar éxito
         cerrarCierreCajaModal();
-        mostrarToast("Corte de Caja guardado y firmado con éxito.", "success");
+        mostrarToast("Corte de Caja firmado con éxito. Procediendo a Pre-carga Nocturna...", "success");
         refrescarPantallas();
+
+        // Abrir Paso 2: Pre-carga de Fondo Base Nocturna
+        setTimeout(() => {
+          solicitarPreCargaNocturna();
+        }, 500);
       });
     }
 
@@ -8672,4 +8708,171 @@
       input.value = '';
       confirmInput.value = '';
       cerrarModalUsuarios();
+    }
+
+    // === GATEKEEPER Y CONTROL DE TURNOS (REFACTORIZACIÓN LA CENTRAL) ===
+    function evaluarGatekeeper() {
+      const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const todayStr = `${year}-${month}-${day}`;
+
+      const gatekeeperModal = document.getElementById('modal-gatekeeper-alerta');
+      
+      // Si el turno previo sigue ABIERTO de un día anterior y tiene movimientos
+      if (sessionActive && state.opened_date && state.opened_date !== todayStr) {
+        const currentLogs = DB.get('logs', []) || [];
+        const nonOpeningLogs = currentLogs.filter(log => log.category !== 'Apertura');
+        if (nonOpeningLogs.length > 0) {
+          if (gatekeeperModal) gatekeeperModal.classList.remove('hidden');
+          bloquearInterfazGatekeeper(true);
+          return true;
+        }
+      }
+
+      if (gatekeeperModal) gatekeeperModal.classList.add('hidden');
+      bloquearInterfazGatekeeper(!sessionActive);
+      return false;
+    }
+
+    function bloquearInterfazGatekeeper(bloquear) {
+      const btnHeaderCalc = document.getElementById('btn-header-calc');
+      const btnHeaderIva = document.getElementById('btn-header-iva');
+      const btnHeaderUsers = document.getElementById('btn-header-users');
+      const btnHeaderBitacora = document.getElementById('btn-abrir-bitacora');
+
+      if (bloquear) {
+        if (btnHeaderCalc) btnHeaderCalc.classList.add('opacity-40', 'pointer-events-none');
+        if (btnHeaderIva) btnHeaderIva.classList.add('opacity-40', 'pointer-events-none');
+        if (btnHeaderUsers) btnHeaderUsers.classList.add('opacity-40', 'pointer-events-none');
+        if (btnHeaderBitacora) btnHeaderBitacora.classList.add('opacity-40', 'pointer-events-none');
+      } else {
+        if (btnHeaderCalc) btnHeaderCalc.classList.remove('opacity-40', 'pointer-events-none');
+        if (btnHeaderIva) btnHeaderIva.classList.remove('opacity-40', 'pointer-events-none');
+        if (btnHeaderUsers) btnHeaderUsers.classList.remove('opacity-40', 'pointer-events-none');
+        if (btnHeaderBitacora) btnHeaderBitacora.classList.remove('opacity-40', 'pointer-events-none');
+      }
+    }
+
+    function forzarCierreTurnoPendiente() {
+      const gatekeeperModal = document.getElementById('modal-gatekeeper-alerta');
+      if (gatekeeperModal) gatekeeperModal.classList.add('hidden');
+      cerrarTurno();
+    }
+
+    // === CIERRE NOCTURNO EN 2 PASOS ===
+    function solicitarPreCargaNocturna() {
+      const modal = document.getElementById('modal-precarga-nocturna');
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    async function finalizarCierreNocturno(guardarPrecarga) {
+      const modal = document.getElementById('modal-precarga-nocturna');
+      if (modal) modal.classList.add('hidden');
+
+      const state = DB.get('state', {});
+      state.session_active = false;
+      state.operator = null;
+      state.opened_date = null;
+      state.precarga_completada = !!guardarPrecarga;
+
+      if (guardarPrecarga) {
+        state.precarga_data = {
+          inventory: DB.get('inventory', {}),
+          balances: DB.get('balances', {})
+        };
+      } else {
+        state.precarga_data = null;
+      }
+
+      DB.set('state', state);
+      if (typeof syncToSupabase === 'function') {
+        await syncToSupabase('state', state);
+      }
+
+      sessionActive = false;
+      activeOperator = null;
+      refrescarPantallas();
+      evaluarGatekeeper();
+      mostrarToast(guardarPrecarga ? "Pre-carga nocturna guardada exitosamente. Sesión cerrada." : "Sesión cerrada exitosamente.", "success");
+    }
+
+    // === ARQUEO CIEGO ===
+    function abrirModalArqueoCiego() {
+      if (!sessionActive) return;
+      const container = document.getElementById('arqueo-ciego-inputs-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const listDenoms = [...Denominations.billetes, ...Denominations.monedas];
+      listDenoms.forEach(d => {
+        const denomLabel = d === 0.5 ? '50¢' : `$${d}`;
+        const div = document.createElement('div');
+        div.className = "bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center items-center space-y-1";
+        div.innerHTML = `
+          <span class="text-xs font-black text-slate-700 dark:text-slate-200">${denomLabel}</span>
+          <input type="number" min="0" placeholder="0" data-denom="${d}" class="input-arqueo-ciego w-full text-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl py-1.5 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500">
+        `;
+        container.appendChild(div);
+      });
+
+      document.getElementById('modal-arqueo-ciego').classList.remove('hidden');
+    }
+
+    function cerrarModalArqueoCiego() {
+      const modal = document.getElementById('modal-arqueo-ciego');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function confirmarArqueoCiego() {
+      const inputs = document.querySelectorAll('.input-arqueo-ciego');
+      let totalDeclarado = 0;
+      const recPiezas = {};
+
+      inputs.forEach(inp => {
+        const d = parseFloat(inp.getAttribute('data-denom'));
+        const count = parseInt(inp.value, 10) || 0;
+        recPiezas[d] = count;
+        totalDeclarado += d * count;
+      });
+
+      const actualInv = DB.get('inventory', {});
+      let totalTeorico = 0;
+      for (let k in actualInv) {
+        totalTeorico += parseFloat(k) * (parseInt(actualInv[k]) || 0);
+      }
+
+      const diff = totalDeclarado - totalTeorico;
+      cerrarModalArqueoCiego();
+
+      registrarMovimientoBitacora(
+        "Admin",
+        "AJUSTE_ARQUEO_CIEGO",
+        diff,
+        `Arqueo Ciego ejecutado por ${activeOperator || 'Operador'}. Declarado: ${fmt.format(totalDeclarado)} vs Teórico: ${fmt.format(totalTeorico)} (Diferencia: ${fmt.format(diff)})`,
+        recPiezas
+      );
+
+      mostrarToast(`Declaración Ciega registrada. Total: ${fmt.format(totalDeclarado)} (Diferencia: ${fmt.format(diff)})`, diff === 0 ? "success" : "info");
+    }
+
+    // === FILTRADO POR CORRESPONSALÍAS ===
+    function filtrarPorCorresponsalia(corresponsalia) {
+      const selectCuenta = document.getElementById('filtro-cuenta');
+      if (selectCuenta) {
+        selectCuenta.value = corresponsalia;
+      }
+      
+      const btns = document.querySelectorAll('.tab-corresponsalia-btn');
+      btns.forEach(b => {
+        if (b.getAttribute('data-target') === corresponsalia) {
+          b.className = "tab-corresponsalia-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-indigo-600 text-white cursor-pointer";
+        } else {
+          b.className = "tab-corresponsalia-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 cursor-pointer";
+        }
+      });
+
+      cargarBitacora();
     }
