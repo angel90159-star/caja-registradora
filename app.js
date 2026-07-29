@@ -1478,12 +1478,7 @@
         }
       }
       document.getElementById('dash-bal-bbva').innerText = fmt.format(balances.bbva || 0);
-      const balTermEl = document.getElementById('dash-bal-tconecta-term');
-      const balBanamexEl = document.getElementById('dash-bal-tconecta-banamex');
-      const containerTconecta = document.getElementById('dash-bal-tconecta');
-      if (containerTconecta) containerTconecta.classList.remove('hidden');
-      if (balTermEl) balTermEl.innerText = `DISPONIBLE TERMINAL: ${fmt.format(balances.tconectaTerminal || 0)}`;
-      if (balBanamexEl) balBanamexEl.innerText = `SALDO CUENTA BANAMEX: ${fmt.format(balances.banamex || 0)}`;
+      // T-Conecta saldos se muestran ahora en la barra azul operativa (no en la tarjeta)
       const balTransf = document.getElementById('dash-bal-transferencia');
       if (balTransf) {
         balTransf.innerText = fmt.format(balances.transferencia || 0);
@@ -1536,7 +1531,13 @@
 
       // Update Title & Desc
       document.getElementById('dash-total-bar-title').innerText = config.title;
-      document.getElementById('dash-total-bar-desc').innerText = config.desc;
+      if (activeSrv === 'tconecta') {
+        const tconTermVal = fmt.format(balances.tconectaTerminal || 0);
+        const banamexVal = fmt.format(balances.banamex || 0);
+        document.getElementById('dash-total-bar-desc').innerText = `Disponible Terminal: ${tconTermVal}  |  Saldo Banamex: ${banamexVal}`;
+      } else {
+        document.getElementById('dash-total-bar-desc').innerText = config.desc;
+      }
 
       // Update Labels
       document.getElementById('dash-total-bar-label1').innerText = config.label1;
