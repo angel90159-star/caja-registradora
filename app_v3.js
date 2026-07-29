@@ -223,15 +223,15 @@
             if (report && !report._synced) {
               report._synced = true;
               await supabaseClient.from('cierre_reports').insert([{
-                date_str: report.dateStr || lastKey,
+                date_str: report.date || report.dateStr || lastKey,
                 timestamp: report.timestamp || new Date().toISOString(),
                 operator: report.operator || 'ADMIN',
-                total_esperado: parseFloat(report.totalEsperado) || 0,
+                total_esperado: parseFloat(report.expectedTotal || (report.expectedCajon + (report.expectedBoveda || 0))) || 0,
                 total_contado: parseFloat(report.totalContado) || 0,
-                diferencia: parseFloat(report.diferencia) || 0,
-                status: report.status || 'CUADRADO',
+                diferencia: parseFloat(report.diffTotal) || 0,
+                status: (report.diffTotal || 0) === 0 ? 'CUADRADO' : ((report.diffTotal || 0) > 0 ? 'SOBRANTE' : 'FALTANTE'),
                 counted_inventory: report.countedInventory || {},
-                snapshot_balances: report.snapshotBalances || {},
+                snapshot_balances: report.balances || {},
                 report_json: report
               }]);
             }
@@ -324,6 +324,34 @@
           });
           dbCache['inventoryBoveda'] = currentBoveda;
           localStorage.setItem('lc5_inventoryBoveda', JSON.stringify(currentBoveda));
+        }
+
+        // Cargar reportes de cierre desde Supabase
+        try {
+          const { data: repData } = await supabaseClient.from('cierre_reports').select('*').order('created_at', { ascending: false });
+          if (repData && repData.length > 0) {
+            const reports = DB.get('cierre_reports', {});
+            repData.forEach(row => {
+              const key = row.date_str;
+              if (key) {
+                reports[key] = row.report_json || {
+                  folio: `CR-${key}`,
+                  date: key,
+                  time: row.timestamp ? new Date(row.timestamp).toLocaleTimeString() : '',
+                  operator: row.operator || 'ADMIN',
+                  totalContado: parseFloat(row.total_contado) || 0,
+                  expectedCajon: parseFloat(row.total_esperado) || 0,
+                  diffTotal: parseFloat(row.diferencia) || 0,
+                  countedInventory: row.counted_inventory || {},
+                  balances: row.snapshot_balances || {}
+                };
+              }
+            });
+            dbCache['cierre_reports'] = reports;
+            localStorage.setItem('lc5_cierre_reports', JSON.stringify(reports));
+          }
+        } catch (errRep) {
+          console.warn('[Supabase Fetch] cierre_reports:', errRep);
         }
 
         // Cargar bitácora desde Supabase
@@ -563,6 +591,17 @@
                 localStorage.setItem('lc5_historical_logs_by_date', JSON.stringify(historical));
 
                 if (!isUserTyping() && typeof cargarBitacora === 'function') cargarBitacora();
+              }
+            }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'cierre_reports' }, payload => {
+            if (payload.new && payload.new.date_str) {
+              const reports = DB.get('cierre_reports', {});
+              reports[payload.new.date_str] = payload.new.report_json || payload.new;
+              dbCache['cierre_reports'] = reports;
+              localStorage.setItem('lc5_cierre_reports', JSON.stringify(reports));
+              if (typeof refrescarPantallas === 'function') {
+                refrescarPantallas();
               }
             }
           })
