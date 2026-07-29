@@ -779,7 +779,7 @@
       cargarDropdownOperadores();
       construirInputsDesglose();
       refrescarPantallas();
-      intentarSubirCierresPendientes();
+      if (typeof intentarSubirCierresPendientes === 'function') intentarSubirCierresPendientes();
       initCalcDragging();
       setupGlobalInputOverrides();
       
@@ -7737,58 +7737,18 @@
         const currentInventory = DB.get('inventory', {});
         registrarMovimientoBitacora(opName, "Cierre", 0, `Turno cerrado y firmado [${folioId}]. Total Contado: ${fmt.format(totalContado)}. Diferencia: ${fmt.format(diffTotal)}`, currentInventory);
 
-        // Notificar almacenamiento y sincronización en Supabase
-        mostrarToast("Cierre de turno firmado con éxito.", "success");
+        // Guardar datos temporales para el Paso 2 (Pre-carga Nocturna)
+        tempPrecargaData = {
+          inventory: countedInventory,
+          totalContado: totalContado,
+          yastasTerminal: report.balances.yastasTerminal || 0,
+          tconectaTerminal: report.balances.tconectaTerminal || report.balances.tconecta || 0,
+          banamex: report.balances.banamex || 0
+        };
 
-        // RESETEAR SALDOS DE CONTEO DIARIO
-        balances.yastasTerminal = 0;
-        balances.yastasEfectivo = 0;
-        balances.tconecta = 0;
-        balances.transferencia = 0;
-        balances.bbva = 0;
-        balances.capital = 0;
-        balances.capitalTerminal = 0;
-        balances.capitalEfectivo = 0;
-        balances.boveda = 0;
-
-        // SALDOS PERSISTENTES — Protección explícita: NO se deben borrar jamás
-        // banorte: total acumulado se hereda como inicial del siguiente turno
-        // meli: terminal y fondo base se conservan para cuadrar
-        // tconectaTerminal y banamex: saldos de plataforma persistentes
-        console.log('[Cierre] Saldos persistentes preservados:', {
-          banorte: balances.banorte,
-          meli: balances.meli,
-          meliBase: balances.meliBase,
-          tconectaTerminal: balances.tconectaTerminal,
-          banamex: balances.banamex
-        });
-
-        await DB.set('inventoryBoveda', {});
-        await DB.set('balances', balances);
-        await DB.set('logs', []);
-
-        // Guardar estado de sesión cerrada en la nube
-        await DB.set('state', { 
-          session_active: false, 
-          operator: null,
-          precarga_completada: true,
-          precarga_data: {
-            inventory: countedInventory,
-            totalContado: totalContado,
-            yastasTerminal: report.balances.yastasTerminal || 0,
-            tconectaTerminal: report.balances.tconectaTerminal || report.balances.tconecta || 0,
-            banamex: report.balances.banamex || 0
-          }
-        });
-        sessionActive = false;
-        activeOperator = null;
-        guardarEstadoActivoNube();
-
-        // Ocultar modal de cierre, resetear subvista y refrescar a vista de Apertura/Gatekeeper
-        cerrarCierreCajaModal();
-        if (typeof mostrarSubvista === 'function') mostrarSubvista('tablero');
-        mostrarToast("Fondo Base precargado automáticamente para la siguiente apertura.", "success");
-        refrescarPantallas();
+        // Notificar Paso 1 completado y desplegar Modal Paso 2 (Pre-carga Nocturna)
+        mostrarToast("Corte de caja firmado con éxito. Seleccione opción de Pre-carga para salir.", "info");
+        solicitarPreCargaNocturna();
       });
     }
 
