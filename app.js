@@ -565,7 +565,7 @@
       set: (key, val) => {
         dbCache[key] = val;
         localStorage.setItem('lc5_' + key, JSON.stringify(val));
-        syncToSupabase(key, val);
+        return syncToSupabase(key, val);
       },
       clearCache: () => {
         for (let k in dbCache) delete dbCache[k];
@@ -7583,7 +7583,7 @@
         mostrarToast("Debe capturar el arqueo de piezas físicas (Sección 1) antes de cerrar turno.", "error");
         return;
       }
-      abrirPINModal("Firmar Corte de Caja", (opName) => {
+      abrirPINModal("Firmar Corte de Caja", async (opName) => {
         const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '05'];
         const countedInventory = {};
         let totalContado = 0;
@@ -7644,14 +7644,14 @@
         // Guardar reporte
         const reports = DB.get('cierre_reports', {});
         reports[dateKey] = report;
-        DB.set('cierre_reports', reports);
+        await DB.set('cierre_reports', reports);
 
         // Guardar en la bitácora histórica de movimientos
         const currentInventory = DB.get('inventory', {});
         registrarMovimientoBitacora(opName, "Cierre", 0, `Turno cerrado y firmado [${folioId}]. Total Contado: ${fmt.format(totalContado)}. Diferencia: ${fmt.format(diffTotal)}`, currentInventory);
 
         // Notificar almacenamiento y sincronización en Supabase
-        mostrarToast("Cierre de turno firmado y respaldado en Supabase.", "success");
+        mostrarToast("Cierre de turno firmado con éxito.", "success");
 
         // RESETEAR SALDOS DE CONTEO DIARIO
         balances.yastasTerminal = 0;
@@ -7662,21 +7662,32 @@
         balances.capital = 0;
         balances.capitalTerminal = 0;
         balances.capitalEfectivo = 0;
-        balances.boveda = 0; // Se recoge de bóveda
-        // NOTA: balances.tconectaTerminal y balances.banamex NO SE RESETEAN (Se conservan acumulativamente entre turnos)
-        DB.set('inventoryBoveda', {}); // Bóveda vacía
-        DB.set('balances', balances);
-        DB.set('logs', []);
+        balances.boveda = 0;
+        await DB.set('inventoryBoveda', {});
+        await DB.set('balances', balances);
+        await DB.set('logs', []);
 
-        // Guardar estado de sesión cerrada
-        DB.set('state', { session_active: false, operator: null });
+        // Guardar estado de sesión cerrada en la nube
+        await DB.set('state', { 
+          session_active: false, 
+          operator: null,
+          precarga_completada: true,
+          precarga_data: {
+            inventory: countedInventory,
+            totalContado: totalContado,
+            yastasTerminal: report.balances.yastasTerminal || 0,
+            tconectaTerminal: report.balances.tconectaTerminal || report.balances.tconecta || 0,
+            banamex: report.balances.banamex || 0
+          }
+        });
         sessionActive = false;
         activeOperator = null;
         guardarEstadoActivoNube();
 
-        // Ocultar modal y mostrar éxito
+        // Ocultar modal de cierre, resetear subvista y refrescar a vista de Apertura/Gatekeeper
         cerrarCierreCajaModal();
-        mostrarToast("Corte de Caja guardado y firmado con éxito.", "success");
+        if (typeof mostrarSubvista === 'function') mostrarSubvista('tablero');
+        mostrarToast("Fondo Base precargado automáticamente para la siguiente apertura.", "success");
         refrescarPantallas();
       });
     }
