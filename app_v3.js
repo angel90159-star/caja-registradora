@@ -802,31 +802,6 @@
             DB.set('logs', currentLogs);
           }
           console.log(`Auto-actualización de pre-apertura de turno detectada. Turno movido al día de hoy (${todayStr}).`);
-        } else {
-          // Inicializar o restablecer intentos si cambia de día
-          const lastAttemptDay = localStorage.getItem('caja_cierre_ultimo_dia_intento');
-          if (lastAttemptDay !== todayStr) {
-            localStorage.setItem('caja_cierre_intentos', '0');
-            localStorage.setItem('caja_cierre_ultimo_dia_intento', todayStr);
-          }
-          
-          // Verificar si la alerta ya está silenciada para hoy
-          const isMutedToday = localStorage.getItem('caja_cierre_mutada_dia') === todayStr;
-          if (!isMutedToday) {
-            const proximoReminder = parseInt(localStorage.getItem('caja_cierre_proximo_reminder')) || 0;
-            const timeLeft = proximoReminder - Date.now();
-            
-            if (timeLeft <= 0) {
-              setTimeout(() => {
-                mostrarModalDiferenciaFecha(DB.get('state', {}).opened_date);
-              }, 300);
-            } else {
-              console.log(`Alerta de cierre pospuesta. Siguiente recordatorio en ${Math.round(timeLeft / 1000 / 60)} min.`);
-              setTimeout(() => {
-                mostrarModalDiferenciaFecha(DB.get('state', {}).opened_date);
-              }, timeLeft);
-            }
-          }
         }
       }
 
@@ -7276,98 +7251,6 @@
       renderizarListaUsuarios();
       
       mostrarToast(`Usuario ${nombre} eliminado.`, "info");
-    }
-
-    function mostrarModalDiferenciaFecha(openedDate) {
-      const existing = document.getElementById('date-diff-modal');
-      if (existing) existing.remove();
-
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const todayStr = `${year}-${month}-${day}`;
-
-      // Asegurar día registrado
-      localStorage.setItem('caja_cierre_ultimo_dia_intento', todayStr);
-
-      let attempts = parseInt(localStorage.getItem('caja_cierre_intentos')) || 0;
-      attempts++;
-      localStorage.setItem('caja_cierre_intentos', attempts);
-
-      const isThirdAttempt = attempts >= 3;
-      const continueBtnText = isThirdAttempt ? "Silenciar Alertas por Hoy" : "Posponer (30 min)";
-
-      const modal = document.createElement('div');
-      modal.id = 'date-diff-modal';
-      modal.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 transition-all duration-300';
-      modal.innerHTML = `
-        <div class="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center space-y-4 transform scale-95 opacity-0 transition-all duration-300">
-          <div class="w-16 h-16 bg-amber-50 dark:bg-amber-950/30 text-amber-500 rounded-full flex items-center justify-center shadow-inner">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clock"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <div class="space-y-1.5 w-full">
-            <h3 class="text-base font-black text-slate-800 dark:text-white uppercase tracking-tight">⚠️ Turno del Día Anterior</h3>
-            <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 leading-relaxed">
-              Hay un turno que se quedó abierto desde el <b>${openedDate}</b>.<br><br>
-              ¿Deseas continuar operando con el mismo balance de caja o prefieres cerrar el turno de ayer para iniciar un nuevo día con caja limpia?
-            </p>
-            ${isThirdAttempt 
-              ? `<p class="text-[10px] text-rose-500 font-bold bg-rose-50 dark:bg-rose-950/20 py-1.5 px-3 rounded-lg mt-2">Esta es la tercera alerta. Al hacer clic abajo, se desactivarán los avisos por el día de hoy.</p>` 
-              : `<p class="text-[10px] text-indigo-500 font-bold bg-indigo-50 dark:bg-indigo-950/20 py-1.5 px-3 rounded-lg mt-2">Recordatorio constante. Intento ${attempts} de 3.</p>`
-            }
-          </div>
-          <div class="w-full flex flex-col gap-2 pt-2">
-            <button id="date-diff-close-btn" class="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 px-4 rounded-xl text-xs transition shadow-md shadow-rose-950/20 uppercase tracking-wider">
-              Cerrar Turno Anterior
-            </button>
-            <button id="date-diff-continue-btn" class="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold py-3 px-4 rounded-xl text-xs transition uppercase tracking-wider">
-              ${continueBtnText}
-            </button>
-          </div>
-        </div>
-      `;
-
-      document.body.appendChild(modal);
-
-      setTimeout(() => {
-        const card = modal.querySelector('div');
-        if (card) {
-          card.classList.remove('scale-95', 'opacity-0');
-          card.classList.add('scale-100', 'opacity-100');
-        }
-      }, 50);
-
-      const closeBtn = modal.querySelector('#date-diff-close-btn');
-      const continueBtn = modal.querySelector('#date-diff-continue-btn');
-
-      closeBtn.addEventListener('click', () => {
-        modal.remove();
-        cerrarTurno();
-      });
-
-      continueBtn.addEventListener('click', () => {
-        if (isThirdAttempt) {
-          // Aceptar definitivamente la fecha de ayer / Silenciar alertas
-          const state = DB.get('state', {});
-          state.opened_date = todayStr;
-          DB.set('state', state);
-          localStorage.setItem('caja_cierre_mutada_dia', todayStr);
-          localStorage.setItem('caja_cierre_intentos', '0');
-          modal.remove();
-          mostrarToast("Alertas de cierre silenciadas por hoy. Continuando con el balance.", "success");
-        } else {
-          // Posponer decisión por 30 minutos
-          localStorage.setItem('caja_cierre_proximo_reminder', String(Date.now() + 30 * 60 * 1000));
-          modal.remove();
-          mostrarToast("Alerta pospuesta por 30 minutos.", "info");
-          
-          // Programar siguiente disparo
-          setTimeout(() => {
-            mostrarModalDiferenciaFecha(openedDate);
-          }, 30 * 60 * 1000);
-        }
-      });
     }
 
     function actualizarUltimosMovimientos() {
