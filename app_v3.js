@@ -424,7 +424,7 @@
         });
 
         if (logsData && logsData.length > 0) {
-          const historical = DB.get('historical_logs_by_date', {});
+          const historical = {};
           
           const formattedLogs = logsData.map((l, index) => {
             let tsStr = l.timestamp ? String(l.timestamp).replace(' ', 'T') : '';
