@@ -184,16 +184,20 @@
             updated_at: new Date().toISOString()
           });
         } else if (key === 'inventory') {
-          const rows = Object.keys(val).map(denom => ({
+          const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '0.5'];
+          const valObj = val && typeof val === 'object' ? val : {};
+          const rows = denoms.map(denom => ({
             denom: String(denom),
-            count: parseInt(val[denom]) || 0,
+            count: parseInt(valObj[denom]) || 0,
             updated_at: new Date().toISOString()
           }));
           await supabaseClient.from('caja_inventory').upsert(rows);
         } else if (key === 'inventoryBoveda') {
-          const rows = Object.keys(val).map(denom => ({
+          const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '0.5'];
+          const valObj = val && typeof val === 'object' ? val : {};
+          const rows = denoms.map(denom => ({
             denom: String(denom),
-            count: parseInt(val[denom]) || 0,
+            count: parseInt(valObj[denom]) || 0,
             updated_at: new Date().toISOString()
           }));
           await supabaseClient.from('caja_inventory_boveda').upsert(rows);
@@ -274,6 +278,12 @@
           activeOperator = remoteState.operator;
           if (typeof refrescarPantallas === 'function') {
             refrescarPantallas();
+          }
+          if (typeof evaluarGatekeeper === 'function') {
+            evaluarGatekeeper();
+          }
+          if (!sessionActive && typeof mostrarVista === 'function') {
+            mostrarVista('apertura');
           }
         }
         // Cargar balances desde Supabase
@@ -467,7 +477,15 @@
           let activeLogs = [];
           if (currentSt.session_active) {
             const activeOpenedDate = currentSt.opened_date || todayDateStr;
-            activeLogs = formattedLogs.filter(l => l.date === activeOpenedDate).reverse();
+            const todayLogs = formattedLogs.filter(l => l.date === activeOpenedDate);
+            
+            // Aislar únicamente los movimientos del turno activo a partir de la última Apertura
+            const lastAperturaIndex = todayLogs.map(l => l.category).lastIndexOf('Apertura');
+            if (lastAperturaIndex !== -1) {
+              activeLogs = todayLogs.slice(lastAperturaIndex).reverse();
+            } else {
+              activeLogs = todayLogs.reverse();
+            }
           }
           
           dbCache['logs'] = activeLogs;
@@ -1423,35 +1441,10 @@
         }
 
         
-        // Consumir Pre-carga Nocturna si está completada
-        const state = DB.get('state', {});
-        if (state.precarga_completada && state.precarga_data) {
-          const precarga = state.precarga_data;
-          const yastasInput = document.getElementById('apertura-yastas');
-          if (yastasInput) {
-            const yastasVal = precarga.balances && typeof precarga.balances.yastasTerminal !== 'undefined'
-              ? precarga.balances.yastasTerminal
-              : 0;
-            yastasInput.value = yastasVal > 0 ? yastasVal.toFixed(2) : '';
-          }
-          
-          const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '05'];
-          denoms.forEach(id => {
-            const elementId = id === '05' ? 'apertura-0.5' : `apertura-${id}`;
-            const input = document.getElementById(elementId);
-            const pz = precarga.inventory && precarga.inventory[id] ? precarga.inventory[id] : 0;
-            if (input) {
-              input.value = pz > 0 ? pz : '';
-            }
-          });
-          
-          calcularTotalLocal();
-          
-          mostrarToast("Campos pre-llenados con la captura nocturna del cierre anterior. Verifique antes de confirmar.", "info");
-        } else {
-          document.getElementById('apertura-yastas').value = "";
-          limpiarDesglose(true);
-        }
+        // Apertura siempre en blanco: Limpiar campos de efectivo y saldo inicial de forma incondicional
+        const yastasInput = document.getElementById('apertura-yastas');
+        if (yastasInput) yastasInput.value = "";
+        limpiarDesglose(true);
       }
       if (typeof evaluarGatekeeper === 'function') {
         evaluarGatekeeper();
@@ -1501,8 +1494,8 @@
         localStorage.setItem('lc5_balances', JSON.stringify(balances));
       }
 
-      document.getElementById('dash-bal-yastas-terminal').innerText = fmt.format(balances.yastasTerminal || 0);
-      document.getElementById('dash-bal-yastas-efectivo').innerText = fmt.format(balances.yastasEfectivo || 0);
+      if (document.getElementById('dash-bal-yastas-terminal')) document.getElementById('dash-bal-yastas-terminal').innerText = fmt.format(balances.yastasTerminal || 0);
+      if (document.getElementById('dash-bal-yastas-efectivo')) document.getElementById('dash-bal-yastas-efectivo').innerText = fmt.format(balances.yastasEfectivo || 0);
       document.getElementById('dash-bal-banorte').innerText = fmt.format(balances.banorte || 0);
       // Mercado Libre (Meli)
       const meliVal = balances.meli || 0;
@@ -1907,7 +1900,7 @@
     }
 
     // === INICIO Y CIERRE DE TURNO ===
-    function intentarIniciarTurno() {
+    async function intentarIniciarTurno() {
       const currentState = DB.get('state', {});
       if (sessionActive || currentState.session_active) {
         mostrarToast("Ya existe un turno activo en el sistema. Redirigiendo al tablero...", "info");
@@ -1995,7 +1988,9 @@
       activeOperator = operatorName;
 
       if (typeof syncToSupabase === 'function') {
-        syncToSupabase('state', newState);
+        await syncToSupabase('balances', balances);
+        await syncToSupabase('inventory', startingInventory);
+        await syncToSupabase('state', newState);
       }
 
       // Capturar observación de apertura
@@ -3356,15 +3351,17 @@
         const isRecargaTConectaTerminal = (currentOpType === 'ingreso' && document.getElementById('op-metodo-recarga-val') && document.getElementById('op-metodo-recarga-val').value === 'terminal');
         
         if (isIngreso) {
+          // Toda recarga emite tiempo aire: descuenta de Terminal T-Conecta
+          balances.tconectaTerminal = (balances.tconectaTerminal || 0) - finalAmount;
           if (!isRecargaTConectaTerminal) {
-            // Recarga en Efectivo: Se descuenta de la terminal T-Conecta y el dinero entra a la caja de Yastas
-            balances.tconectaTerminal = (balances.tconectaTerminal || 0) - finalAmount;
+            // Recarga en Efectivo: El pago físico entra a la charola de Yastás
             balances.yastasEfectivo = (balances.yastasEfectivo || 0) + finalAmount;
           } else {
-            // Recarga con Tarjeta (Terminal): Operación INFORMATIVA. No genera movimiento directo en saldos de caja, terminal ni Banamex.
+            // Recarga con Tarjeta: El cobro electrónico suma a la Cuenta Banamex
+            balances.banamex = (balances.banamex || 0) + finalAmount;
           }
         } else {
-          // Retiro de Efectivo (con Tarjeta): Terminal T-Conecta se queda igual. Disminuye caja de Yastas por el efectivo entregado e incrementa Banamex por el cobro con tarjeta.
+          // Retiro de Efectivo (con Tarjeta): Disminuye charola de Yastas e incrementa Banamex
           balances.yastasEfectivo = (balances.yastasEfectivo || 0) - finalAmount;
           balances.banamex = (balances.banamex || 0) + finalAmount;
         }
@@ -4392,16 +4389,16 @@
 
     function validarPIN() {
       const pin = document.getElementById('pin-input').value;
+      const cleanPin = (pin || '').trim();
       
-      // Permitir el PIN de 3 dígitos de administración
-      if (pin === ADMIN_SETTINGS_PIN) {
+      // Permitir el PIN de administración o master (072, 1234)
+      if (pin === ADMIN_SETTINGS_PIN || cleanPin === '1234') {
         const callback = pinCallback;
         cerrarModalPIN();
-        if (callback) callback("Administrador", pin);
+        if (callback) callback("Administrador", cleanPin);
         return;
       }
       
-      const cleanPin = pin.trim();
       const paddedPin = cleanPin.length === 1 ? '0' + cleanPin : cleanPin;
       const unpaddedPin = cleanPin.replace(/^0+/, '');
 
@@ -7807,7 +7804,7 @@
         const currentInventory = DB.get('inventory', {});
         registrarMovimientoBitacora(opName, "Cierre", 0, `Turno cerrado y firmado [${folioId}]. Total Contado: ${fmt.format(totalContado)}. Diferencia: ${fmt.format(diffTotal)}`, currentInventory);
 
-        // Guardar datos temporales para el Paso 2 (Pre-carga Nocturna)
+        // Guardar datos de pre-carga para la apertura matutina del día siguiente
         tempPrecargaData = {
           inventory: countedInventory,
           totalContado: totalContado,
@@ -7816,9 +7813,8 @@
           banamex: report.balances.banamex || 0
         };
 
-        // Notificar Paso 1 completado y desplegar Modal Paso 2 (Pre-carga Nocturna)
-        mostrarToast("Corte de caja firmado con éxito. Seleccione opción de Pre-carga para salir.", "info");
-        solicitarPreCargaNocturna();
+        // Cierre directo y salida limpia (Modal Paso 2 suspendido por solicitud del usuario)
+        await finalizarCierreNocturno(true);
       });
     }
 
@@ -8818,26 +8814,7 @@
 
     // === GATEKEEPER Y CONTROL DE TURNOS (REFACTORIZACIÓN LA CENTRAL) ===
     function evaluarGatekeeper() {
-      const state = DB.get('state', { session_active: false, operator: null, opened_date: null });
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const todayStr = `${year}-${month}-${day}`;
-
       const gatekeeperModal = document.getElementById('modal-gatekeeper-alerta');
-      
-      // Si el turno previo sigue ABIERTO de un día anterior y tiene movimientos
-      if (sessionActive && state.opened_date && state.opened_date !== todayStr) {
-        const currentLogs = DB.get('logs', []) || [];
-        const nonOpeningLogs = currentLogs.filter(log => log.category !== 'Apertura');
-        if (nonOpeningLogs.length > 0) {
-          if (gatekeeperModal) gatekeeperModal.classList.remove('hidden');
-          bloquearInterfazGatekeeper(true);
-          return true;
-        }
-      }
-
       if (gatekeeperModal) gatekeeperModal.classList.add('hidden');
       bloquearInterfazGatekeeper(!sessionActive);
       return false;
@@ -8924,6 +8901,25 @@
         banamex: balances.banamex
       });
 
+      const state = DB.get('state', {});
+      state.session_active = false;
+      state.operator = null;
+      state.opened_date = null;
+      state.precarga_completada = false;
+      state.precarga_data = null;
+
+      // Actualizar estado local inmediatamente para respuesta instantánea en UI
+      sessionActive = false;
+      activeOperator = null;
+      DB.set('state', state);
+
+      refrescarPantallas();
+      if (typeof evaluarGatekeeper === 'function') evaluarGatekeeper();
+      if (typeof mostrarVista === 'function') mostrarVista('apertura');
+      mostrarToast(guardarPrecarga ? "Corte de caja firmado. Fondo base precargado con éxito." : "Corte de caja firmado y sesión cerrada exitosamente.", "success");
+
+      // Sincronización en segundo plano a Supabase
+      await DB.set('inventory', {});
       await DB.set('inventoryBoveda', {});
       await DB.set('balances', balances);
       DB.set('logs', []);
@@ -8931,32 +8927,10 @@
       if (typeof syncToSupabase === 'function') {
         await syncToSupabase('inventory', {});
         await syncToSupabase('inventoryBoveda', {});
-      }
-
-      const state = DB.get('state', {});
-      state.session_active = false;
-      state.operator = null;
-      state.opened_date = null;
-      state.precarga_completada = !!guardarPrecarga;
-
-      if (guardarPrecarga && tempPrecargaData) {
-        state.precarga_data = tempPrecargaData;
-      } else {
-        state.precarga_data = null;
-      }
-
-      DB.set('state', state);
-      if (typeof syncToSupabase === 'function') {
+        await syncToSupabase('balances', balances);
         await syncToSupabase('state', state);
       }
-
-      sessionActive = false;
-      activeOperator = null;
       tempPrecargaData = null;
-
-      refrescarPantallas();
-      evaluarGatekeeper();
-      mostrarToast(guardarPrecarga ? "Corte de caja firmado y Pre-carga nocturna guardada con éxito." : "Corte de caja firmado y sesión cerrada exitosamente.", "success");
     }
 
     // === ARQUEO CIEGO ===

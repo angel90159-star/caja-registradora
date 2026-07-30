@@ -121,4 +121,83 @@ Al iniciar sesión con estado `CERRADO`, la pantalla de Apertura evaluará la ba
    * Respeta la estructura visual y responsiva (Tailwind CSS, Dark/Light Mode) sin alterar layouts existentes.
    * Sincroniza siempre las modificaciones en las versiones de respaldo correspondientes (`app.js` / `app_v3.js`).
    * Valida la sintaxis de JS (`js_validator.py`) antes de finalizar.
-   * Sé directo y conciso. Explica brevemente qué cambiaste y el impacto en las cuentas. Si detectas riesgo de descuadre contable, **ADVIÉRTELO PRIMERO**.
+
+10. **NOTIFICACIÓN OBLIGATORIA DE HERRAMIENTAS Y DEPENDENCIAS FALTANTES:**
+    * Si el agente detecta que falta una herramienta, software, binario o dependencia (como Node.js, evaluadores sintácticos, CLI de desarrollo o compiladores) necesaria para trabajar de forma más eficiente, rápida y garantizando la ausencia total de errores, **EL AGENTE DEBE NOTIFICARLO INMEDIATAMENTE AL USUARIO EN EL CHAT**.
+    * El agente explicará de forma clara el propósito de la herramienta y esperará a que el usuario determine si la instala o autoriza su configuración.
+
+---
+
+## PARTE III: PROTOCOLO ESTRICTO DE SUBAGENTES POR BLOQUES Y AUTORIZACIÓN PREVIA
+
+### 📌 Módulo de 6 Bloques, Garantías y Condicionales de Subagentes
+El sistema POS "La Central" está dividido en 6 Bloques aislados. Cada modificación debe asignarse a 1 solo sub-bloque y cumplir la garantía de no afectación:
+
+1. **Bloque 1: `apertura-gatekeeper`** (Apertura de Turno, Pre-carga y Alerta Gatekeeper).
+   - *Funciones*: `intentarIniciarTurno`, `evaluarGatekeeper`, `solicitarPreCargaNocturna`.
+   - *Condicionales/Garantía*: **PROHIBIDO** modificar transacciones de charola, bitácora, Bóveda o saldos de plataformas.
+2. **Bloque 2: `charola-calculadora`** (Charola de Efectivo Físico y Calculadora Flotante).
+   - *Funciones*: `construirInputsDesglose`, `limpiarDesglose`, Asistente de Cambio, Widget Calculadora.
+   - *Condicionales/Garantía*: **PROHIBIDO** modificar cierres de turno o lógica de base de datos.
+3. **Bloque 3: `plataformas-financieras`** (Módulos independientes de corresponsalías y servicios financieros).
+   - *3.1 Yastás*: Edición aislada de transacciones, recargas, depósitos y saldos (Efectivo y Terminal) de Yastás. **PROHIBIDO** tocar otros servicios.
+   - *3.2 Mercado Libre (Meli)*: Edición aislada de Tienda vs. Negocio, Saldo Terminal y Saldo Base de Meli. **PROHIBIDO** tocar otros servicios.
+   - *3.3 Banorte*: Edición aislada de transacciones Banorte y acumulado inicial heredable. **PROHIBIDO** tocar otros servicios.
+   - *3.4 T-Conecta y Banamex*: Edición aislada de Disponible Terminal, Cuenta Banamex y Lápiz de edición de saldo base. **PROHIBIDO** tocar Bóveda, Yastás o Meli.
+   - *3.5 Sistema Híbrido (Capital)*: Edición aislada de Fondo y Capital de Trabajo. **PROHIBIDO** tocar Bóveda o Cierres.
+   - *3.6 Bóveda*: Edición aislada de `abrirModalBoveda()`, traslados entre charola y bóveda, e `inventoryBoveda`. **PROHIBIDO** tocar T-Conecta, Meli, Banorte o recargas.
+   - *3.7 BBVA y Transferencias*: Edición aislada de Retiros BBVA y movimientos por transferencia bancaria. **PROHIBIDO** tocar otros servicios.
+   - *Condicionales/Garantía General*: Edición estricta y aislada únicamente del servicio indicado en la instrucción. **PROHIBIDO** modificar pantallas de apertura o cierres nocturnos.
+4. **Bloque 4: `cierre-reportes`** (Conteo Físico de Cierre, Firma con PIN y Reportes `cierre_reports`).
+   - *Funciones*: `firmarYCerrarTurno`, `finalizarCierreNocturno`, guardado en `cierre_reports`.
+   - *Condicionales/Garantía*: Preserva de forma obligatoria e inalterable los saldos acumulativos (`banorte`, `meli`, `tconectaTerminal`, `banamex`).
+5. **Bloque 5: `bitacora-historico`** (Tabla de Bitácora, Filtros y Formatos de Fecha Cross-Browser).
+   - *Funciones*: `cargarBitacora`, `renderizarReporteVisual`, `getLogMs`, filtros de tabla.
+   - *Condicionales/Garantía*: **PROHIBIDO** modificar saldos en vivo, inventarios físicos o estado de sesión.
+6. **Bloque 6: `supabase-sync`** (Persistencia en Nube y Sincronización Real-Time).
+   - *Funciones*: `fetchInitialFromSupabase`, `syncToSupabase`, `suscribirseARealtimeSupabase`.
+   - *Condicionales/Garantía*: **PROHIBIDO** modificar elementos de diseño HTML, estilos o modales de la interfaz.
+
+---
+
+### 📌 Mapeo Estricto de Líneas por Sub-bloque en `app.js`
+
+| Subagente / Bloque | Rango de Líneas en `app.js` | Funciones y Módulos Asignados |
+| :--- | :--- | :--- |
+| 🟢 **`apertura-gatekeeper`** | Líneas 1890 - 1940<br>Líneas 8790 - 8840 | `intentarIniciarTurno()`, `evaluarGatekeeper()` |
+| 🔵 **`charola-calculadora`** | Líneas 1430 - 1510<br>Líneas 1618 - 1750 | `limpiarDesglose()`, asistencias, Widget Calculadora |
+| 🟣 **`plataformas-financieras`** | Líneas 1530 - 2300<br>Líneas 8200 - 8450 | Módulos de Corresponsalías y Servicios (Sub-bloques 3.1 a 3.7) |
+| └ *3.1 Yastás* | Líneas 2020 - 2080 | Lógica Yastás (Efectivo y Terminal) |
+| └ *3.2 Mercado Libre* | Líneas 2080 - 2150 | Tienda / Negocio (Terminal y Saldo Base) |
+| └ *3.3 Banorte* | Líneas 2150 - 2200 | Transacciones y Saldos Banorte |
+| └ *3.4 T-Conecta / Banamex* | Líneas 1530 - 1550<br>Líneas 4300 - 4315 | Disponible Terminal, Banamex y Lápiz de edición |
+| └ *3.5 Sistema Híbrido (Capital)* | Líneas 2200 - 2260 | Fondo / Capital de Trabajo |
+| └ *3.6 Bóveda* | Líneas 8200 - 8450 | `abrirModalBoveda()`, traslados entre charola y bóveda |
+| └ *3.7 BBVA / Transferencias* | Líneas 2260 - 2300 | Retiros BBVA / Transferencias bancarias |
+| 🟡 **`cierre-reportes`** | Líneas 7660 - 7790<br>Líneas 8885 - 8960 | `firmarYCerrarTurno()`, `finalizarCierreNocturno()` |
+| 🟠 **`bitacora-historico`** | Líneas 4496 - 4740 | `cargarBitacora()`, `getLogMs()` |
+| 🔴 **`supabase-sync`** | Líneas 160 - 310<br>Líneas 463 - 605 | `syncToSupabase()`, Real-time |
+
+---
+
+### 🔍 REGLA DE VERIFICACIÓN Y SINCRONIZACIÓN DINÁMICA DE MÓDULOS
+1. **Inspección autoritativa antes de editar**: El código fuente real (`app.js` e `index.html`) siempre tiene precedencia. Antes de ejecutar cualquier cambio, el subagente DEBE verificar la existencia real del módulo.
+2. **Protocolo ante eliminación/modificación manual por el usuario**: Si el usuario eliminó o reestructuró una sección del código y esta ya no existe, el agente **NO intentará restaurarla ni asumirá su presencia**. El agente notificará al usuario:
+   > *"Atención: El módulo/función [X] fue eliminado en el código fuente. Se actualizará la Ficha y el Mapa en AGENTS.md."*
+3. **Actualización del Mapa**: En caso de cambios estructurales hechos por el usuario, el archivo `AGENTS.md` se actualizará de inmediato para reflejar la nueva distribución exacta del código.
+
+---
+
+### 🛡️ PROTOCOLO DE AUTORIZACIÓN PREVIA OBLIGATORIO (EN CADA SOLICITUD)
+Antes de realizar cualquier edición de código en `app.js`, `app_v3.js` o `index.html`, el agente DEBE presentar en el chat la siguiente Ficha de Autorización y ESPERAR la aprobación explícita del usuario:
+
+```
+📌 Subagente Activo: [Nombre del Subagente / Sub-bloque]
+📄 Archivo y Líneas: [Rango exacto de líneas]
+🎯 Cambio Solicitado: [Descripción precisa del cambio]
+⛔ Líneas protegidas: Todo el resto del archivo (Módulos no solicitados intocados)
+```
+
+**ESTRICO CUMPLIMIENTO**: Queda strictly prohibido realizar modificaciones antes de recibir el "Aprobado" u "OK" del usuario a la Ficha de Autorización.
+
+
