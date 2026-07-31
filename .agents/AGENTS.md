@@ -23,6 +23,9 @@ Implementar la refactorización integral del sistema POS ("La Central") en `app.
 * **Eliminación de dependencia local:** Eliminar totalmente la lectura/escritura de estados de turno y saldos en `localStorage`. Toda la lógica transaccional y el estado de la sesión deben ser consultados directamente a la BD.
 * **Rehidratación automática:** Al recargar la página o limpiar la caché, la aplicación debe consultar la BD para rehidratar el estado actual del turno sin duplicar aperturas ni perder estados de la sesión.
 * **Cierre secuencial asíncrono:** En los cierres de turno, implementar un flujo asíncrono estricto con `await` para garantizar que el guardado de datos en la BD finalice correctamente **antes** de ejecutar el `logout` y redirigir a la pantalla de login.
+* **Arquitectura Híbrida de Persistencia (Online-First con Offline-Fallback):**
+  - **Modo En Línea (Normal):** Supabase es la Fuente Única de Verdad. Todas las aperturas, cierres y saldos leen y escriben directamente en Supabase mediante `await`. Queda **estrictamente prohibido** que `localStorage` o la caché local sobrescriba la información de Supabase mientras la conexión esté disponible.
+  - **Modo Offline de Emergencia (Sin Internet):** `localStorage` se bloquea totalmente mientras haya conexión y sólo se activa como mecanismo de contingencia si `navigator.onLine === false` o si falla la red, desplegando un aviso de emergencia en la interfaz.
 * **Sincronización y Validación:** Aplicar exactamente las mismas modificaciones en `app.js` y `app_v3.js`. Actualizar el parámetro de versión del script en `index.html` (ejemplo: `app.js?v=20260728_FIX`) para romper la caché del navegador y ejecutar `js_validator.py` antes de autorizar el despliegue.
 
 ---
@@ -99,10 +102,10 @@ Al iniciar sesión con estado `CERRADO`, la pantalla de Apertura evaluará la ba
 4. **PREVENCIÓN DE ERRORES EN HTML DINÁMICO (COMILLAS E IDS):**
    * Al generar contenido HTML mediante interpolación de cadenas JS (tablas, botones, modales), es OBLIGATORIO envolver los argumentos entre comillas simples `onclick="funcion('${id}')"` y aplicar conversiones explícitas `String(id)` en las funciones de búsqueda para prevenir errores silenciosos de sintaxis o tipo.
 
-5. **PROTOCOLO DE DIAGNÓSTICO EN NAVEGADOR (PLAYWRIGHT) Y LIMPIEZA DE SIMULACRO:**
-   * **Regla del 3er Intento:** Si un problema o fallo de UI persists tras 2 intentos de corrección (o si el usuario reporta por 3ra vez el mismo problema), **QUEDA ESTRICTAMENTE PROHIBIDO SEGUIR ADIVINANDO O ASUMIENDO LA CAUSA**.
+5. **PROTOCOLO DE DIAGNÓSTICO EN NAVEGADOR (PLAYWRIGHT), INTERCEPTACIÓN DE RED Y AISLAMIENTO DE BD:**
+   * **Regla del 3er Intento:** Si un problema o fallo de UI persiste tras 2 intentos de corrección (o si el usuario reporta por 3ra vez el mismo problema), **QUEDA ESTRICTAMENTE PROHIBIDO SEGUIR ADIVINANDO O ASUMIENDO LA CAUSA**.
    * El agente DEBE ejecutar inmediatamente un test automatizado en navegador real headless (Playwright Chromium) sobre el entorno local.
-   * La prueba simulará el flujo completo del usuario, capturará la consola de JavaScript (`console.error`, `pageerror`, `ReferenceError`), evaluará la visibilidad real del DOM y justificará la corrección únicamente con la traza de error capturada en vivo.
+   * **AISLAMIENTO OBLIGATORIO DE BD EN SIMULACIONES:** Toda prueba en Playwright que implique simulaciones de cierre de turno (`finalizarCierreNocturno`), borrados o mutación de saldos **DEBE INTERCEPTAR OBLIGATORIAMENTE LAS PETICIONES DE RED A SUPABASE (`page.route('**/*.supabase.co/**', ...)` o desactivar `syncToSupabase`)** o restaurar automáticamente el snapshot de la BD en un bloque `finally`. Queda **ESTRICTAMENTE PROHIBIDO** que un test automatizado altere la sesión activa (`session_active = true`) o sobrescriba los saldos reales (`caja_balances`) de producción en Supabase.
    * **LIMPIEZA DE SIMULACRO:** Al concluir la prueba en el navegador, el agente DEBE limpiar o restaurar los datos de prueba generados en el almacenamiento local (`localStorage` / `logs`), garantizando que **NO queden transacciones ficticias en la Bitácora real ni se alteren los saldos verdaderos del negocio**.
 
 6. **RESETEO HOLÍSTICO DE UI:**

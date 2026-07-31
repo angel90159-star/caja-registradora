@@ -533,6 +533,16 @@
               localStorage.setItem('lc5_state', JSON.stringify(remoteState));
               sessionActive = remoteActive;
               activeOperator = remoteState.operator;
+
+              // Si hay un turno activo en la nube, asegurar que la app no se bloquee ni cierre sesión en dispositivos conectados
+              if (sessionActive) {
+                sessionStorage.setItem('caja_app_unlocked', 'true');
+                const lockScreen = document.getElementById('pantalla-bloqueo-global');
+                const appWrapper = document.getElementById('app-wrapper');
+                if (lockScreen) lockScreen.classList.add('hidden');
+                if (appWrapper) appWrapper.classList.remove('hidden');
+              }
+
               if (typeof refrescarPantallas === 'function') {
                 refrescarPantallas();
               }
@@ -1876,6 +1886,43 @@
 
     // === INICIO Y CIERRE DE TURNO ===
     async function intentarIniciarTurno() {
+      // Rehidratación asíncrona obligatoria desde Supabase para garantizar Fuente Única de Verdad
+      if (supabaseClient) {
+        try {
+          const { data: stData } = await supabaseClient.from('caja_state').select('*').eq('id', 'main').maybeSingle();
+          if (stData) {
+            const remoteState = {
+              session_active: !!stData.session_active,
+              opened_date: stData.opened_date,
+              opened_time: stData.opened_time,
+              operator: stData.operator,
+              precarga_completada: !!stData.precarga_completada,
+              precarga_data: stData.precarga_data || null
+            };
+            dbCache['state'] = remoteState;
+            localStorage.setItem('lc5_state', JSON.stringify(remoteState));
+          }
+          const { data: balData } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
+          if (balData) {
+            const remoteData = balData.data || {};
+            const currentBal = DB.get('balances', {});
+            const updatedBal = {
+              ...currentBal,
+              ...remoteData,
+              banorte: remoteData.banorte !== undefined ? remoteData.banorte : (parseFloat(balData.banorte) || 0),
+              meli: remoteData.meli !== undefined ? remoteData.meli : (parseFloat(balData.meli) || 0),
+              meliBase: remoteData.meliBase !== undefined ? remoteData.meliBase : (parseFloat(balData.meli_base) || 0),
+              tconectaTerminal: remoteData.tconectaTerminal !== undefined ? remoteData.tconectaTerminal : (parseFloat(balData.tconecta_terminal) || 0),
+              banamex: remoteData.banamex !== undefined ? remoteData.banamex : (parseFloat(balData.banamex) || 0)
+            };
+            dbCache['balances'] = updatedBal;
+            localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
+          }
+        } catch (e) {
+          console.warn("[intentarIniciarTurno] Error al rehidratar desde Supabase:", e);
+        }
+      }
+
       const currentState = DB.get('state', {});
       if (sessionActive || currentState.session_active) {
         mostrarToast("Ya existe un turno activo en el sistema. Redirigiendo al tablero...", "info");
@@ -1917,6 +1964,7 @@
       const balances = DB.get('balances', {});
       const carryOverBanorte = balances.banorte || 0;
       const carryOverMeli = balances.meli || 0;
+      const carryOverMeliBase = balances.meliBase || 0;
       const carryOverTconectaTerminal = balances.tconectaTerminal || 0;
       const carryOverBanamex = balances.banamex || 0;
 
@@ -1927,6 +1975,7 @@
       // Plataformas persistentes (NO se borran al abrir turno)
       balances.banorte = carryOverBanorte; 
       balances.meli = carryOverMeli; 
+      balances.meliBase = carryOverMeliBase;
       balances.tconectaTerminal = carryOverTconectaTerminal;
       balances.banamex = carryOverBanamex;
       
@@ -5025,7 +5074,30 @@
 
     // === TOASTS ===
     function mostrarToast(message, type = 'success') {
+      if (window.Swal) {
+        const swalIcon = type === 'error' ? 'error' : (type === 'info' ? 'info' : (type === 'warning' ? 'warning' : 'success'));
+        const Toast = Swal.mixin({
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 3500,
+          timerProgressBar: true,
+          customClass: {
+            popup: 'rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-sans text-xs'
+          },
+          didOpen: (toast) => {
+            toast.addEventListener('mouseenter', Swal.stopTimer);
+            toast.addEventListener('mouseleave', Swal.resumeTimer);
+          }
+        });
+        Toast.fire({
+          icon: swalIcon,
+          title: message
+        });
+        return;
+      }
       const container = document.getElementById('toast-container');
+      if (!container) return;
       const toast = document.createElement('div');
       
       let borderCol = 'border-emerald-200 bg-emerald-50 text-emerald-800';
@@ -8758,6 +8830,30 @@
     async function finalizarCierreNocturno(guardarPrecarga) {
       const modal = document.getElementById('modal-precarga-nocturna');
       if (modal) modal.classList.add('hidden');
+
+      // Rehidratación asíncrona obligatoria de saldos persistentes desde Supabase previo al cierre
+      if (supabaseClient) {
+        try {
+          const { data: balData } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
+          if (balData) {
+            const remoteData = balData.data || {};
+            const currentBal = DB.get('balances', {});
+            const updatedBal = {
+              ...currentBal,
+              ...remoteData,
+              banorte: remoteData.banorte !== undefined ? remoteData.banorte : (parseFloat(balData.banorte) || 0),
+              meli: remoteData.meli !== undefined ? remoteData.meli : (parseFloat(balData.meli) || 0),
+              meliBase: remoteData.meliBase !== undefined ? remoteData.meliBase : (parseFloat(balData.meli_base) || 0),
+              tconectaTerminal: remoteData.tconectaTerminal !== undefined ? remoteData.tconectaTerminal : (parseFloat(balData.tconecta_terminal) || 0),
+              banamex: remoteData.banamex !== undefined ? remoteData.banamex : (parseFloat(balData.banamex) || 0)
+            };
+            dbCache['balances'] = updatedBal;
+            localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
+          }
+        } catch (e) {
+          console.warn("[finalizarCierreNocturno] Error al rehidratar desde Supabase previo a cierre:", e);
+        }
+      }
 
       const balances = DB.get('balances', {});
 

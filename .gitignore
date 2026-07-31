@@ -3,3 +3,4 @@ vba_output.txt
 vba_output_utf8.txt
 *.xlsm
 contexto_ai.md
+node_modules/
