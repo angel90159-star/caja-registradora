@@ -694,7 +694,8 @@
           }
         }
         if (!localStorage.getItem('lc5_balances')) {
-          DB.set('balances', {yastasTerminal:0, yastasEfectivo:0, banorte:0, meli:0, tconecta:0, transferencia:0, boveda:0, bbva:0, capital:0, banamex:0});
+          dbCache['balances'] = {yastasTerminal:0, yastasEfectivo:0, banorte:0, meli:0, tconecta:0, transferencia:0, boveda:0, bbva:0, capital:0, banamex:0};
+          localStorage.setItem('lc5_balances', JSON.stringify(dbCache['balances']));
         } else {
           // Migración automática de Yestas a Yestas y Banamex
           const bal = DB.get('balances', {});
@@ -710,10 +711,14 @@
             mod = true;
           }
           if (mod) {
-            DB.set('balances', bal);
+            dbCache['balances'] = bal;
+            localStorage.setItem('lc5_balances', JSON.stringify(bal));
           }
         }
-        if (!localStorage.getItem('lc5_state')) DB.set('state', { session_active: false, operator: null });
+        if (!localStorage.getItem('lc5_state')) {
+          dbCache['state'] = { session_active: false, operator: null };
+          localStorage.setItem('lc5_state', JSON.stringify(dbCache['state']));
+        }
         if (!localStorage.getItem('lc5_logs')) DB.set('logs', []);
         if (!localStorage.getItem('lc5_historical_logs')) DB.set('historical_logs', []);
         if (!localStorage.getItem('lc5_historical_logs_by_date')) DB.set('historical_logs_by_date', {});
