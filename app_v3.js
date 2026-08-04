@@ -160,6 +160,46 @@
       console.warn("⚠️ No se pudo inicializar el cliente de Supabase:", err);
     }
 
+    // === INDICADOR DE SINCRONIZACIÓN PENDIENTE (avisa sin bloquear la operación) ===
+    const pendingSyncKeys = new Set(JSON.parse(localStorage.getItem('lc5_pending_sync') || '[]'));
+
+    function actualizarBadgeSincronizacion() {
+      const badge = document.getElementById('sync-pendiente-badge');
+      const countEl = document.getElementById('sync-pendiente-count');
+      if (!badge || !countEl) return;
+      const n = pendingSyncKeys.size;
+      if (n > 0) {
+        countEl.innerText = `${n} sin sincronizar`;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+
+    function marcarPendienteSync(key) {
+      pendingSyncKeys.add(key);
+      localStorage.setItem('lc5_pending_sync', JSON.stringify([...pendingSyncKeys]));
+      actualizarBadgeSincronizacion();
+    }
+
+    function marcarSincronizado(key) {
+      if (pendingSyncKeys.delete(key)) {
+        localStorage.setItem('lc5_pending_sync', JSON.stringify([...pendingSyncKeys]));
+        actualizarBadgeSincronizacion();
+        // Si se acaba de recuperar la sincronización de la bitácora, refrescar para quitar el triángulo de aviso
+        if (key === 'logs' && typeof cargarBitacora === 'function') cargarBitacora();
+      }
+    }
+
+    async function reintentarSincronizacionPendiente() {
+      if (pendingSyncKeys.size === 0) return;
+      const defaults = { balances: {}, inventory: {}, inventoryBoveda: {}, state: {}, cierre_reports: {}, logs: [] };
+      const keys = [...pendingSyncKeys];
+      for (const key of keys) {
+        await syncToSupabase(key, DB.get(key, defaults[key] !== undefined ? defaults[key] : {}));
+      }
+    }
+
     async function syncToSupabase(key, val) {
       if (!supabaseClient) return;
       try {
@@ -204,20 +244,20 @@
         } else if (key === 'logs' && Array.isArray(val) && val.length > 0) {
           const unsyncedLogs = val.filter(l => l && !l._synced);
           if (unsyncedLogs.length > 0) {
-            const rowsToInsert = unsyncedLogs.map(l => {
-              l._synced = true;
-              return {
-                timestamp: l.timestamp || new Date().toISOString(),
-                type: l.type || 'OPERACION',
-                category: l.category || 'GENERAL',
-                amount: parseFloat(l.amount) || 0,
-                operator: l.operator || 'ADMIN',
-                details: l.details || '',
-                pieces: l.pieces || null,
-                extra_data: l.redepExtraData || l.extraData || null
-              };
-            });
+            const rowsToInsert = unsyncedLogs.map(l => ({
+              timestamp: l.timestamp || new Date().toISOString(),
+              type: l.type || 'OPERACION',
+              category: l.category || 'GENERAL',
+              amount: parseFloat(l.amount) || 0,
+              operator: l.operator || 'ADMIN',
+              details: l.details || '',
+              pieces: l.pieces || null,
+              extra_data: l.redepExtraData || l.extraData || null
+            }));
             await supabaseClient.from('caja_logs').insert(rowsToInsert);
+            // Marcar sincronizado SOLO tras confirmar el envío -- si el insert falla, el catch de abajo
+            // los deja como no sincronizados para que un reintento real los vuelva a enviar.
+            unsyncedLogs.forEach(l => { l._synced = true; });
           }
         } else if (key === 'cierre_reports' && typeof val === 'object') {
           const reportKeys = Object.keys(val);
@@ -252,8 +292,10 @@
             updated_at: new Date().toISOString()
           });
         }
+        marcarSincronizado(key);
       } catch (e) {
         console.warn(`[Supabase Sync] Notificación (${key}):`, e.message || e);
+        marcarPendienteSync(key);
       }
     }
 
@@ -413,10 +455,16 @@
           if (Array.isArray(arr)) allLocalLogs.push(...arr);
         });
 
-        // Crear mapa independiente de la fecha para relacionar registros por contenido (monto, categoría, operador)
+        // Mapa por ID único (UUID real de Supabase) — coincidencia inequívoca, sin riesgo de cruce
+        const localLogsByIdMap = new Map();
+        // Mapa de respaldo por contenido (monto, categoría, operador) — solo se usa si no hay ID disponible
         const localLogsByContentMap = new Map();
         allLocalLogs.forEach(l => {
-          if (l && l.amount !== undefined && l.category) {
+          if (!l) return;
+          if (l.id) {
+            localLogsByIdMap.set(String(l.id), l);
+          }
+          if (l.amount !== undefined && l.category) {
             const key = `${parseFloat(l.amount) || 0}_${l.category}_${l.operator || ''}`;
             if (!localLogsByContentMap.has(key)) localLogsByContentMap.set(key, []);
             localLogsByContentMap.get(key).push(l);
@@ -435,21 +483,46 @@
             let timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             let idVal = l.id || (d.getTime() + index);
 
-            // Buscar la coincidencia local por contenido para recuperar su fecha y hora verdaderas si fue subido en lote
-            const matchKey = `${parseFloat(l.amount) || 0}_${l.category}_${l.operator || ''}`;
-            const matches = localLogsByContentMap.get(matchKey);
-            if (matches && matches.length > 0) {
-              const localMatch = matches.shift();
+            // Solo recuperar fecha/hora por coincidencia local si el timestamp remoto es inválido o pertenece
+            // al lote histórico corrupto del 2026-07-24T15:06 (varios registros con el mismo timestamp).
+            // Con timestamp remoto normal, la fecha/hora ya calculada arriba es la fuente correcta y NO se sobreescribe
+            // (antes se sobreescribía siempre, cruzando fechas entre operaciones con mismo monto+categoría+operador).
+            const timestampSospechoso = !tsStr || isNaN(new Date(tsStr).getTime()) || tsStr.startsWith('2026-07-24T15:06');
+            let correctedTimestamp = l.timestamp;
+            let localMatch = null;
+            if (timestampSospechoso) {
+              // Prioridad 1: coincidencia exacta e inequívoca por ID único (UUID) — nunca se confunde entre registros
+              const idMatch = l.id ? localLogsByIdMap.get(String(l.id)) : null;
+              if (idMatch) {
+                localMatch = idMatch;
+              } else {
+                // Prioridad 2 (respaldo): coincidencia por contenido, solo si no hubo match por ID
+                const matchKey = `${parseFloat(l.amount) || 0}_${l.category}_${l.operator || ''}`;
+                const contentMatches = localLogsByContentMap.get(matchKey);
+                if (contentMatches && contentMatches.length > 0) {
+                  localMatch = contentMatches.shift();
+                }
+              }
+            }
+            if (localMatch) {
               if (localMatch.date) dateStr = localMatch.date;
               if (localMatch.time) timeStr = localMatch.time;
               if (localMatch.id) idVal = localMatch.id;
+              // Corregir también el timestamp usado para ORDENAR, no solo la fecha/hora que se muestra
+              // (si no se corrige aquí, el registro se sigue ordenando con el timestamp viejo/corrupto).
+              if (localMatch.timestamp && !String(localMatch.timestamp).startsWith('2026-07-24T15:06')) {
+                correctedTimestamp = localMatch.timestamp;
+              } else {
+                const recoveredDt = parseLocalDateAndTime(dateStr, timeStr);
+                if (recoveredDt) correctedTimestamp = recoveredDt.toISOString();
+              }
             }
 
             const logObj = {
               id: idVal,
               date: dateStr,
               time: timeStr,
-              timestamp: l.timestamp,
+              timestamp: correctedTimestamp,
               type: l.type || 'OPERACION',
               category: l.category || 'GENERAL',
               amount: parseFloat(l.amount) || 0,
@@ -543,7 +616,7 @@
                 if (appWrapper) appWrapper.classList.remove('hidden');
               }
 
-              if (typeof refrescarPantallas === 'function') {
+              if (!isUserTyping() && typeof refrescarPantallas === 'function') {
                 refrescarPantallas();
               }
             }
@@ -668,8 +741,8 @@
       clearCache: () => {
         for (let k in dbCache) delete dbCache[k];
       },
-      init: () => {
-        fetchInitialFromSupabase();
+      init: async () => {
+        await fetchInitialFromSupabase();
         suscribirseARealtimeSupabase();
         if (!localStorage.getItem('lc5_inventory')) {
           dbCache['inventory'] = {1000:0,500:0,200:0,100:0,50:0,20:0,10:0,5:0,2:0,1:0,0.5:0};
@@ -729,8 +802,15 @@
     const fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
 
     // === BOOTSTRAP ===
-    window.onload = function() {
-      DB.init();
+    window.addEventListener('online', async function() {
+      mostrarToast("Conexión restablecida. Actualizando información...", "info");
+      await reintentarSincronizacionPendiente();
+      setTimeout(() => { window.location.reload(); }, 1500);
+    });
+
+    window.onload = async function() {
+      await DB.init();
+      actualizarBadgeSincronizacion();
       
       const unlocked = sessionStorage.getItem('caja_app_unlocked') === 'true';
       if (unlocked) {
@@ -3773,27 +3853,6 @@
       });
     }
 
-    // === BORRADO / REINICIO DE MONTOS (Siempre activo para Meli y Banorte, incluso con turno cerrado) ===
-    function solicitarBorradoMonto(account) {
-      if (account !== 'meli' && account !== 'banorte') {
-        mostrarToast("Operación inválida.", "error");
-        return;
-      }
-      const balances = DB.get('balances', {});
-      const actualVal = balances[account] || 0;
-
-      abrirPINModal(`Borrar Saldo: ${account.toUpperCase()}`, (opName) => {
-        const balances = DB.get('balances', {});
-        const oldVal = balances[account] || 0;
-        balances[account] = 0;
-        DB.set('balances', balances);
-
-        registrarMovimientoBitacora(opName, `BORRADO_${account.toUpperCase()}`, -oldVal, `Saldo borrado a $0.00. Anterior: ${fmt.format(oldVal)}`);
-        mostrarToast(`Saldo de ${account.toUpperCase()} restablecido a $0.00.`, "info");
-        cargarSaldosDigitales();
-      });
-    }
-
     // === RETIROS BBVA DEL DÍA ===
     function abrirRetirosBBVA() {
       const modal = document.getElementById('modal-retiros-bbva');
@@ -3977,14 +4036,6 @@
 
       calcularTotalAnexarCapital();
       setModoAnexarCapital('efectivo');
-    }
-
-    function cerrarAnexarCapital() {
-      // El formulario ahora es inline, no modal
-    }
-
-    function construirGridsAnexarCapital() {
-      // Eliminado por uso de charola global
     }
 
     function setModoAnexarCapital(modo) {
@@ -4488,87 +4539,6 @@
       document.getElementById('modal-piezas').classList.add('hidden');
     }
 
-    function abrirModalAjustarAlertas() {
-      document.getElementById('modal-piezas').classList.add('hidden');
-      
-      const thresholds = getLowStockThresholds();
-      const containerBilletes = document.getElementById('alertas-billetes-list');
-      const containerMonedas = document.getElementById('alertas-monedas-list');
-      
-      containerBilletes.innerHTML = '';
-      containerMonedas.innerHTML = '';
-      
-      const renderList = (arr, container, type) => {
-        arr.forEach(d => {
-          const limit = thresholds[d] !== undefined ? thresholds[d] : 0;
-          const denomLabel = d === 0.5 ? '50¢' : `$${d}`;
-          const badgeBg = type === 'billete' ? 'bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400' : 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400';
-          
-          const row = document.createElement('div');
-          row.className = 'flex items-center justify-between p-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition duration-150 text-xs';
-          row.innerHTML = `
-            <div class="flex items-center gap-2">
-              <span class="w-8 font-bold">${denomLabel}</span>
-              <span class="px-2 py-0.5 rounded text-[9px] font-bold ${badgeBg}">${type === 'billete' ? 'Billete' : 'Moneda'}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="text-[10px] text-slate-400 font-bold uppercase">Mínimo:</span>
-              <input type="number" 
-                     id="al-threshold-${d}" 
-                     min="0" 
-                     value="${limit}" 
-                     class="w-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded px-2 py-1 text-center font-bold text-slate-800 dark:text-white outline-none">
-              <span class="text-slate-400 font-semibold">pzs</span>
-            </div>
-          `;
-          container.appendChild(row);
-          
-          const inputEl = row.querySelector('input');
-          inputEl.addEventListener('focus', function() {
-            this.select();
-          });
-        });
-      };
-      
-      renderList(Denominations.billetes, containerBilletes, 'billete');
-      renderList(Denominations.monedas, containerMonedas, 'moneda');
-      
-      document.getElementById('modal-ajustar-alertas').classList.remove('hidden');
-      lucide.createIcons();
-    }
-    
-    function cerrarModalAjustarAlertas() {
-      document.getElementById('modal-ajustar-alertas').classList.add('hidden');
-      abrirModalPiezas();
-    }
-    
-    function guardarAlertasStock() {
-      const thresholds = {};
-      const listDenoms = [...Denominations.billetes, ...Denominations.monedas];
-      
-      let hasError = false;
-      listDenoms.forEach(d => {
-        const val = parseInt(document.getElementById(`al-threshold-${d}`).value);
-        if (isNaN(val) || val < 0) {
-          hasError = true;
-        } else {
-          thresholds[d] = val;
-        }
-      });
-      
-      if (hasError) {
-        mostrarToast("Ingrese valores numéricos válidos (mayores o iguales a 0).", "error");
-        return;
-      }
-      
-      saveLowStockThresholds(thresholds);
-      mostrarToast("Alertas de stock actualizadas con éxito.", "success");
-      
-      document.getElementById('modal-ajustar-alertas').classList.add('hidden');
-      abrirModalPiezas();
-      cargarSaldosDigitales();
-    }
-
     // === BITÁCORA Y LOGS ===
     function registrarMovimientoBitacora(operator, category, amount, details, pieces = null, extraData = null) {
       const logs = DB.get('logs', []);
@@ -4929,9 +4899,10 @@
           else if (log.category === 'CAPITAL_RETIRO') friendlyCategory = 'Retiro de Capital';
 
           const logDate = log.date || selectedDate;
+          const syncPendingIcon = log._synced ? '' : '<i data-lucide="triangle-alert" class="w-3 h-3 text-amber-500 inline-block ml-1 align-text-top" title="Aún no se ha subido a la nube"></i>';
 
           tr.innerHTML = `
-            <td class="py-3 px-4 font-mono text-slate-500 dark:text-slate-300 text-xs font-semibold">${logDate}</td>
+            <td class="py-3 px-4 font-mono text-slate-500 dark:text-slate-300 text-xs font-semibold">${logDate}${syncPendingIcon}</td>
             <td class="py-3 px-4 font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
             <td class="py-3 px-4 font-bold text-slate-700 dark:text-slate-100 text-xs">${log.operator}</td>
             <td class="py-3 px-4 text-xs font-semibold text-slate-600 dark:text-slate-200">${friendlyCategory}</td>
@@ -4960,9 +4931,10 @@
           });
 
           const logDate = log.date || selectedDate;
+          const syncPendingIcon = log._synced ? '' : '<i data-lucide="triangle-alert" class="w-3 h-3 text-amber-500 inline-block ml-1 align-text-top" title="Aún no se ha subido a la nube"></i>';
 
           tr.innerHTML = `
-            <td class="py-2.5 px-3 text-left font-mono text-slate-500 dark:text-slate-300 text-xs font-semibold">${logDate}</td>
+            <td class="py-2.5 px-3 text-left font-mono text-slate-500 dark:text-slate-300 text-xs font-semibold">${logDate}${syncPendingIcon}</td>
             <td class="py-2.5 px-3 text-left font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
             ${piecesCellsHtml}
             <td class="py-2.5 px-3 text-left font-bold text-slate-700 dark:text-slate-100 text-xs">${log.operator}</td>
@@ -5777,18 +5749,6 @@
 
     function setDevolucionBovedaOrigen(origen) {
       devolucionBovedaOrigen = origen;
-      calcularRetiroOperacion();
-    }
-
-    function cambiarDevolucionRetiro(denom, delta) {
-      const dKey = String(denom);
-      const current = currentDevolucionRetiro[dKey] || 0;
-      const next = Math.max(0, current + delta);
-      if (next === 0) {
-        delete currentDevolucionRetiro[dKey];
-      } else {
-        currentDevolucionRetiro[dKey] = next;
-      }
       calcularRetiroOperacion();
     }
 
@@ -7429,11 +7389,6 @@
 
     // === FUNCIONES ADICIONALES PARA EL CORTE DE CAJA Y REPORTES ===
 
-    function cerrarCierreCajaModal() {
-      const modal = document.getElementById('modal-cierre-caja');
-      if (modal) modal.classList.add('hidden');
-    }
-
     function calcularTotalCierre() {
       const denoms = [
         { id: '1000', val: 1000 },
@@ -7780,38 +7735,6 @@
 
     // === VISOR DE REPORTES HISTÓRICOS DE CIERRE ===
     let viendoHistoricoCierre = false;
-
-    function mapearFilaANubeReporte(row, fallbackDate) {
-      if (!row || typeof row !== 'object') return null;
-      if (row.fecha === 'Fecha' || row.hora === 'Hora Cierre') return null;
-
-      const bitacoraArr = Array.isArray(row.bitacora) ? row.bitacora : [];
-      let fechaClean = fallbackDate;
-      if (row.fecha && typeof row.fecha === 'string') {
-        fechaClean = row.fecha.includes('T') ? row.fecha.split('T')[0] : row.fecha;
-      }
-
-      return {
-        date: fechaClean,
-        time: row.hora || '',
-        operator: row.operador || 'Operador',
-        totalContado: parseFloat(row.efectivo_real) || 0,
-        expectedCajon: parseFloat(row.efectivo_esperado) || 0,
-        expectedBoveda: parseFloat(row.boveda) || 0,
-        diffTotal: parseFloat(row.diferencia) || 0,
-        balances: {
-          yastasTerminal: parseFloat(row.yastas_terminal) || 0,
-          capitalTerminal: parseFloat(row.meli_terminal) || 0,
-          tconecta: parseFloat(row.tconecta_efectivo) || 0,
-          banamex: parseFloat(row.banamex_terminal) || parseFloat(row.banamex_banco) || 0,
-          bbva: parseFloat(row.bbva) || 0,
-          banorte: parseFloat(row.banorte) || 0
-        },
-        bitacora: bitacoraArr,
-        countedInventory: row.countedInventory || row.inventory || {},
-        combinedExpectedInventory: row.combinedExpectedInventory || {}
-      };
-    }
 
     async function alCambiarFechaFiltro() {
       const filtroFecha = document.getElementById('filtro-fecha');
@@ -8165,54 +8088,6 @@
       return combined;
     }
 
-    function cargarBilletesAyer() {
-      const reports = DB.get('cierre_reports', {});
-      const dates = Object.keys(reports).sort();
-      if (dates.length === 0) {
-        mostrarToast("No hay reportes de cierre anteriores registrados.", "warning");
-        return;
-      }
-      
-      const lastDate = dates[dates.length - 1];
-      const lastReport = reports[lastDate];
-      if (!lastReport || !lastReport.countedInventory) {
-        mostrarToast("No se encontraron piezas registradas en el último corte.", "warning");
-        return;
-      }
-
-      const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '05'];
-      let loadedSum = 0;
-      
-      denoms.forEach(id => {
-        const elementId = id === '05' ? 'apertura-0.5' : `apertura-${id}`;
-        const input = document.getElementById(elementId);
-        const pz = lastReport.countedInventory[id] || 0;
-        if (input) {
-          input.value = pz > 0 ? pz : '';
-        }
-        const val = id === '05' ? 0.5 : parseInt(id);
-        loadedSum += pz * val;
-      });
-
-      // Actualizar total en la UI de apertura
-      const totalLabel = document.getElementById('apertura-total-caja');
-      if (totalLabel) {
-        totalLabel.innerText = fmt.format(loadedSum);
-      }
-      
-      // Cargar el saldo final de la terminal Yastas de ayer como saldo inicial de hoy
-      const yastasTerminalInput = document.getElementById('apertura-yastas');
-      if (yastasTerminalInput) {
-        const yastasTerminalYesterday = lastReport.balances && typeof lastReport.balances.yastasTerminal !== 'undefined'
-          ? lastReport.balances.yastasTerminal
-          : 0;
-        yastasTerminalInput.value = yastasTerminalYesterday > 0 ? yastasTerminalYesterday.toFixed(2) : '0.00';
-      }
-      
-      calcularTotalLocal();
-      mostrarToast(`Billetes cargados del corte del ${lastDate}. Total: ${fmt.format(loadedSum)}`, "success");
-    }
-
     function renderizarReporteVisual(fecha) {
       const reports = DB.get('cierre_reports', {});
       const report = reports[fecha];
@@ -8419,94 +8294,6 @@
       document.getElementById('corte-banco-bbva').innerText = fmt.format(report.balances.bbva || 0);
       document.getElementById('corte-banco-banorte').innerText = fmt.format(report.balances.banorte || 0);
       document.getElementById('corte-banco-banamex').innerText = fmt.format(report.balances.banamex || 0);
-    }
-
-    function cargarSimulacion() {
-      if (!sessionActive) {
-        mostrarToast("Inicie sesión/turno primero antes de cargar la simulación.", "warning");
-        return;
-      }
-
-      // 1. Rellenar saldos de terminales
-      const balances = DB.get('balances', {});
-      balances.yastasEfectivo = 10000;
-      balances.yastasTerminal = 8400;
-      balances.capitalTerminal = 3500; // Meli Negocio
-      balances.tconecta = 100; // Recarga Efectivo
-      balances.bbva = 2000;
-      balances.banorte = 1200; // Unified Banorte
-      balances.transferencia = 0; // Cleared
-      balances.banamex = 450; // New Banamex card balance ($150 + $300)
-      balances.boveda = 4000;
-      DB.set('balances', balances);
-
-      // 2. Rellenar inventario de piezas en el cajón (Suma $10,000)
-      const mockInventory = {
-        '1000': 2, // $2,000
-        '500': 10, // $5,000
-        '200': 5,  // $1,000
-        '100': 8,  // $800
-        '50': 12,  // $600
-        '20': 15,  // $300
-        '10': 20,  // $200
-        '5': 15,   // $75
-        '2': 10,   // $20
-        '1': 5,    // $5
-        '05': 0    // $0
-      };
-      DB.set('inventory', mockInventory);
-
-      // 3. Rellenar inventario de piezas en la Bóveda (Suma $4,000)
-      const mockBovedaInventory = {
-        '1000': 2, // $2,000
-        '500': 4,  // $2,000
-        '200': 0,
-        '100': 0,
-        '50': 0,
-        '20': 0,
-        '10': 0,
-        '5': 0,
-        '2': 0,
-        '1': 0,
-        '05': 0
-      };
-      DB.set('inventoryBoveda', mockBovedaInventory);
-
-      // 4. Registrar movimientos ficticios en bitácora
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const dateStr = `${year}-${month}-${day}`;
-      const timeStr = now.toLocaleTimeString() + ' PM';
-
-      const mockLogs = [
-        { id: 101, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'YASTAS', amount: 1500, details: 'Depósito regular en efectivo Yastas', inventory: mockInventory },
-        { id: 102, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'YASTAS', amount: -800, details: 'Retiro regular de cliente Yastas', inventory: mockInventory },
-        { id: 103, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'YASTAS_RECARGA', amount: 200, details: 'Recarga telefónica Efectivo Yastas', inventory: mockInventory },
-        { id: 104, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'YASTAS_RECARGA', amount: 0, details: 'Recarga telefónica Terminal Yastas', inventory: mockInventory },
-        { id: 105, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'BBVA', amount: -2000, details: 'Retiro por Exceso de Efectivo (BBVA)', inventory: mockInventory },
-        { id: 106, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'MELI', amount: 3500, details: 'Venta Negocio Meli Terminal', inventory: mockInventory },
-        { id: 107, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'BANORTE', amount: 1200, details: 'Pago con tarjeta Banorte Terminal', inventory: mockInventory },
-        { id: 108, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'CAJA', amount: -5000, details: 'Envío de Efectivo a Bóveda', inventory: mockInventory },
-        { id: 109, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'CAJA', amount: 1000, details: 'Retiro de cambio de Bóveda', inventory: mockInventory },
-        { id: 110, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'TCONECTA_RECARGA_EFECTIVO', amount: 100, details: 'Recarga telefónica T-Conecta (Efectivo)', inventory: mockInventory },
-        { id: 111, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'TCONECTA_RECARGA_TARJETA', amount: 150, details: 'Recarga telefónica T-Conecta (Tarjeta) - Destino: Cuenta Banamex', inventory: mockInventory },
-        { id: 112, operator: activeOperator || 'Administrador', date: dateStr, time: timeStr, category: 'TCONECTA_RETIRO', amount: -300, details: 'Retiro con tarjeta T-Conecta - Destino: Cuenta Banamex', inventory: mockInventory }
-      ];
-
-      DB.set('logs', mockLogs);
-
-      // También registrar en bitácora histórica
-      const historical = DB.get('historical_logs_by_date', {});
-      if (!historical[dateStr]) historical[dateStr] = [];
-      mockLogs.forEach(l => {
-        historical[dateStr].unshift(l);
-      });
-      DB.set('historical_logs_by_date', historical);
-
-      mostrarToast("Simulación de Turno cargada con éxito.", "success");
-      refrescarPantallas();
     }
 
     function cancelarCierreTurno() {
@@ -8774,8 +8561,6 @@
 
     // === GATEKEEPER Y CONTROL DE TURNOS (REFACTORIZACIÓN LA CENTRAL) ===
     function evaluarGatekeeper() {
-      const gatekeeperModal = document.getElementById('modal-gatekeeper-alerta');
-      if (gatekeeperModal) gatekeeperModal.classList.add('hidden');
       bloquearInterfazGatekeeper(!sessionActive);
       return false;
     }
@@ -8812,12 +8597,6 @@
           if (card) card.classList.remove('opacity-40', 'pointer-events-none');
         });
       }
-    }
-
-    function forzarCierreTurnoPendiente() {
-      const gatekeeperModal = document.getElementById('modal-gatekeeper-alerta');
-      if (gatekeeperModal) gatekeeperModal.classList.add('hidden');
-      cerrarTurno();
     }
 
     // === CIERRE NOCTURNO EN 2 PASOS ===

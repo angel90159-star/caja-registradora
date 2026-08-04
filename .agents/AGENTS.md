@@ -38,26 +38,16 @@ Al autenticarse el usuario con su PIN:
 
 ---
 
-### 3. Cierre Nocturno y Pre-carga Opcional (Flujo en 2 Pasos)
-* **Paso 1: Cierre Definitivo de Turno:**
-  * El operador firma e ingresa su PIN.
-  * Se guarda en la BD: `turno_estado = CERRADO`.
-* **Paso 2: Pre-carga de Fondo Base (Opcional):**
-  * Se despliega la pantalla para registrar el dinero que permanecerá en caja para el día siguiente.
-  * **Botón "Omitir y Salir":** Si el operador no desea hacer la pre-carga, al dar clic el sistema guarda `precarga_completada = false` en la BD, destruye la sesión de forma asíncrona y redirige al Login.
-  * **Botón "Guardar Pre-carga":** Se guarda el desglose físico y saldos digitales, registrando `precarga_completada = true` en la BD, seguido del `logout`.
+### 3. Cierre Nocturno (Flujo en 1 Solo Paso)
+* **Decisión confirmada 2026-08-03:** el Paso 2 (pantalla opcional de "Pre-carga de Fondo Base" con botones "Omitir y Salir" / "Guardar Pre-carga") fue solicitado explícitamente por el usuario para ser eliminado. La bandera `precarga_completada` ya **no se usa** — permanece siempre en `false` y no tiene ningún efecto en la lógica actual.
+* **Flujo real:** El operador captura el conteo físico de cierre, firma con PIN, y el sistema guarda de inmediato `turno_estado = CERRADO`, resetea los saldos/flujos diarios (Yastás, T-Conecta, BBVA, Transferencia, Capital, Bóveda) y hace `logout`. No hay pantalla intermedia.
+* Las plataformas persistentes (Banorte, Meli/Meli Base, T-Conecta Terminal, Banamex) se preservan sin cambios de un turno a otro, tal como antes.
 
 ---
 
-### 4. Pantalla de Apertura Matutina (Gatekeeper en Acción)
-Al iniciar sesión con estado `CERRADO`, la pantalla de Apertura evaluará la bandera `precarga_completada`:
-* **Escenario A: `precarga_completada = true` (Con Pre-carga)**
-  * Se despliegan los campos pre-llenados con la captura nocturna (Efectivo por denominación y saldos digitales).
-  * **Acción rápida:** Si el dinero físico coincide, el operador autoriza con 1 solo clic en **"Confirmar e Iniciar Turno"**.
-* **Escenario B: `precarga_completada = false` (Sin Pre-carga / Omitido)**
-  * La pantalla de Apertura se despliega totalmente en blanco (`$0.00`).
-  * El operador debe realizar el conteo físico, capturar saldos de plataformas y presionar **"Registrar e Iniciar Turno"**.
-* **Manejo de Discrepancias:** Si los valores físicos no coinciden con la pre-carga nocturna, el operador modifica los montos, captura de manera obligatoria una **Nota de Observación** y presiona **"Registrar Apertura con Observación"** (registrando la evidencia en la bitácora inmutable con usuario y sello de tiempo).
+### 4. Pantalla de Apertura Matutina
+* **Decisión confirmada 2026-08-03:** no existe pre-llenado automático a partir del cierre de la noche anterior. El usuario pidió explícitamente eliminar esa función (`cargarBilletesAyer`, que copiaba el desglose del último `cierre_reports` al formulario de apertura) — la experiencia anterior de Escenario A/B ("con pre-carga" vs. "en blanco") queda descartada.
+* **Flujo real (único escenario):** La pantalla de Apertura siempre se despliega en blanco (`$0.00`). El operador realiza el conteo físico completo, captura los saldos iniciales de plataformas (Yastás Terminal, etc.) y presiona **"Iniciar Turno"**. No hay comparación automática contra un cierre anterior ni Nota de Observación por discrepancia, porque no hay ninguna cifra pre-cargada contra la cual discrepar.
 
 ---
 
@@ -167,19 +157,14 @@ El sistema POS "La Central" está dividido en 6 Bloques aislados. Cada modificac
 
 | Subagente / Bloque | Rango de Líneas en `app.js` | Funciones y Módulos Asignados |
 | :--- | :--- | :--- |
-| 🟢 **`apertura-gatekeeper`** | Líneas 1890 - 1940<br>Líneas 8790 - 8840 | `intentarIniciarTurno()`, `evaluarGatekeeper()` |
-| 🔵 **`charola-calculadora`** | Líneas 1430 - 1510<br>Líneas 1618 - 1750 | `limpiarDesglose()`, asistencias, Widget Calculadora |
-| 🟣 **`plataformas-financieras`** | Líneas 1530 - 2300<br>Líneas 8200 - 8450 | Módulos de Corresponsalías y Servicios (Sub-bloques 3.1 a 3.7) |
-| └ *3.1 Yastás* | Líneas 2020 - 2080 | Lógica Yastás (Efectivo y Terminal) |
-| └ *3.2 Mercado Libre* | Líneas 2080 - 2150 | Tienda / Negocio (Terminal y Saldo Base) |
-| └ *3.3 Banorte* | Líneas 2150 - 2200 | Transacciones y Saldos Banorte |
-| └ *3.4 T-Conecta / Banamex* | Líneas 1530 - 1550<br>Líneas 4300 - 4315 | Disponible Terminal, Banamex y Lápiz de edición |
-| └ *3.5 Sistema Híbrido (Capital)* | Líneas 2200 - 2260 | Fondo / Capital de Trabajo |
-| └ *3.6 Bóveda* | Líneas 8200 - 8450 | `abrirModalBoveda()`, traslados entre charola y bóveda |
-| └ *3.7 BBVA / Transferencias* | Líneas 2260 - 2300 | Retiros BBVA / Transferencias bancarias |
-| 🟡 **`cierre-reportes`** | Líneas 7660 - 7790<br>Líneas 8885 - 8960 | `firmarYCerrarTurno()`, `finalizarCierreNocturno()` |
-| 🟠 **`bitacora-historico`** | Líneas 4496 - 4740 | `cargarBitacora()`, `getLogMs()` |
-| 🔴 **`supabase-sync`** | Líneas 160 - 310<br>Líneas 463 - 605 | `syncToSupabase()`, Real-time |
+| 🟢 **`apertura-gatekeeper`** | Línea 1893<br>Línea 8481 | `intentarIniciarTurno()`, `evaluarGatekeeper()` |
+| 🔵 **`charola-calculadora`** | Línea 936<br>Línea 1068 | `construirInputsDesglose()`, `limpiarDesglose()` |
+| 🟣 **`plataformas-financieras`** | Líneas 2088 - 3676 | Módulos de Corresponsalías y Servicios (Sub-bloques 3.1 a 3.7) — *rango general confirmado por comentarios de sección; el desglose fino por sub-bloque 3.1-3.3/3.5/3.7 está pendiente de re-verificación línea por línea* |
+| └ *3.4 T-Conecta / Banamex (Lápiz)* | Línea 4310 (`abrirAjusteSaldoTConecta`)<br>Línea 4331 (`guardarAjusteSaldoTConecta`) | Ajuste de saldo base T-Conecta/Banamex, registrado como `AJUSTE_DE_SALDO` en bitácora |
+| └ *3.6 Bóveda* | Línea 8221 | `calcularBovedaOperacion()` — **corrección:** `abrirModalBoveda()` no existe en el código; la Bóveda se accede vía el patrón general `seleccionarServicioCard('capital')` / tarjeta `card-capital`, no por un modal dedicado |
+| 🟡 **`cierre-reportes`** | Línea 7560 (`firmarYCerrarTurno`)<br>Línea 8540 (`finalizarCierreNocturno`) | Cierre en 1 solo paso (ver Sección 3 arriba). `solicitarPreCargaNocturna()` (línea 8531) es código huérfano sin llamadas — pantalla Paso 2 ya no se usa. |
+| 🟠 **`bitacora-historico`** | Línea 4563 (`cargarBitacora`)<br>Línea 4625 (`getLogMs`) | Comentario de sección: línea 4462 |
+| 🔴 **`supabase-sync`** | Líneas 149 - 730 (sección completa "PERSISTENCIA LOCAL Y CACHÉ...") | `syncToSupabase()` línea 163, `fetchInitialFromSupabase()` línea 260, `suscribirseARealtimeSupabase()` línea 516 |
 
 ---
 
@@ -203,4 +188,56 @@ Antes de realizar cualquier edición de código en `app.js`, `app_v3.js` o `inde
 
 **ESTRICO CUMPLIMIENTO**: Queda strictly prohibido realizar modificaciones antes de recibir el "Aprobado" u "OK" del usuario a la Ficha de Autorización.
 
+---
+
+### 📝 Registro de Cambios al Documento
+
+**2026-08-03 — Limpieza de código muerto + corrección de Secciones 3 y 4 (Claude Code):**
+* Se eliminaron 11 funciones huérfanas sin ningún punto de llamada en `app.js`/`app_v3.js` (autorizadas explícitamente por el usuario): `solicitarBorradoMonto`, `cerrarAnexarCapital`, `construirGridsAnexarCapital`, `abrirModalAjustarAlertas`, `cerrarModalAjustarAlertas`, `guardarAlertasStock`, `cargarSimulacion`, `cerrarCierreCajaModal`, `mapearFilaANubeReporte`, `cargarBilletesAyer`, `cambiarDevolucionRetiro`. Se validó sintaxis con `js_validator.py` y se mantuvo sincronía perfecta entre `app.js` y `app_v3.js`.
+* Se corrigieron las Secciones 3 y 4 de este documento: el usuario confirmó que el Paso 2 de pre-carga nocturna y el auto-llenado de la apertura matutina (`precarga_completada`) fueron solicitados para eliminarse anteriormente. El código ya reflejaba esa realidad (funciones huérfanas); el documento no.
+* Se corrigió el Mapa de Líneas: varias funciones se recorrieron por la limpieza, y se detectó que `abrirModalBoveda()` (referenciada en el mapa original) nunca existió en el código real.
+* **Pendiente:** el desglose fino de líneas para los sub-bloques 3.1 (Yastás), 3.2 (Meli), 3.3 (Banorte), 3.5 (Capital) y 3.7 (BBVA) no se re-verificó a detalle en esta pasada — el rango general (2088-3676) es confiable, pero los sub-rangos individuales de la tabla anterior ya estaban desactualizados desde antes de este cambio.
+* **Bugs identificados y aún NO corregidos** (ver auditoría completa en la conversación): (1) posible condición de carrera entre `localStorage` y la carga inicial desde Supabase al abrir la página — causa más probable de saldos/valores que aparecen y se borran solos, y de sesiones que parecen "cerrarse" pidiendo recapturar datos, especialmente justo después de una recarga completa de página; (2) posible cruce de fecha/hora en la bitácora cuando dos operaciones comparten monto+categoría+operador, incluso en fechas distintas (el sistema busca coincidencias en todo el historial, no solo el día en curso).
+
+**2026-08-03 (mismo día) — Eliminación de la alerta de Gatekeeper no funcional (decisión explícita del usuario):**
+* El usuario decidió, siendo consciente de las implicaciones, **eliminar** (no arreglar) la funcionalidad de "alerta bloqueante si el turno anterior quedó abierto" descrita en la Sección 2, ya que nunca funcionó y no es prioridad ahora mismo.
+* Se eliminó el modal `modal-gatekeeper-alerta` de `index.html`, la función `forzarCierreTurnoPendiente()` de `app.js`/`app_v3.js`, y las referencias a ese modal dentro de `evaluarGatekeeper()`.
+* **Nota:** la Sección 2 de este documento ("Si el turno anterior sigue ABIERTO: Desplegar una alerta bloqueante...") ya **no refleja el comportamiento real** — actualmente no hay ninguna advertencia si un turno queda sin cerrar. Queda pendiente decidir si se reescribe esa sección o si se retoma esta función más adelante.
+
+**2026-08-03 (mismo día) — Corrección de la condición de carrera Supabase vs. localStorage (3 escenarios):**
+* **Carga de página (bootstrap):** `DB.init()` y `window.onload` ahora son `async` y usan `await fetchInitialFromSupabase()` antes de evaluar `sessionActive` o dibujar cualquier pantalla. Antes, la app decidía con lo último guardado en `localStorage` de ESE dispositivo (a veces obsoleto) y corregía después al llegar la respuesta real de Supabase — causando saldos/valores que aparecían y luego se borraban solos, y en casos peores, sesiones que parecían "cerrarse" y pedían recapturar todo. Líneas afectadas: 649-733 aprox.
+* **Edición simultánea multi-dispositivo:** el listener de tiempo real para `caja_state` (dentro de `suscribirseARealtimeSupabase()`, línea ~521) ahora respeta `isUserTyping()` antes de forzar un refresco de pantalla — mismo patrón que ya existía para `caja_balances`, aplicado también aquí. Si otro dispositivo cambia el estado del turno mientras el operador está capturando algo activamente, ya no se le pisa la pantalla ni se le borra lo que lleva escrito.
+* **Reconexión tras pérdida de internet (ej. tablet/iPad que anda offline y luego recupera señal):** se agregó `window.addEventListener('online', ...)` que muestra un aviso ("Conexión restablecida. Actualizando información...") y recarga la página automáticamente tras 1.5s. Esto evita que datos obsoletos guardados durante el tiempo sin conexión sobrescriban información más nueva capturada en otros equipos mientras tanto. No afecta equipos con conexión estable (nunca dispara este evento).
+* Validado: sintaxis OK en ambos archivos, `app.js`/`app_v3.js` siguen idénticos, prueba visual en navegador sin errores de consola ni comportamiento inesperado al cargar con turno activo real.
+
+**2026-08-03 (mismo día) — Corrección del cruce de fecha/hora en la Bitácora:**
+* En `fetchInitialFromSupabase()` (línea ~438), el emparejamiento por contenido local (monto+categoría+operador) que recuperaba fecha/hora ya **solo se aplica cuando el timestamp remoto es inválido o pertenece al lote histórico corrupto conocido** (`2026-07-24T15:06`). Con timestamp remoto normal (el caso de prácticamente todos los registros nuevos), la fecha/hora ya calculada directamente del timestamp real ya NO se sobreescribe.
+* Antes, este emparejamiento se aplicaba SIEMPRE, buscando coincidencias en **todo el historial** (no solo el día en curso), causando que operaciones con el mismo monto+categoría+operador en fechas distintas se cruzaran la fecha/hora entre sí.
+* Confirmado visualmente en producción real: la primera página de la Bitácora (10 registros más recientes) ahora baja en orden cronológico perfecto, sin saltos.
+
+**2026-08-03 (mismo día) — Segunda corrección: el timestamp usado para ORDENAR no se actualizaba junto con la fecha/hora mostrada:**
+* Hallazgo del usuario en pantalla real: 3 registros del lote histórico corrupto (2026-07-24T15:06) mostraban fecha/hora recuperada correcta y creíble, pero seguían apareciendo hasta el final de toda la lista (54 registros) sin importar su hora mostrada.
+* Causa: el fix anterior corregía `dateStr`/`timeStr` (lo que se ve en pantalla) al detectar un timestamp sospechoso, pero el campo `timestamp` interno del objeto — el que usa `getLogMs()` para ordenar — seguía siendo el original corrupto de julio. Resultado: pantalla correcta, orden incorrecto (el registro se sigue tratando como si fuera de hace más de una semana).
+* Corrección: al recuperar fecha/hora por coincidencia local, ahora también se recalcula `correctedTimestamp` (usando el timestamp del match local si es válido, o derivándolo de la fecha/hora recuperada vía `parseLocalDateAndTime`), y ese es el valor que se guarda en `logObj.timestamp`.
+* Confirmado visualmente en producción real, los 3 registros que antes quedaban al final de los 54 registros totales ahora aparecen en su posición cronológica correcta.
+
+**2026-08-03 (mismo día) — Tercera corrección: priorizar coincidencia por ID único (UUID) sobre monto+categoría+operador:**
+* Análisis del respaldo completo (740 registros, `caja_logs.json`): 246 registros pertenecen al lote histórico corrupto (`2026-07-24T15:06`). Ninguno tiene ID (UUID) duplicado — cada uno es único e inequívoco. Pero 85 combinaciones de monto+categoría+operador tienen MÁS DE UN registro corrupto (ej. 9 "Cierres de Miguel por $0" indistinguibles entre sí por contenido), dejando margen real de cruce con el emparejamiento anterior.
+* Corrección en `fetchInitialFromSupabase()` (línea ~416): se agregó `localLogsByIdMap` (mapa por UUID exacto). Ahora, para registros con timestamp sospechoso, se intenta PRIMERO la coincidencia por ID único (inequívoca, nunca se confunde) y solo si no existe, se usa el respaldo anterior por contenido.
+* Los movimientos capturados de hoy en adelante nunca pasan por este mecanismo (nacen con timestamp correcto), así que están protegidos desde su creación, sin depender de ningún emparejamiento.
+* Validado: sintaxis OK, `app.js`/`app_v3.js` sincronizados, prueba visual en producción real sin regresiones (primera página de bitácora sigue en orden correcto).
+
+**2026-08-04 — Indicador de sincronización pendiente (no bloqueante), decisión explícita del usuario:**
+* Nueva funcionalidad: cuando `syncToSupabase()` falla (ej. corte de red durante una operación), la operación se sigue completando localmente sin ningún bloqueo — solo se marca esa `key` (`balances`/`inventory`/`inventoryBoveda`/`logs`/`state`/`cierre_reports`) como pendiente en `pendingSyncKeys` (persistido en `localStorage` bajo `lc5_pending_sync`), y aparece un badge ámbar junto a "Turno Activo" en el header (`sync-pendiente-badge`, index.html) mostrando cuántas claves siguen sin subir.
+* Al recuperar conexión (`window.addEventListener('online', ...)`), ahora primero se llama `reintentarSincronizacionPendiente()` (reenvía cada key pendiente con su valor local más actual) y solo después se recarga la página — así los cambios pendientes llegan a Supabase antes de que la recarga traiga el estado "oficial" de la nube.
+* **Bug lateral corregido de paso:** en el sync de `logs`, el flag `l._synced = true` se marcaba ANTES de confirmar el envío a Supabase, no después. Si el `insert` fallaba, los logs quedaban marcados como sincronizados sin haberlo estado realmente — un reintento futuro los habría ignorado creyendo que ya estaban subidos, perdiendo la transacción en silencio. Se movió el marcado a después del `await` exitoso.
+* Funciones nuevas: `marcarPendienteSync()`, `marcarSincronizado()`, `actualizarBadgeSincronizacion()`, `reintentarSincronizacionPendiente()` (todas en el bloque `supabase-sync`, cerca de línea 163).
+* Validado: sintaxis OK, `app.js`/`app_v3.js` sincronizados, badge probado en vivo (aparece al marcar pendiente, desaparece limpio sin residuo en `localStorage` al confirmar sincronizado).
+* **Bug encontrado y corregido durante la prueba:** el HTML del badge usaba `class="hidden sm:flex ..."` (copiado del patrón de `cajero-badge`) — en pantallas de escritorio, `sm:flex` le gana a `hidden` por el orden de las reglas generadas por Tailwind, dejando el badge visible aunque el contador fuera 0. Se corrigió a `class="hidden flex ..."` (sin el prefijo `sm:`). **Nota:** `cajero-badge` (el de "Turno Activo") usa el mismo patrón original y podría tener el mismo problema latente — no se tocó porque no fue lo solicitado, pero queda anotado por si se quiere revisar después.
+
+**2026-08-04 (mismo día) — Triángulo de aviso por fila en la Bitácora, a petición del usuario:**
+* Cada fila de la Bitácora (`cargarBitacora()`, tablas "Vista de Saldos" y "Vista de Piezas") ahora muestra un ícono de triángulo de alerta (ámbar, `data-lucide="triangle-alert"`) junto a la fecha cuando `log._synced` es falso — es decir, ese movimiento específico todavía no se confirma subido a Supabase.
+* Se reutiliza el flag `_synced` que ya existía en cada registro (los que vienen de Supabase o ya se sincronizaron con éxito lo traen en `true`; los recién capturados localmente nacen sin él hasta confirmarse).
+* `marcarSincronizado('logs')` ahora también refresca la Bitácora automáticamente para que el triángulo desaparezca en cuanto se confirma la subida, sin que el operador tenga que hacer nada.
+* Validado en producción real: se inyectó una fila de prueba solo en memoria (sin `DB.set`, nunca tocó Supabase ni localStorage) para confirmar visualmente el triángulo, y se retiró sin dejar residuo.
 

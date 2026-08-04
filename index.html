@@ -69,6 +69,12 @@
           </button>
         </div>
 
+        <!-- Badge de Sincronización Pendiente -->
+        <div id="sync-pendiente-badge" class="hidden flex items-center gap-1.5 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 px-3 py-1.5 rounded-full" title="Movimientos guardados localmente que aún no llegan a la nube. Se reintentan solos al recuperar conexión.">
+          <i data-lucide="cloud-off" class="w-3.5 h-3.5 text-amber-700 dark:text-amber-400"></i>
+          <span id="sync-pendiente-count" class="text-xs font-bold text-amber-700 dark:text-amber-400">0 sin sincronizar</span>
+        </div>
+
         <!-- Badge de Caja Activa -->
         <div id="cajero-badge" class="hidden sm:flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950 border border-emerald-100 dark:border-emerald-800 px-3.5 py-1.5 rounded-full">
           <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -2335,26 +2341,6 @@
     </div>
   </div>
 
-  <!-- MODAL GATEKEEPER: ALERTA DE TURNO ANTERIOR ABIERTO -->
-  <div id="modal-gatekeeper-alerta" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-    <div class="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/50 space-y-5">
-      <div class="w-14 h-14 bg-rose-100 dark:bg-rose-950/60 rounded-2xl flex items-center justify-center text-rose-600 dark:text-rose-400 mx-auto">
-        <i data-lucide="shield-alert" class="w-8 h-8"></i>
-      </div>
-      <div class="text-center space-y-2">
-        <h3 class="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight">Atención: Turno No Cerrado</h3>
-        <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-          El turno del día anterior no fue cerrado formalmente. Por favor realiza el cierre para continuar.
-        </p>
-      </div>
-      <div class="flex gap-3 pt-2">
-        <button onclick="forzarCierreTurnoPendiente()" class="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl text-xs transition shadow-md shadow-rose-600/20 flex items-center justify-center gap-2 cursor-pointer">
-          <i data-lucide="log-out" class="w-4 h-4"></i> Ir a Realizar Cierre del Turno
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- MODAL CIERRE NOCTURNO: PASO 2 PRE-CARGA DE FONDO BASE -->
   <div id="modal-precarga-nocturna" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
     <div class="bg-white dark:bg-slate-900 rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-indigo-100 dark:border-slate-800 space-y-5">
@@ -2418,6 +2404,6 @@
   <!-- ==========================================
        LÓGICA EN JAVASCRIPT
        ========================================== -->
-  <script src="app.js?v=20260731_BOOT_SYNC_FIX"></script>
+  <script src="app.js?v=20260804_PENDING_SYNC_ROW_ICON"></script>
 </body>
 </html>
