@@ -460,7 +460,7 @@
                 <div class="grid grid-cols-2 gap-4" id="op-cambio-inputs-grid">
                   <div id="op-cambio-monto-input-container">
                     <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Monto del Depósito ($)</label>
-                    <input type="number" id="op-cambio-deposito" placeholder="Ej. 1400" min="0" step="0.01" oninput="calcularCambioOperacion()" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 shadow-sm dark:shadow-slate-950/30 transition">
+                    <input type="number" id="op-cambio-deposito" placeholder="Ej. 1400" min="0" step="0.01" oninput="calcularCambioOperacion()" autocomplete="off" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 shadow-sm dark:shadow-slate-950/30 transition">
                   </div>
                   <div id="op-cambio-recibido-container">
                     <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Efectivo Recibido ($)</label>
@@ -497,7 +497,7 @@
                 <div class="grid grid-cols-2 gap-4">
                   <div class="col-span-2">
                     <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Monto a Retirar ($)</label>
-                    <input type="number" id="op-retiro-monto" placeholder="Ej. 8000" min="0" step="0.01" oninput="calcularRetiroOperacion()" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 shadow-sm dark:shadow-slate-950/30 transition">
+                    <input type="number" id="op-retiro-monto" placeholder="Ej. 8000" min="0" step="0.01" oninput="calcularRetiroOperacion()" autocomplete="off" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:border-indigo-500 shadow-sm dark:shadow-slate-950/30 transition">
                   </div>
                 </div>
 
@@ -540,7 +540,7 @@
                 </p>
                 <div>
                   <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Monto exacto ($)</label>
-                  <input type="number" id="op-monto-manual" placeholder="0.00" step="0.01" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <input type="number" id="op-monto-manual" placeholder="0.00" step="0.01" autocomplete="off" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 </div>
               </div>
 
@@ -753,7 +753,7 @@
                 <div class="space-y-2">
                   <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Retiros del Cliente (Digitales)</label>
                   <div class="flex gap-2">
-                    <input type="number" id="redep-monto-retiro" placeholder="Monto del retiro" class="flex-grow bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input type="number" id="redep-monto-retiro" placeholder="Monto del retiro" autocomplete="off" class="flex-grow bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <button type="button" onclick="agregarRetiroVirtual()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-xs flex items-center gap-1">
                       <i data-lucide="plus" class="w-3 h-3"></i>
                       <span>Agregar</span>
@@ -776,7 +776,7 @@
                   <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Depósito Final Deseado (Digital)</label>
                   <div class="relative">
                     <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 font-bold text-xs">$</span>
-                    <input type="number" id="redep-monto-deposito" placeholder="Ej. 700.00" step="0.01" min="0" oninput="calcularDiferenciaRedeposito()" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-4 py-2.5 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <input type="number" id="redep-monto-deposito" placeholder="Ej. 700.00" step="0.01" min="0" oninput="calcularDiferenciaRedeposito()" autocomplete="off" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-4 py-2.5 text-sm font-black text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   </div>
                 </div>
 
@@ -833,7 +833,7 @@
                 <!-- Monto de la Recarga -->
                 <div class="space-y-1.5">
                   <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Monto de la Recarga</label>
-                  <input type="number" id="op-recarga-monto" placeholder="0.00" oninput="actualizarMontoRecarga()" step="0.01" min="0"
+                  <input type="number" id="op-recarga-monto" placeholder="0.00" oninput="actualizarMontoRecarga()" step="0.01" min="0" autocomplete="off"
                     class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-base font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition">
                 </div>
 
@@ -858,7 +858,7 @@
               <!-- Panel de Concepto de Transferencia -->
               <div id="panel-concepto-transferencia" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
                 <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Concepto de la Transferencia</label>
-                <input type="text" id="op-concepto-transferencia" placeholder="Ej. Pago a proveedor" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input type="text" id="op-concepto-transferencia" placeholder="Ej. Pago a proveedor" autocomplete="off" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
               </div>
 
               <!-- Panel de Nombre del Cliente (Vales) -->
@@ -870,20 +870,20 @@
               <!-- Panel de Motivo de Operación de Capital -->
               <div id="panel-motivo-capital" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
                 <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Motivo de la Operación</label>
-                <input type="text" id="op-motivo-capital" placeholder="Ej. Retiro para cambio, Ingreso de fondo" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input type="text" id="op-motivo-capital" placeholder="Ej. Retiro para cambio, Ingreso de fondo" autocomplete="off" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
               </div>
 
               <!-- Panel de Ubicación Física de la Bóveda -->
               <div id="panel-monto-boveda" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
                 <label id="label-monto-boveda" class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Monto de la Operación ($)</label>
-                <input type="number" id="op-monto-boveda" oninput="calcularBovedaOperacion()" placeholder="Ej. 1000" min="0" step="0.01" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input type="number" id="op-monto-boveda" oninput="calcularBovedaOperacion()" placeholder="Ej. 1000" min="0" step="0.01" autocomplete="off" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                 <!-- Helper de Doble Confirmación Visual de Bóveda -->
                 <div id="op-boveda-helper-wrapper" class="hidden pt-2 flex flex-col gap-2"></div>
               </div>
 
               <div id="panel-ubicacion-boveda" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
                 <label id="label-ubicacion-boveda" class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Ubicación de Bóveda</label>
-                <input type="text" id="op-ubicacion-boveda" placeholder="Ej. Caja fuerte principal, Sobre de depósito" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <input type="text" id="op-ubicacion-boveda" placeholder="Ej. Caja fuerte principal, Sobre de depósito" autocomplete="off" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
               </div>
 
 
@@ -906,7 +906,7 @@
                   <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Monto a anexar a Terminal Yastas</label>
                   <div class="relative">
                     <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 dark:text-slate-500 font-semibold text-sm">$</span>
-                    <input type="number" id="cap-monto-terminal" oninput="calcularTotalAnexarCapital()" placeholder="0.00" step="0.01" min="0"
+                    <input type="number" id="cap-monto-terminal" oninput="calcularTotalAnexarCapital()" placeholder="0.00" step="0.01" min="0" autocomplete="off"
                       class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-4 py-3 text-base font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white dark:focus:bg-slate-900 transition">
                   </div>
                   <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5">Se suma directamente al saldo de Terminal Yastas.</p>
@@ -917,7 +917,7 @@
                 <!-- Motivo/Concepto del Anexo -->
                 <div class="bg-slate-55/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
                   <label class="block text-[9px] font-bold text-slate-450 uppercase tracking-wider mb-1">Motivo / Origen del Recurso</label>
-                  <input type="text" id="cap-motivo" placeholder="Ej. Aportación de socio, Fondo inicial, Préstamo, etc." class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                  <input type="text" id="cap-motivo" placeholder="Ej. Aportación de socio, Fondo inicial, Préstamo, etc." autocomplete="off" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
                 </div>
 
                 <!-- Total -->
