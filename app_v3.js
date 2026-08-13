@@ -122,6 +122,14 @@
         label2: 'Salida',
         label3: 'Neto',
         gradient: ['from-orange-500', 'to-amber-500']
+      },
+      'vales': {
+        title: 'Operativo Vales',
+        desc: 'Vales recibidos en efectivo durante el día',
+        label1: '',
+        label2: '',
+        label3: 'Total de Vales del Día',
+        gradient: ['from-fuchsia-600', 'to-pink-600']
       }
     };
 
@@ -220,6 +228,7 @@
             transferencia: val.transferencia || 0,
             bbva: val.bbva || 0,
             capital: val.capital || 0,
+            vales: val.vales || 0,
             data: val,
             updated_at: new Date().toISOString()
           });
@@ -349,7 +358,8 @@
             banorte: remoteData.banorte !== undefined ? remoteData.banorte : (parseFloat(balData.banorte) || 0),
             transferencia: remoteData.transferencia !== undefined ? remoteData.transferencia : (parseFloat(balData.transferencia) || 0),
             bbva: remoteData.bbva !== undefined ? remoteData.bbva : (parseFloat(balData.bbva) || 0),
-            capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(balData.capital) || 0)
+            capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(balData.capital) || 0),
+            vales: remoteData.vales !== undefined ? remoteData.vales : (parseFloat(balData.vales) || 0)
           };
           dbCache['balances'] = updatedBal;
           localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
@@ -380,7 +390,7 @@
 
         // Cargar reportes de cierre desde Supabase
         try {
-          const { data: repData } = await supabaseClient.from('cierre_reports').select('*').order('created_at', { ascending: false });
+          const { data: repData } = await supabaseClient.from('cierre_reports').select('*').order('timestamp', { ascending: false });
           if (repData && repData.length > 0) {
             const reports = DB.get('cierre_reports', {});
             repData.forEach(row => {
@@ -641,7 +651,8 @@
                 banorte: remoteData.banorte !== undefined ? remoteData.banorte : (parseFloat(payload.new.banorte) || 0),
                 transferencia: remoteData.transferencia !== undefined ? remoteData.transferencia : (parseFloat(payload.new.transferencia) || 0),
                 bbva: remoteData.bbva !== undefined ? remoteData.bbva : (parseFloat(payload.new.bbva) || 0),
-                capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(payload.new.capital) || 0)
+                capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(payload.new.capital) || 0),
+                vales: remoteData.vales !== undefined ? remoteData.vales : (parseFloat(payload.new.vales) || 0)
               };
               dbCache['balances'] = updatedBal;
               localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
@@ -890,13 +901,16 @@
           state.opened_date = todayStr;
           state.opened_time = now.toLocaleTimeString();
           DB.set('state', state);
-          
+
           if (currentLogs.length > 0) {
             currentLogs[0].date = todayStr;
             currentLogs[0].time = now.toLocaleTimeString();
             DB.set('logs', currentLogs);
           }
           console.log(`Auto-actualización de pre-apertura de turno detectada. Turno movido al día de hoy (${todayStr}).`);
+        } else {
+          // Hay movimientos reales y el turno cruzó de día -- avisar sin bloquear (el operador decide cuándo cerrarlo)
+          mostrarAvisoTurnoCruzadoDia();
         }
       }
 
@@ -916,7 +930,8 @@
       if (typeof intentarSubirCierresPendientes === 'function') intentarSubirCierresPendientes();
       initCalcDragging();
       setupGlobalInputOverrides();
-      
+      setInterval(actualizarBadgeTurnoDuracion, 10 * 60 * 1000); // Refrescar duración del turno cada 10 min sin necesidad de interacción
+
       const outInputs = document.querySelectorAll('[id^="cambio-out-"]');
       outInputs.forEach(inp => {
         inp.addEventListener('focus', function() {
@@ -1432,6 +1447,99 @@
     }
 
     // === CONTROL DE VISTAS (PÁGINA 1: Apertura de Turno, PÁGINA 2: Tablero/Dashboard) ===
+    // === INDICADOR DE DURACIÓN REAL DEL TURNO Y AVISO DE TURNO CRUZADO DE DÍA ===
+    // El "inicio real" de operación se ancla al primer movimiento de Yastás del turno activo
+    // (no a la hora de apertura) -- es el indicador oficial de que ya están operando la caja.
+    function obtenerInicioOperacionReal() {
+      const logs = DB.get('logs', []) || [];
+      let earliest = null;
+      logs.forEach(l => {
+        if (!l || !l.category) return;
+        const cat = l.category.toUpperCase();
+        const esYastas = cat === 'YASTAS' || cat.startsWith('YASTAS_') || cat.endsWith('_YASTAS');
+        if (esYastas && l.timestamp) {
+          const t = new Date(l.timestamp).getTime();
+          if (!isNaN(t) && (earliest === null || t < earliest)) earliest = t;
+        }
+      });
+      return earliest;
+    }
+
+    function actualizarBadgeTurnoDuracion() {
+      const nombreEl = document.getElementById('cajero-nombre');
+      const badgeEl = document.getElementById('cajero-badge');
+      const dotEl = document.getElementById('cajero-badge-dot');
+      if (!nombreEl || !badgeEl || !dotEl || !sessionActive) return;
+
+      const coloresBadge = ['bg-emerald-50', 'dark:bg-emerald-950', 'border-emerald-100', 'dark:border-emerald-800',
+        'bg-amber-50', 'dark:bg-amber-950', 'border-amber-200', 'dark:border-amber-800',
+        'bg-rose-50', 'dark:bg-rose-950', 'border-rose-200', 'dark:border-rose-800'];
+      const coloresTexto = ['text-emerald-700', 'text-amber-700', 'dark:text-amber-400', 'text-rose-700', 'dark:text-rose-400'];
+      const coloresDot = ['bg-emerald-500', 'bg-amber-500', 'bg-rose-500'];
+      badgeEl.classList.remove(...coloresBadge);
+      nombreEl.classList.remove(...coloresTexto);
+      dotEl.classList.remove(...coloresDot);
+
+      const inicioReal = obtenerInicioOperacionReal();
+      const nombreBase = activeOperator || 'Turno Activo';
+
+      if (!inicioReal) {
+        // Sin movimientos de Yastás todavía -- sin urgencia que marcar
+        nombreEl.innerText = nombreBase;
+        badgeEl.classList.add('bg-emerald-50', 'dark:bg-emerald-950', 'border-emerald-100', 'dark:border-emerald-800');
+        nombreEl.classList.add('text-emerald-700');
+        dotEl.classList.add('bg-emerald-500');
+        return;
+      }
+
+      const horas = (Date.now() - inicioReal) / 3600000;
+      if (horas >= 18) {
+        nombreEl.innerText = `${nombreBase} (${Math.floor(horas)}h)`;
+        badgeEl.classList.add('bg-rose-50', 'dark:bg-rose-950', 'border-rose-200', 'dark:border-rose-800');
+        nombreEl.classList.add('text-rose-700', 'dark:text-rose-400');
+        dotEl.classList.add('bg-rose-500');
+      } else if (horas >= 13) {
+        nombreEl.innerText = `${nombreBase} (${Math.floor(horas)}h)`;
+        badgeEl.classList.add('bg-amber-50', 'dark:bg-amber-950', 'border-amber-200', 'dark:border-amber-800');
+        nombreEl.classList.add('text-amber-700', 'dark:text-amber-400');
+        dotEl.classList.add('bg-amber-500');
+      } else {
+        nombreEl.innerText = nombreBase;
+        badgeEl.classList.add('bg-emerald-50', 'dark:bg-emerald-950', 'border-emerald-100', 'dark:border-emerald-800');
+        nombreEl.classList.add('text-emerald-700');
+        dotEl.classList.add('bg-emerald-500');
+      }
+    }
+
+    function mostrarAvisoTurnoCruzadoDia() {
+      const banner = document.getElementById('banner-turno-cruzado-dia');
+      if (!banner) return;
+      const state = DB.get('state', {});
+      const inicioReal = obtenerInicioOperacionReal();
+      const horas = inicioReal !== null ? Math.floor((Date.now() - inicioReal) / 3600000) : null;
+
+      const titulo = document.getElementById('banner-turno-titulo');
+      const desc = document.getElementById('banner-turno-desc');
+      if (titulo) titulo.innerText = `Turno abierto desde el ${state.opened_date || '---'}`;
+      if (desc) {
+        desc.innerText = horas !== null
+          ? `Ya llevas ${horas} horas trabajando en este turno sin cerrarlo.`
+          : `Este turno sigue abierto de un día anterior sin cerrarlo.`;
+      }
+      banner.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function cerrarBannerTurnoCruzado() {
+      const banner = document.getElementById('banner-turno-cruzado-dia');
+      if (banner) banner.classList.add('hidden');
+    }
+
+    function irACerrarTurnoDesdeBanner() {
+      cerrarBannerTurnoCruzado();
+      if (typeof cerrarTurno === 'function') cerrarTurno();
+    }
+
     function refrescarPantallas() {
       const vistaApertura = document.getElementById('vista-apertura');
       const vistaDashboard = document.getElementById('vista-dashboard');
@@ -1471,7 +1579,8 @@
         btnCerrarTurno.classList.remove('hidden');
         btnVerPiezas.classList.remove('hidden');
         document.getElementById('cajero-nombre').innerText = activeOperator || 'Turno Activo';
-        
+        actualizarBadgeTurnoDuracion();
+
         // Habilitar botones de utilidades de la cabecera
         if (btnHeaderCalc) btnHeaderCalc.classList.remove('opacity-40', 'pointer-events-none');
         if (btnHeaderIva) btnHeaderIva.classList.remove('opacity-40', 'pointer-events-none');
@@ -1600,6 +1709,9 @@
       });
       balances.boveda = bovedaTotal;
       document.getElementById('dash-bal-boveda').innerText = fmt.format(bovedaTotal);
+
+      const balVales = document.getElementById('dash-bal-vales');
+      if (balVales) balVales.innerText = fmt.format(balances.vales || 0);
 
       // Capital
       document.getElementById('dash-bal-capital').innerText = fmt.format(balances.capital || 0);
@@ -1909,6 +2021,22 @@
         if (op) op.innerText = '|';
         if (opRetiro) opRetiro.innerText = '+';
         if (eq) eq.innerText = '=';
+      } else if (activeSrv === 'vales') {
+        // Vales es una sola sumatoria acumulada del día -- sin desglose de "inicial + flujo",
+        // a diferencia de los demás servicios (aquí no existe un saldo "previo" legítimo).
+        const totalEl = document.getElementById('dash-total-operativo');
+        if (totalEl) totalEl.className = "text-xl font-black text-yellow-300";
+
+        const col1 = document.getElementById('dash-total-col1');
+        const col2 = document.getElementById('dash-total-col2');
+        const op = document.getElementById('dash-total-bar-operator');
+        const eq = document.getElementById('dash-total-bar-equals');
+        if (col1) col1.classList.add('hidden');
+        if (col2) col2.classList.add('hidden');
+        if (op) op.classList.add('hidden');
+        if (eq) eq.classList.add('hidden');
+
+        document.getElementById('dash-total-operativo').innerText = fmt.format(balances.vales || 0);
       } else {
         const totalVal = balances[activeSrv] || 0;
         const flujoVal = todayMovements;
@@ -2064,14 +2192,15 @@
       balances.tconectaTerminal = carryOverTconectaTerminal;
       balances.banamex = carryOverBanamex;
       
-      // Restablecer flujos diarios (BBVA, T-Conecta recargas/retiros, Transferencias, Capital)
+      // Restablecer flujos diarios (BBVA, T-Conecta recargas/retiros, Transferencias, Capital, Vales)
       balances.tconecta = 0;
       balances.transferencia = 0;
       balances.bbva = 0;
       balances.capital = 0;
       balances.capitalTerminal = 0;
       balances.capitalEfectivo = 0;
-      
+      balances.vales = 0;
+
       DB.set('balances', balances);
 
       // Restablecer logs de sesión activa
@@ -2275,6 +2404,18 @@
           tabIngreso.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-emerald-500 text-emerald-600 bg-emerald-50/20";
           document.getElementById('btn-procesar-operacion').className = "w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-emerald-100 flex items-center justify-center gap-2";
         }
+      } else if (srv === 'vales') {
+        tabSalida.classList.add('hidden'); // Vales solo maneja Ingreso, no hay retiro
+        tabRedeposito.classList.add('hidden');
+        if (tabRecarga) tabRecarga.classList.add('hidden');
+        tabIngreso.innerHTML = `<i data-lucide="plus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Vale Recibido (+)`;
+
+        // Forzar a ingreso si estaba en salida o especial
+        if (currentOpType === 'salida' || currentOpType === 'redeposito' || currentOpType === 'recarga') {
+          currentOpType = 'ingreso';
+          tabIngreso.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-emerald-500 text-emerald-600 bg-emerald-50/20";
+          document.getElementById('btn-procesar-operacion').className = "w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-emerald-100 flex items-center justify-center gap-2";
+        }
       } else {
         // Otros servicios (T-Conecta, Banorte, etc.): Ocultar 100% garantizado Re-depósito y Recarga de Yastas
         tabRedeposito.classList.add('hidden');
@@ -2308,6 +2449,8 @@
       panelManual.classList.add('hidden');
       panelConceptoTransferencia.classList.add('hidden');
       panelMotivoCapital.classList.add('hidden');
+      const panelNombreVale = document.getElementById('panel-nombre-vale');
+      if (panelNombreVale) panelNombreVale.classList.add('hidden');
       panelUbicacionBoveda.classList.add('hidden');
       const panelMontoBoveda = document.getElementById('panel-monto-boveda');
       if (panelMontoBoveda) panelMontoBoveda.classList.add('hidden');
@@ -2337,6 +2480,11 @@
           tabSalida.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-rose-500 text-rose-600 bg-rose-50/20";
           tabIngreso.className = "flex-1 py-4 text-center font-bold text-sm tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50/50";
           if (btnProc) btnProc.className = "w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3.5 px-4 rounded-xl text-sm transition shadow-md shadow-rose-100 flex items-center justify-center gap-2";
+        }
+        // La reasignación de className de arriba borra cualquier 'hidden' que ya tuviera la pestaña
+        // (ej. Vales, que no debe mostrar Retiro). Se vuelve a ocultar aquí para esos servicios.
+        if (srv === 'vales') {
+          tabSalida.classList.add('hidden');
         }
       }
 
@@ -2436,6 +2584,16 @@
         document.getElementById('op-concepto-transferencia').value = "";
         labelManual.innerText = "Monto de la Transferencia";
         descManual.innerText = "Las transferencias no usan efectivo físico. Ingrese el monto de la transferencia.";
+      } else if (srv === 'vales') {
+        panelOrigen.classList.add('hidden');
+        panelManual.classList.remove('hidden');
+        const panelNombreVale = document.getElementById('panel-nombre-vale');
+        if (panelNombreVale) panelNombreVale.classList.remove('hidden');
+        document.getElementById('op-monto-manual').value = "";
+        const inputNombreVale = document.getElementById('op-nombre-vale');
+        if (inputNombreVale) inputNombreVale.value = "";
+        labelManual.innerText = "Monto del Vale";
+        descManual.innerText = "Vales no usan desglose físico de piezas. Ingrese el monto exacto recibido.";
       } else if (srv === 'meli') {
         if (currentOpType === 'salida') {
           document.getElementById('panel-modo-meli').classList.add('hidden');
@@ -2571,7 +2729,8 @@
         'transferencia': 'card-transferencia',
         'caja': 'card-caja',
         'capital': 'card-capital',
-        'cambio': 'card-cambio'
+        'cambio': 'card-cambio',
+        'vales': 'card-vales'
       };
       Object.keys(srvIds).forEach(key => {
         const card = document.getElementById(srvIds[key]);
@@ -2586,7 +2745,7 @@
 
       // Determinar si la operación usa la Charola de Efectivo Físico o es 100% digital/manual
       let usesCharola = true;
-      if (srv === 'banorte' || srv === 'transferencia') {
+      if (srv === 'banorte' || srv === 'transferencia' || srv === 'vales') {
         usesCharola = false;
       } else if (srv === 'meli') {
         const meliModo = document.getElementById('op-modo-meli-val') ? document.getElementById('op-modo-meli-val').value : 'tienda';
@@ -2608,6 +2767,7 @@
 
       const isBanorte = (srv === 'banorte');
       const isMeliNegocio = (srv === 'meli' && !usesCharola);
+      const isVales = (srv === 'vales');
 
       if (fisicaSeccion && placeholderSeccion && limpiarBtn) {
         // Por defecto, resetear el desglose si no usa charola
@@ -2620,18 +2780,18 @@
           });
         }
 
-        if (isBanorte || isMeliNegocio) {
+        if (isBanorte || isMeliNegocio || isVales) {
           // Ocultar charola física, placeholder y botón limpiar
           fisicaSeccion.classList.add('hidden');
           placeholderSeccion.classList.add('hidden');
           limpiarBtn.classList.add('hidden');
-          
+
           // Mostrar sólo los últimos movimientos en el espacio completo
           if (ultimosMovsSeccion) ultimosMovsSeccion.classList.remove('hidden');
 
           // Personalizar título
           if (charolaTituloEl) {
-            charolaTituloEl.innerHTML = `📊 HISTORIAL RECIENTE (${isBanorte ? 'BANORTE' : 'MERCADO LIBRE'})`;
+            charolaTituloEl.innerHTML = `📊 HISTORIAL RECIENTE (${isBanorte ? 'BANORTE' : (isVales ? 'VALES' : 'MERCADO LIBRE')})`;
             charolaTituloEl.className = 'font-bold text-slate-800 dark:text-white text-sm uppercase tracking-wider';
           }
         } else {
@@ -2697,7 +2857,8 @@
         'tconecta': { ring: 'ring-sky-500', ringDark: 'dark:ring-sky-400' },
         'capital': { ring: 'ring-teal-600', ringDark: 'dark:ring-teal-400' },
         'caja': { ring: 'ring-slate-700', ringDark: 'dark:ring-slate-400' },
-        'cambio': { ring: 'ring-amber-600', ringDark: 'dark:ring-amber-400' }
+        'cambio': { ring: 'ring-amber-600', ringDark: 'dark:ring-amber-400' },
+        'vales': { ring: 'ring-fuchsia-600', ringDark: 'dark:ring-fuchsia-400' }
       };
 
       const srvIds = {
@@ -2708,7 +2869,8 @@
         'tconecta': 'card-tconecta',
         'caja': 'card-caja',
         'capital': 'card-capital',
-        'cambio': 'card-cambio'
+        'cambio': 'card-cambio',
+        'vales': 'card-vales'
       };
 
       Object.keys(srvIds).forEach(key => {
@@ -2940,7 +3102,7 @@
 
       const isRecargaTerminal = (srv === 'yastas' && currentOpType === 'recarga' && document.getElementById('op-metodo-recarga-val') && document.getElementById('op-metodo-recarga-val').value === 'terminal');
       const isRecargaTConectaTerminal = (srv === 'tconecta' && currentOpType === 'ingreso' && document.getElementById('op-metodo-recarga-val') && document.getElementById('op-metodo-recarga-val').value === 'terminal');
-      const isManualAmount = (srv === 'banorte' || srv === 'transferencia' || (srv === 'meli' && document.getElementById('op-modo-meli-val').value === 'negocio') || isRecargaTerminal || isRecargaTConectaTerminal);
+      const isManualAmount = (srv === 'banorte' || srv === 'transferencia' || srv === 'vales' || (srv === 'meli' && document.getElementById('op-modo-meli-val').value === 'negocio') || isRecargaTerminal || isRecargaTConectaTerminal);
 
       if (isManualAmount) {
         const inputVal = (isRecargaTerminal || isRecargaTConectaTerminal) ? document.getElementById('op-recarga-monto') : document.getElementById('op-monto-manual');
@@ -2949,7 +3111,7 @@
           mostrarToast("Ingrese un monto válido.", "error");
           return;
         }
-        
+
         // Validación de saldo de terminal para retiros de Banorte
         if (srv === 'banorte' && currentOpType === 'salida') {
           const balances = DB.get('balances', {});
@@ -2967,6 +3129,12 @@
         const concepto = document.getElementById('op-concepto-transferencia').value.trim();
         if (!concepto) {
           mostrarToast("Ingrese el concepto de la transferencia.", "error");
+          return;
+        }
+      } else if (srv === 'vales') {
+        const nombreVale = document.getElementById('op-nombre-vale').value.trim();
+        if (!nombreVale) {
+          mostrarToast("Ingrese el nombre del cliente que entrega el vale.", "error");
           return;
         }
       } else if (srv === 'capital') {
@@ -3202,7 +3370,7 @@
       let commissionText = '';
       const isRecargaTerminal = (srv === 'yastas' && currentOpType === 'recarga' && document.getElementById('op-metodo-recarga-val') && document.getElementById('op-metodo-recarga-val').value === 'terminal');
       const isRecargaTConectaTerminal = (srv === 'tconecta' && currentOpType === 'ingreso' && document.getElementById('op-metodo-recarga-val') && document.getElementById('op-metodo-recarga-val').value === 'terminal');
-      const isManualAmount = (srv === 'banorte' || srv === 'transferencia' || (srv === 'meli' && document.getElementById('op-modo-meli-val').value === 'negocio') || isRecargaTerminal || isRecargaTConectaTerminal);
+      const isManualAmount = (srv === 'banorte' || srv === 'transferencia' || srv === 'vales' || (srv === 'meli' && document.getElementById('op-modo-meli-val').value === 'negocio') || isRecargaTerminal || isRecargaTConectaTerminal);
 
       let montoDep = 0;
       if (isRecarga || (srv === 'tconecta' && isIngreso)) {
@@ -3497,6 +3665,12 @@
         balances.yastasEfectivo = (balances.yastasEfectivo || 0) + (finalAmount * multiplier);
       }
 
+      // Vales: apartado 100% autónomo -- solo suma un total digital del día, no toca
+      // el inventario físico de la charola ni ningún otro saldo (confirmado con el usuario).
+      if (srv === 'vales') {
+        balances.vales = (balances.vales || 0) + finalAmount;
+      }
+
       DB.set('balances', balances);
 
       // 3. Escribir en la bitácora con desglose de piezas
@@ -3609,6 +3783,9 @@
       } else if (srv === 'transferencia') {
         const concepto = document.getElementById('op-concepto-transferencia').value.trim();
         detText = `Concepto: ${concepto}. Monto: ${fmt.format(finalAmount)}`;
+      } else if (srv === 'vales') {
+        const nombreVale = document.getElementById('op-nombre-vale').value.trim();
+        detText = `Vale recibido de: ${nombreVale}. Monto: ${fmt.format(finalAmount)}`;
       } else if (srv === 'capital') {
         const motivo = document.getElementById('op-motivo-capital').value.trim();
         detText = `Motivo: ${motivo}. Monto: ${fmt.format(finalAmount)}`;
@@ -7310,8 +7487,11 @@
         return cat === target || cat.startsWith(`${target}_`) || cat.endsWith(`_${target}`);
       });
 
-      // Tomar los últimos 5
-      const recent = filtered.slice(0, 5);
+      // Tomar los últimos 5 -- excepto Vales, que muestra todos los movimientos del día sin límite
+      const recent = activeSrv === 'vales' ? filtered : filtered.slice(0, 5);
+
+      const tituloMovs = document.getElementById('dash-ultimos-movimientos-titulo');
+      if (tituloMovs) tituloMovs.innerText = activeSrv === 'vales' ? 'Vales del Día' : 'Últimos 5 Movimientos';
 
       if (recent.length === 0) {
         container.innerHTML = `
@@ -8126,13 +8306,13 @@
       if (diffEl) {
         if (report.diffTotal === 0) {
           diffEl.innerText = "Caja cuadrada";
-          diffEl.className = "text-[10px] font-bold text-emerald-400 mt-1";
+          diffEl.className = "text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1";
         } else if (report.diffTotal > 0) {
           diffEl.innerText = `Sobrante: +${fmt.format(report.diffTotal)}`;
-          diffEl.className = "text-[10px] font-bold text-amber-400 mt-1";
+          diffEl.className = "text-[10px] font-bold text-amber-600 dark:text-amber-400 mt-1";
         } else {
           diffEl.innerText = `Faltante: -${fmt.format(Math.abs(report.diffTotal))}`;
-          diffEl.className = "text-[10px] font-bold text-rose-450 mt-1";
+          diffEl.className = "text-[10px] font-bold text-rose-600 dark:text-rose-400 mt-1";
         }
       }
 
@@ -8168,22 +8348,22 @@
           const diff = cnt - exp;
           
           const tr = document.createElement('tr');
-          tr.className = "border-b border-slate-700/30 text-slate-300";
-          
-          let diffClass = 'text-slate-400';
+          tr.className = "border-b border-slate-200 dark:border-slate-700/30 text-slate-700 dark:text-slate-300";
+
+          let diffClass = 'text-slate-500 dark:text-slate-400';
           let diffText = '0';
           if (diff > 0) {
-            diffClass = 'text-emerald-400';
+            diffClass = 'text-emerald-600 dark:text-emerald-400';
             diffText = `+${diff}`;
           } else if (diff < 0) {
-            diffClass = 'text-rose-400';
+            diffClass = 'text-rose-600 dark:text-rose-400';
             diffText = `${diff}`;
           }
 
           tr.innerHTML = `
-            <td class="py-1.5 font-bold text-white">${d.val >= 1 ? `$${d.val}` : `${d.val * 100}¢`}</td>
-            <td class="py-1.5 text-center text-slate-400">${exp} pz</td>
-            <td class="py-1.5 text-center text-slate-200">${cnt} pz</td>
+            <td class="py-1.5 font-bold text-slate-800 dark:text-white">${d.val >= 1 ? `$${d.val}` : `${d.val * 100}¢`}</td>
+            <td class="py-1.5 text-center text-slate-500 dark:text-slate-400">${exp} pz</td>
+            <td class="py-1.5 text-center text-slate-700 dark:text-slate-200">${cnt} pz</td>
             <td class="py-1.5 text-center ${diffClass}">${diffText}</td>
           `;
           tbody.appendChild(tr);
@@ -8201,13 +8381,13 @@
       if (diffRes) {
         if (report.diffTotal === 0) {
           diffRes.innerText = "Caja cuadrada";
-          diffRes.className = "font-black text-emerald-400 font-mono";
+          diffRes.className = "font-black text-emerald-600 dark:text-emerald-400 font-mono";
         } else if (report.diffTotal > 0) {
           diffRes.innerText = `Sobrante: +${fmt.format(report.diffTotal)}`;
-          diffRes.className = "font-black text-amber-400 font-mono";
+          diffRes.className = "font-black text-amber-600 dark:text-amber-400 font-mono";
         } else {
           diffRes.innerText = `Faltante: -${fmt.format(Math.abs(report.diffTotal))}`;
-          diffRes.className = "font-black text-rose-450 font-mono";
+          diffRes.className = "font-black text-rose-600 dark:text-rose-400 font-mono";
         }
       }
 
@@ -8227,7 +8407,7 @@
 
       const segmentsContainer = document.getElementById('corte-donut-segments');
       const legendsContainer = document.getElementById('corte-donut-legends');
-      
+
       if (segmentsContainer && legendsContainer) {
         segmentsContainer.innerHTML = '';
         legendsContainer.innerHTML = '';
@@ -8238,7 +8418,7 @@
             <circle class="donut-segment" cx="21" cy="21" r="15.91549430918954" fill="transparent" stroke="#475569" stroke-width="4.5"></circle>
           `;
           legendsContainer.innerHTML = `
-            <div class="flex items-center justify-between text-slate-400">
+            <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
               <span>Sin saldos activos</span>
               <span>$0.00</span>
             </div>
@@ -8280,10 +8460,10 @@
             leg.innerHTML = `
               <div class="flex items-center gap-1.5">
                 <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${ch.color}"></span>
-                <span class="text-slate-300 font-semibold">${ch.name}</span>
+                <span class="text-slate-700 dark:text-slate-300 font-semibold">${ch.name}</span>
                 <span class="text-[10px] text-slate-500 font-bold">(${pctText})</span>
               </div>
-              <span class="text-white font-mono font-bold">${fmt.format(ch.val)}</span>
+              <span class="text-slate-800 dark:text-white font-mono font-bold">${fmt.format(ch.val)}</span>
             `;
             legendsContainer.appendChild(leg);
           });
@@ -8577,7 +8757,8 @@
         document.getElementById('card-meli'),
         document.getElementById('card-bbva'),
         document.getElementById('card-tconecta'),
-        document.getElementById('card-capital')
+        document.getElementById('card-capital'),
+        document.getElementById('card-vales')
       ];
 
       if (bloquear) {
@@ -8641,7 +8822,7 @@
 
       const balances = DB.get('balances', {});
 
-      // RESETEAR SALDOS Y FLUJOS DIARIOS (BBVA, T-CONECTA FLUJO DIARIO, TRANSFERENCIA, CAPITAL, YASTAS)
+      // RESETEAR SALDOS Y FLUJOS DIARIOS (BBVA, T-CONECTA FLUJO DIARIO, TRANSFERENCIA, CAPITAL, YASTAS, VALES)
       balances.yastasTerminal = 0;
       balances.yastasEfectivo = 0;
       balances.tconecta = 0;
@@ -8651,6 +8832,7 @@
       balances.capitalTerminal = 0;
       balances.capitalEfectivo = 0;
       balances.boveda = 0;
+      balances.vales = 0;
 
       // SALDOS PERSISTENTES — Protección explícita: NO se deben borrar jamás
       // banorte: total acumulado se hereda como inicial del siguiente turno

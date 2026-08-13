@@ -77,8 +77,23 @@
 
         <!-- Badge de Caja Activa -->
         <div id="cajero-badge" class="hidden sm:flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950 border border-emerald-100 dark:border-emerald-800 px-3.5 py-1.5 rounded-full">
-          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span id="cajero-badge-dot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span id="cajero-nombre" class="text-xs font-bold text-emerald-700">Turno Activo</span>
+        </div>
+
+        <!-- Aviso no bloqueante: turno cruzó de día con movimientos reales -->
+        <div id="banner-turno-cruzado-dia" class="hidden fixed top-20 right-4 z-50 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 shadow-lg max-w-sm">
+          <div class="flex items-start gap-3">
+            <i data-lucide="clock-alert" class="w-5 h-5 text-amber-700 dark:text-amber-400 mt-0.5 flex-shrink-0"></i>
+            <div class="flex-1 min-w-0">
+              <p id="banner-turno-titulo" class="text-xs font-bold text-amber-800 dark:text-amber-300 mb-1">Turno abierto desde el ...</p>
+              <p id="banner-turno-desc" class="text-xs text-amber-700 dark:text-amber-400 mb-3">Sigue abierto de un día anterior.</p>
+              <div class="flex gap-2">
+                <button onclick="irACerrarTurnoDesdeBanner()" class="bg-amber-700 hover:bg-amber-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg transition">Ir a cerrar turno</button>
+                <button onclick="cerrarBannerTurnoCruzado()" class="border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 text-[11px] font-bold px-3 py-1.5 rounded-lg transition hover:bg-amber-100 dark:hover:bg-amber-900">Seguir trabajando</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
@@ -285,6 +300,12 @@
         <div id="card-cambio" onclick="seleccionarServicioCard('cambio')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-orange-500 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
           <span class="text-[10px] font-bold text-orange-600 dark:text-orange-400 tracking-wider uppercase text-center">Cambio</span>
         </div>
+
+        <!-- Vales Card (Fucsia) -->
+        <div id="card-vales" onclick="seleccionarServicioCard('vales')" class="bg-white p-4 rounded-2xl shadow-sm dark:shadow-slate-950/30 border border-slate-100 dark:border-slate-800 border-l-4 border-l-fuchsia-500 flex flex-col justify-center items-center cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] min-h-[85px] relative dark:bg-slate-800">
+          <span class="text-[10px] font-bold text-fuchsia-600 dark:text-fuchsia-400 tracking-wider uppercase text-center">Vales</span>
+          <span id="dash-bal-vales" class="hidden text-base font-black text-slate-800 dark:text-white mt-2">$0.00</span>
+        </div>
       </div>
 
       <!-- Barra de Total Operativo (Efectivo en charola + Terminal Yastas) -->
@@ -382,7 +403,7 @@
           <!-- Panel de Últimos 5 Movimientos (Reactivo al servicio activo) -->
           <div id="dash-ultimos-movimientos-seccion" class="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Últimos 5 Movimientos</span>
+              <span id="dash-ultimos-movimientos-titulo" class="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Últimos 5 Movimientos</span>
               <span class="text-[9px] text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Historial Reciente</span>
             </div>
             <div id="dash-ultimos-movimientos-container" class="space-y-2">
@@ -425,6 +446,7 @@
                   <option value="capital">Sistema Híbrido (Capital)</option>
                   <option value="banorte">Banorte (Terminal Electrónica)</option>
                   <option value="cambio">Cambio de Efectivo (Naranja)</option>
+                  <option value="vales">Vales (Fucsia)</option>
                 </select>
               </div>
 
@@ -839,6 +861,12 @@
                 <input type="text" id="op-concepto-transferencia" placeholder="Ej. Pago a proveedor" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
               </div>
 
+              <!-- Panel de Nombre del Cliente (Vales) -->
+              <div id="panel-nombre-vale" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
+                <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Nombre del Cliente</label>
+                <input type="text" id="op-nombre-vale" placeholder="Ej. Juan Pérez" class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500">
+              </div>
+
               <!-- Panel de Motivo de Operación de Capital -->
               <div id="panel-motivo-capital" class="hidden bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-2">
                 <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Motivo de la Operación</label>
@@ -984,6 +1012,7 @@
             <option value="CAPITAL">Sistema Híbrido (Capital)</option>
             <option value="CAJA">Caja Fuerte</option>
             <option value="CAMBIO">Cambio de Efectivo</option>
+            <option value="VALES">Vales</option>
           </select>
         </div>
 
@@ -2404,6 +2433,6 @@
   <!-- ==========================================
        LÓGICA EN JAVASCRIPT
        ========================================== -->
-  <script src="app.js?v=20260804_PENDING_SYNC_ROW_ICON"></script>
+  <script src="app.js?v=20260813_FIX_CONTRASTE_RESUMEN_CAJA"></script>
 </body>
 </html>
