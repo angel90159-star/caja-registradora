@@ -229,6 +229,7 @@
             bbva: val.bbva || 0,
             capital: val.capital || 0,
             vales: val.vales || 0,
+            yastas_getnet: val.yastasGetnet || 0,
             data: val,
             updated_at: new Date().toISOString()
           });
@@ -359,7 +360,8 @@
             transferencia: remoteData.transferencia !== undefined ? remoteData.transferencia : (parseFloat(balData.transferencia) || 0),
             bbva: remoteData.bbva !== undefined ? remoteData.bbva : (parseFloat(balData.bbva) || 0),
             capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(balData.capital) || 0),
-            vales: remoteData.vales !== undefined ? remoteData.vales : (parseFloat(balData.vales) || 0)
+            vales: remoteData.vales !== undefined ? remoteData.vales : (parseFloat(balData.vales) || 0),
+            yastasGetnet: remoteData.yastasGetnet !== undefined ? remoteData.yastasGetnet : (parseFloat(balData.yastas_getnet) || 0)
           };
           dbCache['balances'] = updatedBal;
           localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
@@ -652,7 +654,8 @@
                 transferencia: remoteData.transferencia !== undefined ? remoteData.transferencia : (parseFloat(payload.new.transferencia) || 0),
                 bbva: remoteData.bbva !== undefined ? remoteData.bbva : (parseFloat(payload.new.bbva) || 0),
                 capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(payload.new.capital) || 0),
-                vales: remoteData.vales !== undefined ? remoteData.vales : (parseFloat(payload.new.vales) || 0)
+                vales: remoteData.vales !== undefined ? remoteData.vales : (parseFloat(payload.new.vales) || 0),
+                yastasGetnet: remoteData.yastasGetnet !== undefined ? remoteData.yastasGetnet : (parseFloat(payload.new.yastas_getnet) || 0)
               };
               dbCache['balances'] = updatedBal;
               localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
@@ -1208,6 +1211,9 @@
         if (redepDepInput) redepDepInput.value = '';
         if (typeof renderListaRetiros === 'function') renderListaRetiros();
         if (typeof calcularDiferenciaRedeposito === 'function') calcularDiferenciaRedeposito();
+
+        // 4b. Tipo de Retiro Yastas (Normal/Getnet) SIEMPRE vuelve a Normal -- nunca debe quedar "pegado" en Getnet
+        if (typeof setTipoRetiroYastas === 'function') setTipoRetiroYastas('normal');
 
         // 5. Resetear etiquetas visuales de totales
         const totalCharolaEl = document.getElementById('dash-charola-total');
@@ -1797,7 +1803,8 @@
       if (activeSrv === 'yastas') {
         const yastasEfectivoVal = inventarioTotalVal > 0 ? inventarioTotalVal : (balances.yastasEfectivo || 0);
         const terminalVal = balances.yastasTerminal || 0;
-        const totalOperativo = yastasEfectivoVal + terminalVal;
+        const getnetVal = balances.yastasGetnet || 0;
+        const totalOperativo = yastasEfectivoVal + terminalVal + getnetVal;
 
         const totalEl = document.getElementById('dash-total-operativo');
         if (totalEl) totalEl.className = "text-xl font-black text-yellow-300";
@@ -1807,15 +1814,25 @@
         const col2 = document.getElementById('dash-total-col2');
         const op = document.getElementById('dash-total-bar-operator');
         const eq = document.getElementById('dash-total-bar-equals');
+        const opRetiro = document.getElementById('dash-total-bar-operator-retiro');
+        const colRetiro = document.getElementById('dash-total-col-retiro');
         if (col1) col1.classList.remove('hidden');
         if (col2) col2.classList.remove('hidden');
         if (op) op.classList.remove('hidden');
         if (eq) eq.classList.remove('hidden');
+        if (opRetiro) opRetiro.classList.remove('hidden');
+        if (colRetiro) colRetiro.classList.remove('hidden');
+
+        const labelRetiro = document.getElementById('dash-total-bar-label-retiro');
+        if (labelRetiro) labelRetiro.innerText = 'Getnet';
 
         document.getElementById('dash-total-charola').innerText = fmt.format(yastasEfectivoVal);
         document.getElementById('dash-total-terminal').innerText = fmt.format(terminalVal);
+        const totalRetiroEl = document.getElementById('dash-total-retiro');
+        if (totalRetiroEl) totalRetiroEl.innerText = fmt.format(getnetVal);
         document.getElementById('dash-total-operativo').innerText = fmt.format(totalOperativo);
         document.getElementById('dash-total-bar-operator').innerText = '+';
+        if (opRetiro) opRetiro.innerText = '+';
       } else if (activeSrv === 'capital') {
         // Calcular retiros de capital de hoy
         let todayCapitalRetiros = 0;
@@ -2200,6 +2217,7 @@
       balances.capitalTerminal = 0;
       balances.capitalEfectivo = 0;
       balances.vales = 0;
+      balances.yastasGetnet = 0;
 
       DB.set('balances', balances);
 
@@ -3606,7 +3624,14 @@
           // Depósito del cliente (Ingreso): entra efectivo a caja (+efectivo), terminal entrega valor digital (-terminal)
           // Retiro del cliente (Salida): sale efectivo de caja (-efectivo), terminal recibe valor digital (+terminal)
           balances.yastasEfectivo = (balances.yastasEfectivo || 0) + (finalAmount * multiplier);
-          balances.yastasTerminal = (balances.yastasTerminal || 0) - (finalAmount * multiplier); // movimiento inverso
+          const isRetiroGetnet = !isIngreso && currentTipoRetiroYastas === 'getnet';
+          if (isRetiroGetnet) {
+            // Retiro Getnet: la charola sale igual, pero el valor digital NO se suma a Terminal Yastas,
+            // se acumula aparte en Getnet (se reinicia en cada cierre de turno).
+            balances.yastasGetnet = (balances.yastasGetnet || 0) + finalAmount;
+          } else {
+            balances.yastasTerminal = (balances.yastasTerminal || 0) - (finalAmount * multiplier); // movimiento inverso
+          }
         }
       }
       if (srv === 'banorte') balances.banorte = (balances.banorte || 0) + (finalAmount * multiplier);
@@ -3870,11 +3895,16 @@
           detText = `Retiro T-Conecta con Tarjeta. Monto: ${fmt.format(finalAmount)}. Destino: Cuenta Banamex`;
         }
       }
-      
+
+      const isRetiroGetnetLog = (srv === 'yastas' && currentOpType === 'salida' && !isRedeposito && !isRecarga && currentTipoRetiroYastas === 'getnet');
+      if (isRetiroGetnetLog) {
+        detText = `Retiro Getnet. Monto: ${fmt.format(finalAmount)}`;
+      }
+
       const recargaMetodo = document.getElementById('op-metodo-recarga-val') ? document.getElementById('op-metodo-recarga-val').value : 'efectivo';
       let logAmount = srv === 'cambio' ? 0 : (isRecarga ? (recargaMetodo === 'efectivo' ? finalAmount : 0) : finalAmount * multiplier);
       let logCategory = srv === 'cambio' ? 'Cambio' : (isRecarga ? 'YASTAS_RECARGA' : srv.toUpperCase());
-      
+
       if (srv === 'tconecta') {
         if (currentOpType === 'ingreso') {
           const isRecargaTConectaTerminal = (document.getElementById('op-metodo-recarga-val') && document.getElementById('op-metodo-recarga-val').value === 'terminal');
@@ -3886,6 +3916,10 @@
 
       if (srv === 'capital') {
         logCategory = 'CAPITAL_RETIRO';
+      }
+
+      if (isRetiroGetnetLog) {
+        logCategory = 'YASTAS_GETNET';
       }
       
       let opText = currentOpType.toUpperCase();
@@ -5074,6 +5108,7 @@
           else if (log.category === 'CAPITAL_TERMINAL') friendlyCategory = 'Capital (Terminal)';
           else if (log.category === 'CAPITAL_EFECTIVO') friendlyCategory = 'Capital (Efectivo)';
           else if (log.category === 'CAPITAL_RETIRO') friendlyCategory = 'Retiro de Capital';
+          else if (log.category === 'YASTAS_GETNET') friendlyCategory = 'Yastas (Retiro Getnet)';
 
           const logDate = log.date || selectedDate;
           const syncPendingIcon = log._synced ? '' : '<i data-lucide="triangle-alert" class="w-3 h-3 text-amber-500 inline-block ml-1 align-text-top" title="Aún no se ha subido a la nube"></i>';
@@ -5170,6 +5205,7 @@
       else if (log.category === 'TCONECTA_RECARGA_EFECTIVO') friendlyCategory = 'T-Conecta (Recarga Efectivo)';
       else if (log.category === 'TCONECTA_RECARGA_TARJETA') friendlyCategory = 'T-Conecta (Recarga Tarjeta)';
       else if (log.category === 'TCONECTA_RETIRO') friendlyCategory = 'T-Conecta (Retiro Tarjeta)';
+      else if (log.category === 'YASTAS_GETNET') friendlyCategory = 'Yastas (Retiro Getnet)';
 
       document.getElementById('modal-desglose-titulo').innerText = `Detalle: ${friendlyCategory}`;
       document.getElementById('modal-desglose-op').innerText = log.operator;
@@ -5920,6 +5956,7 @@
     let currentModoCambio = 'sugerido';
     let currentManualCambioPieces = {};
     let currentModoRetiro = 'sugerido';
+    let currentTipoRetiroYastas = 'normal'; // 'normal' | 'getnet' -- SIEMPRE debe volver a 'normal' por defecto (ver limpiarDesglose)
     let currentSugerenciaRetiro = null;
     let currentDevolucionRetiro = {};
     let devolucionBovedaOrigen = 'charola'; // 'charola' | 'externo'
@@ -6472,6 +6509,24 @@
       calcularRetiroOperacion();
     }
 
+    function setTipoRetiroYastas(tipo) {
+      currentTipoRetiroYastas = tipo;
+      const input = document.getElementById('op-retiro-tipo-val');
+      if (input) input.value = tipo;
+
+      const btnNormal = document.getElementById('btn-retiro-tipo-normal');
+      const btnGetnet = document.getElementById('btn-retiro-tipo-getnet');
+      if (!btnNormal || !btnGetnet) return;
+
+      if (tipo === 'getnet') {
+        btnNormal.className = "py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent";
+        btnGetnet.className = "py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-violet-600 text-white border border-violet-500";
+      } else {
+        btnNormal.className = "py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-indigo-600 text-white border border-indigo-500";
+        btnGetnet.className = "py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent";
+      }
+    }
+
     function calcularRetiroOperacion() {
       const srv = document.getElementById('op-service').value;
       const isRetiro = currentOpType === 'salida';
@@ -6484,6 +6539,8 @@
 
       if (!sessionActive || !isRetiro || !isPhysical) {
         panel.classList.add('hidden');
+        const tipoRetiroWrapperEarly = document.getElementById('wrapper-retiro-tipo-yastas');
+        if (tipoRetiroWrapperEarly) tipoRetiroWrapperEarly.classList.add('hidden');
         currentSugerenciaRetiro = null;
         toggleCharolaInputs(false); // Asegurar que quede habilitada para otros servicios
         if (panelOrigen) {
@@ -6500,6 +6557,13 @@
 
       panel.classList.remove('hidden');
       if (panelOrigen) panelOrigen.classList.add('hidden'); // Ocultar siempre el duplicado
+
+      // Selector Normal/Getnet: solo visible para retiros de Yastas
+      const tipoRetiroWrapper = document.getElementById('wrapper-retiro-tipo-yastas');
+      if (tipoRetiroWrapper) {
+        if (srv === 'yastas') tipoRetiroWrapper.classList.remove('hidden');
+        else tipoRetiroWrapper.classList.add('hidden');
+      }
 
       // Bloquear/desbloquear charola según modo activo
       toggleCharolaInputs(currentModoRetiro === 'sugerido');
@@ -7635,8 +7699,8 @@
       const expectedTotal = expectedCajon + expectedBoveda;
       const diffTotal = totalContado - expectedTotal;
 
-      const totalDigital = (balances.yastasTerminal || 0) + (balances.capitalTerminal || 0) + (balances.tconecta || 0) + (balances.banamex || 0);
-      const granTotal = expectedCajon + totalDigital;
+      const totalDigital = balances.yastasTerminal || 0;
+      const granTotal = expectedCajon + expectedBoveda + totalDigital;
 
       // Actualizar KPIs superiores
       const kpiEfectivoVal = document.getElementById('cierre-kpi-efectivo');
@@ -8018,8 +8082,8 @@
       const diffTotal = report.diffTotal || 0;
 
       const balances = report.balances || {};
-      const totalDigital = (balances.yastasTerminal || 0) + (balances.capitalTerminal || 0) + (balances.tconecta || 0) + (balances.banamex || 0);
-      const granTotal = (report.expectedCajon || 0) + totalDigital;
+      const totalDigital = balances.yastasTerminal || 0;
+      const granTotal = (report.expectedCajon || 0) + (report.expectedBoveda || 0) + totalDigital;
 
       const kpiEfectivoVal = document.getElementById('cierre-kpi-efectivo');
       if (kpiEfectivoVal) kpiEfectivoVal.innerText = fmt.format(totalContado);
@@ -8833,6 +8897,7 @@
       balances.capitalEfectivo = 0;
       balances.boveda = 0;
       balances.vales = 0;
+      balances.yastasGetnet = 0;
 
       // SALDOS PERSISTENTES — Protección explícita: NO se deben borrar jamás
       // banorte: total acumulado se hereda como inicial del siguiente turno

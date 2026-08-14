@@ -501,6 +501,20 @@
                   </div>
                 </div>
 
+                <!-- Selector de Tipo de Retiro: Normal vs Getnet (solo Yastas) -->
+                <div id="wrapper-retiro-tipo-yastas" class="hidden space-y-1.5">
+                  <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Tipo de Retiro</label>
+                  <div class="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200">
+                    <button type="button" id="btn-retiro-tipo-normal" onclick="setTipoRetiroYastas('normal')" class="py-1.5 text-[10px] font-black rounded-lg transition-all shadow-xs bg-indigo-600 text-white border border-indigo-500">
+                      Normal
+                    </button>
+                    <button type="button" id="btn-retiro-tipo-getnet" onclick="setTipoRetiroYastas('getnet')" class="py-1.5 text-[10px] font-black rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 bg-transparent">
+                      Getnet
+                    </button>
+                  </div>
+                  <input type="hidden" id="op-retiro-tipo-val" value="normal">
+                </div>
+
                 <!-- Selector de Modo: Sugerido vs Manual -->
                 <div class="space-y-1.5">
                   <label class="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Modo de Entrega</label>
@@ -1373,7 +1387,7 @@
         <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
           <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Saldos Operativos</span>
           <span id="cierre-kpi-digital" class="text-2xl font-black font-mono text-indigo-600 dark:text-indigo-400">$0.00</span>
-          <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Yastas, Meli, T-Conecta</p>
+          <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Terminal Yastás</p>
           <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
             <i data-lucide="smartphone" class="w-8 h-8"></i>
           </div>
@@ -2433,6 +2447,6 @@
   <!-- ==========================================
        LÓGICA EN JAVASCRIPT
        ========================================== -->
-  <script src="app.js?v=20260813_FIX_CONTRASTE_RESUMEN_CAJA"></script>
+  <script src="app.js?v=20260814_FIX_TARJETAS_CIERRE_TURNO"></script>
 </body>
 </html>
