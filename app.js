@@ -418,9 +418,9 @@
           console.warn('[Supabase Fetch] cierre_reports:', errRep);
         }
 
-        // Cargar bitácora desde Supabase
-        let { data: logsData } = await supabaseClient.from('caja_logs').select('*').order('timestamp', { ascending: true });
-        logsData = logsData || [];
+        // Cargar bitácora desde Supabase (obteniendo los 1,000 registros más recientes y reordenándolos cronológicamente)
+        let { data: logsData } = await supabaseClient.from('caja_logs').select('*').order('timestamp', { ascending: false }).limit(1000);
+        logsData = (logsData || []).reverse();
 
         // Helper ultra-robusto para convertir fecha ("2026-07-22") y hora ("8:20:00 a.m.") a objeto Date e ISO
         function parseLocalDateAndTime(dateStr, timeStr) {
