@@ -298,3 +298,10 @@ Antes de realizar cualquier edición de código en `app.js`, `app_v3.js` o `inde
 * Corregido en los 2 lugares que comparten las tarjetas `cierre-kpi-*` (pantalla en vivo y reporte histórico reutilizado); NO se tocó `kpi-corte-*` (el Resumen de Caja guardado de la Bitácora, otra pantalla distinta) ni su gráfica de dona -- mismo alcance que el punto anterior.
 * Validado con datos reales de producción: antes del fix, Tarjeta 2 mostraba $44,748.82 (coincide exacto con la captura del usuario). Después del fix: Tarjeta 2 = $41,989.00 (yastasTerminal real), Tarjeta 3 = $80,155.00 (38,166 efectivo + 0 bóveda + 41,989 terminal, verificado a mano). Probado abriendo `cerrarTurno()` real y cancelando sin confirmar (`cancelarCierreTurno()`), sin errores de consola. Sintaxis OK, `app.js`/`app_v3.js` sincronizados.
 
+**2026-08-20 — Corrección de límite y orden en consulta de Bitácora a Supabase (1,000 registros más recientes):**
+* **Problema reportado:** los registros de movimientos capturados en el día actual (20 de agosto) no se visualizaban en la Bitácora de la aplicación.
+* **Causa raíz:** la tabla `caja_logs` superó los 1,000 registros históricos. La consulta inicial en `fetchInitialFromSupabase()` solicitaba `.order('timestamp', { ascending: true })` sin límite explícito, por lo que la API de Supabase (PostgREST) truncaba la respuesta a los primeros 1,000 registros más antiguos (julio) y cortaba la respuesta antes de alcanzar las transacciones del día actual.
+* **Solución aplicada:** en `app.js` y `app_v3.js` (línea ~422), se actualizó la consulta a `.order('timestamp', { ascending: false }).limit(1000)` y se aplica `.reverse()` en memoria, garantizando que el frontend siempre obtenga los 1,000 registros más recientes del sistema conservando el orden cronológico.
+* **Caché y Despliegue:** se actualizó la versión del script en `index.html` a `app.js?v=20260820_RECENT_LOGS`, se validó sintaxis con `js_validator.py` (100% válida) y se realizó el `git push` a `origin/main` con autorización explícita del usuario.
+
+
