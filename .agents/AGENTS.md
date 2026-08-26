@@ -304,4 +304,10 @@ Antes de realizar cualquier edición de código en `app.js`, `app_v3.js` o `inde
 * **Solución aplicada:** en `app.js` y `app_v3.js` (línea ~422), se actualizó la consulta a `.order('timestamp', { ascending: false }).limit(1000)` y se aplica `.reverse()` en memoria, garantizando que el frontend siempre obtenga los 1,000 registros más recientes del sistema conservando el orden cronológico.
 * **Caché y Despliegue:** se actualizó la versión del script en `index.html` a `app.js?v=20260820_RECENT_LOGS`, se validó sintaxis con `js_validator.py` (100% válida) y se realizó el `git push` a `origin/main` con autorización explícita del usuario.
 
+**2026-08-26 — Reaparición del "valor fantasma" (1210) en Depósito de Yastás — causa distinta a la de 2026-08-13 (bfcache):**
+* El usuario reportó de nuevo el mismo síntoma que el fix de `autocomplete="off"` (2026-08-13) supuestamente había resuelto: el campo "Monto del Depósito" del panel Yastás mostraba `1210` sin que nadie lo tecleara.
+* **Verificado que el fix anterior sigue intacto:** `op-cambio-deposito` en `index.html` conserva `autocomplete="off"`, y `limpiarDesglose()`/`refrescarPantallas()` siguen limpiando el campo en cada `window.onload`. No hubo regresión en ese código.
+* **Causa raíz distinta:** el **bfcache** (back-forward cache) de Chrome/Edge. Al navegar "atrás/adelante" (o al reanudar una pestaña/PWA suspendida), el navegador repinta el DOM tal cual quedó congelado al salir, **sin volver a ejecutar `window.onload`** -- por lo que un valor tecleado antes de salir de la página (ej. "1210") reaparece sin pasar por `limpiarDesglose()`. `autocomplete="off"` no cubre este caso porque no es una restauración de autocompletado ni de "form data on reload": es una restauración completa de la página desde memoria.
+* **Corrección:** se agregó un listener `window.addEventListener('pageshow', ...)` en `app.js`/`app_v3.js` que detecta `event.persisted === true` (restauración desde bfcache) y fuerza `location.reload()` para re-ejecutar la inicialización completa de forma limpia.
+
 

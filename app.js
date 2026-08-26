@@ -822,6 +822,17 @@
       setTimeout(() => { window.location.reload(); }, 1500);
     });
 
+    // Restauración desde bfcache (navegación atrás/adelante o pestaña suspendida):
+    // el navegador repinta el DOM congelado tal cual estaba al salir -- SIN volver a
+    // ejecutar window.onload -- por lo que campos volátiles como "Monto del Depósito"
+    // (op-cambio-deposito) pueden reaparecer con el último valor tecleado (ej. "1210")
+    // sin que nadie lo haya escrito. Forzamos una recarga limpia en ese caso.
+    window.addEventListener('pageshow', function(event) {
+      if (event.persisted) {
+        location.reload();
+      }
+    });
+
     window.onload = async function() {
       await DB.init();
       actualizarBadgeSincronizacion();
