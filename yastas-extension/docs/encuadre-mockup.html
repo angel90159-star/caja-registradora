@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Encuadre Yastás</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  :root {
+    --ground: #F5F6FA;
+    --surface: #FFFFFF;
+    --surface-2: #F1F2F8;
+    --ink: #0F172A;
+    --ink-2: #334155;
+    --muted: #64748B;
+    --line: #E2E8F0;
+    --line-2: #CBD5E1;
+    --accent: #4F46E5;
+    --accent-soft: #EEF2FF;
+    --yastas: #6D28D9;
+    --yastas-soft: #F3EEFF;
+    --good: #059669;
+    --good-soft: #ECFDF5;
+    --warn: #D97706;
+    --warn-soft: #FFFBEB;
+    --bad: #E11D48;
+    --bad-soft: #FFF1F2;
+    --shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 8px 24px -12px rgba(15, 23, 42, .12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0B1020;
+      --surface: #141A2E;
+      --surface-2: #1B2238;
+      --ink: #E6E9F2;
+      --ink-2: #C7CDDB;
+      --muted: #8B95AB;
+      --line: #273047;
+      --line-2: #344059;
+      --accent: #818CF8;
+      --accent-soft: #1E2447;
+      --yastas: #A78BFA;
+      --yastas-soft: #2A2245;
+      --good: #34D399;
+      --good-soft: #0F2E26;
+      --warn: #FBBF24;
+      --warn-soft: #33260A;
+      --bad: #FB7185;
+      --bad-soft: #3A1420;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0B1020;
+    --surface: #141A2E;
+    --surface-2: #1B2238;
+    --ink: #E6E9F2;
+    --ink-2: #C7CDDB;
+    --muted: #8B95AB;
+    --line: #273047;
+    --line-2: #344059;
+    --accent: #818CF8;
+    --accent-soft: #1E2447;
+    --yastas: #A78BFA;
+    --yastas-soft: #2A2245;
+    --good: #34D399;
+    --good-soft: #0F2E26;
+    --warn: #FBBF24;
+    --warn-soft: #33260A;
+    --bad: #FB7185;
+    --bad-soft: #3A1420;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: 'Montserrat', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-weight: 500;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; }
+  h1, h2, h3 { margin: 0; text-wrap: balance; }
+  h1 { font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+  h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-2); }
+  h3 { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .eyebrow { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+
+  .page { max-width: 1240px; margin: 0 auto; padding: 24px 20px 56px; display: grid; gap: 20px; }
+
+  /* Header */
+  .topbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px;
+    padding: 14px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  }
+  .topbar .title { display: flex; align-items: center; gap: 12px; }
+  .badge-y {
+    width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--yastas); color: #fff; font-weight: 800; font-size: 15px; letter-spacing: -.02em;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface-2); font-size: 11px; font-weight: 600; color: var(--ink-2);
+  }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .chip.portal .dot { background: var(--yastas); }
+  .chip.caja .dot { background: var(--accent); }
+
+  /* KPI tiles */
+  .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+  .kpi {
+    position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px 12px 16px; display: grid; gap: 4px; overflow: hidden;
+  }
+  .kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--muted); }
+  .kpi.good::before { background: var(--good); }
+  .kpi.warn::before { background: var(--warn); }
+  .kpi.bad::before { background: var(--bad); }
+  .kpi.yastas::before { background: var(--yastas); }
+  .kpi .n { font-size: 26px; font-weight: 700; line-height: 1; }
+  .kpi .sub { font-size: 11px; color: var(--muted); }
+
+  /* Panels */
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+  .panel-head { display: flex; align-items: baseline; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .panel-head .count { font-size: 11px; color: var(--muted); }
+  .panel-body { padding: 14px 18px; }
+  .scroll { overflow-x: auto; }
+
+  /* Ledger table */
+  table { border-collapse: collapse; width: 100%; min-width: 960px; }
+  th { text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: var(--surface-2); }
+  th.side-portal, td.side-portal { border-left: 3px solid var(--yastas); }
+  th.side-caja, td.side-caja { border-left: 3px solid var(--accent); }
+  .thead-group th { text-align: center; padding: 8px 12px; border-bottom: 0; font-size: 10px; }
+  .thead-group th.g-portal { color: var(--yastas); border-left: 3px solid var(--yastas); }
+  .thead-group th.g-caja { color: var(--accent); border-left: 3px solid var(--accent); }
+  .amt { text-align: right; white-space: nowrap; font-weight: 700; }
+  .amt.in { color: var(--good); }
+  .amt.out { color: var(--ink); }
+  .time { white-space: nowrap; color: var(--ink-2); }
+  .desc { font-weight: 600; }
+  .desc small { display: block; font-weight: 500; color: var(--muted); font-size: 11px; margin-top: 1px; }
+  .who { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; white-space: nowrap; }
+  .who .av { width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-size: 10px; font-weight: 800; }
+  .empty-cell { color: var(--muted); font-style: italic; }
+  td.center { text-align: center; }
+
+  /* Status chips */
+  .st {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .st .i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .st.good { color: var(--good); background: var(--good-soft); }
+  .st.warn { color: var(--warn); background: var(--warn-soft); }
+  .st.bad { color: var(--bad); background: var(--bad-soft); }
+  .st.muted { color: var(--muted); background: var(--surface-2); }
+  tr.row-warn td.amt { background: var(--warn-soft); }
+  .diff-note { display: block; font-size: 10px; color: var(--warn); font-weight: 700; margin-top: 2px; white-space: nowrap; }
+
+  /* Two-column secondary */
+  .two { display: grid; grid-template-columns: 1.1fr .9fr; gap: 20px; }
+  .rec-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .rec-tile { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 2px; background: var(--surface-2); }
+  .rec-tile .n { font-size: 20px; font-weight: 700; }
+  .rec-tile.saldo { background: var(--yastas-soft); border-color: transparent; }
+  .rec-tile.saldo .n { color: var(--yastas); }
+  .callout { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); }
+  .callout .ic { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-weight: 800; font-size: 12px; flex: none; }
+  .callout.good { border-color: color-mix(in srgb, var(--good) 35%, transparent); background: var(--good-soft); }
+  .callout.good .ic { background: var(--good); color: #fff; }
+  .callout.warn { border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: var(--warn-soft); }
+  .callout.warn .ic { background: var(--warn); color: #fff; }
+  .callout.bad { border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: var(--bad-soft); }
+  .callout.bad .ic { background: var(--bad); color: #fff; }
+  .callout b { display: block; font-weight: 700; }
+  .callout span { font-size: 12px; color: var(--ink-2); }
+  .stack { display: grid; gap: 8px; }
+  .example { border: 1px dashed var(--line-2); border-radius: 12px; padding: 12px; display: grid; gap: 8px; margin-top: 14px; }
+  .tag-ex { display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-2); border-radius: 4px; padding: 2px 6px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 10px; border: 0;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 700; font-size: 12px; cursor: pointer;
+  }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn.ghost { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+
+  /* Internal entries list */
+  .int-list { display: grid; gap: 0; }
+  .int-row { display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .int-row:last-child { border-bottom: 0; }
+  .int-row .why { font-size: 11px; color: var(--muted); }
+  .int-row .amt { font-weight: 600; color: var(--ink-2); }
+
+  /* Rules */
+  .rules table { min-width: 0; }
+  .rules td:first-child { font-weight: 700; white-space: nowrap; }
+  .rules td:nth-child(2) { color: var(--ink-2); }
+  .rules .k { font-family: 'JetBrains Mono', monospace; font-size: 11px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+
+  .foot { font-size: 11px; color: var(--muted); display: grid; gap: 4px; padding: 0 4px; }
+
+  @media (max-width: 900px) {
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .two { grid-template-columns: 1fr; }
+    .rec-grid { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    tbody tr td { transition: background .12s ease; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="topbar">
+    <div class="title">
+      <div class="badge-y">Y</div>
+      <div>
+        <div class="eyebrow">Caja Registradora · Conciliación</div>
+        <h1>Encuadre Yastás <span class="muted" style="font-weight:600">· <span id="fecha-titulo"></span></span></h1>
+      </div>
+    </div>
+    <div class="chips">
+      <span class="chip portal"><span class="dot"></span>Portal · <span class="mono" id="chip-portal"></span></span>
+      <span class="chip caja"><span class="dot"></span>Caja · <span class="mono" id="chip-caja"></span></span>
+      <span class="chip"><span class="dot"></span>Reporte de Movimientos.xlsx</span>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Operaciones del día, lado a lado</h2>
+      <span class="count" id="ledger-count"></span>
+      <span class="count" style="margin-left:auto">Orden cronológico · hora del portal cuando existe</span>
+    </div>
+    <div class="scroll">
+      <table id="ledger">
+        <thead>
+          <tr class="thead-group">
+            <th class="g-portal" colspan="3">Portal Yastás</th>
+            <th></th>
+            <th class="g-caja" colspan="4">Caja registradora</th>
+          </tr>
+          <tr>
+            <th class="side-portal">Hora</th>
+            <th>Operación</th>
+            <th style="text-align:right">Monto</th>
+            <th style="text-align:center">Estado</th>
+            <th class="side-caja">Hora</th>
+            <th>Registro</th>
+            <th style="text-align:right">Monto</th>
+            <th>Quién</th>
+          </tr>
+        </thead>
+        <tbody id="ledger-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="two">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Recargas telefónicas</h2>
+        <span class="count" id="rec-count"></span>
+      </div>
+      <div class="panel-body">
+        <div class="rec-grid" id="rec-tiles"></div>
+        <div class="stack" id="rec-avisos"></div>
+        <div style="margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          <button class="btn" id="btn-saldo" type="button">Actualizar saldo de recargas</button>
+          <span class="muted" style="font-size:11px">Toma el total del portal y lo escribe en el saldo de recargas de la caja.</span>
+        </div>
+        <div class="example">
+          <span class="tag-ex">Ejemplo · así se vería un aviso</span>
+          <div class="callout bad">
+            <div class="ic">!</div>
+            <div><b>Recarga cobrada en caja, pero no aplicada en Yastás</b><span>14:32 · Telcel $200.00 · Ingrid. No hay ninguna recarga en el portal cerca de esa hora. El cliente pagó y la recarga no salió: hay que reintentarla o devolver.</span></div>
+          </div>
+          <div class="callout warn">
+            <div class="ic">?</div>
+            <div><b>Recarga aplicada en Yastás sin registro en caja</b><span>16:05 · Movistar $100.00. El portal la tiene aprobada pero nadie la registró en la caja: falta el cobro en efectivo o se capturó en otra categoría.</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Asientos internos del portal</h2>
+        <span class="count" id="int-count"></span>
+      </div>
+      <div class="panel-body">
+        <p class="muted" style="margin-bottom:10px">Filas del reporte que Yastás genera por su cuenta (fondeo entre cuentas, inversión). No son operaciones con clientes, así que no se cruzan con la caja.</p>
+        <div class="int-list" id="int-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel rules">
+    <div class="panel-head">
+      <h2>Cómo se cruza cada movimiento</h2>
+      <span class="count">Las combinaciones, en el orden en que se prueban</span>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Paso</th><th>Condición</th><th>Resultado</th></tr></thead>
+        <tbody>
+          <tr><td>0 · Filtrar</td><td>Portal: solo <span class="k">OPERACIONES FINANCIERAS</span> con <span class="k">CASH-IN</span>/<span class="k">CASH-OUT</span> y estatus <span class="k">APROBADA</span>. Caja: solo categorías <span class="k">YASTAS</span>, <span class="k">YASTAS_GETNET</span>, <span class="k">YASTAS_RECARGA</span>, <span class="k">RE-DEPÓSITO</span> (se desglosa en sus retiros + depósito).</td><td>Lo demás va a "asientos internos" o se ignora.</td></tr>
+          <tr><td>1 · Tipo</td><td><span class="k">CASH-IN</span> ↔ <span class="k">DEPÓSITO</span> (monto positivo en caja). <span class="k">CASH-OUT</span> ↔ <span class="k">RETIRO</span> (monto negativo). Si el servicio dice recarga / Telcel / Movistar / AT&amp;T / Unefon / Bait ↔ <span class="k">YASTAS_RECARGA</span>.</td><td>Solo se comparan movimientos del mismo tipo.</td></tr>
+          <tr><td>2 · Exacto</td><td>Mismo tipo, |monto caja| = <span class="k">Monto Total</span> del portal (lo que el cliente pagó, comisión incluida), a ±15 min. Si hay varios candidatos, gana el más cercano en hora.</td><td><span class="st good"><span class="i"></span>Cuadra</span></td></tr>
+          <tr><td>3 · Monto operación</td><td>Igual que 2, pero contra <span class="k">Monto Operación</span> (sin comisión). Cubre el caso en que la caja registró el servicio y no el efectivo recibido.</td><td><span class="st warn"><span class="i"></span>Cuadra · sin comisión</span></td></tr>
+          <tr><td>4 · Aproximado</td><td>Mismo tipo, diferencia ≤ $5.00 o ≤ 0.5 %, a ±15 min.</td><td><span class="st warn"><span class="i"></span>Diferencia</span> con el monto exacto de la diferencia.</td></tr>
+          <tr><td>5 · Fuera de hora</td><td>Mismo tipo y monto exacto, pero a más de 15 min (mismo día).</td><td><span class="st warn"><span class="i"></span>Hora no coincide</span></td></tr>
+          <tr><td>6 · Huérfanos</td><td>Lo que quedó sin pareja.</td><td><span class="st bad"><span class="i"></span>Solo en portal</span> = no se registró en caja. <span class="st bad"><span class="i"></span>Solo en caja</span> = no existe en Yastás (¿operación fallida?).</td></tr>
+          <tr><td>7 · Recargas</td><td>Mismas reglas 2–6 aplicadas solo a recargas, más: total del portal → saldo de recargas de la caja.</td><td>Aviso rojo si hay recarga en caja sin pareja en portal; aviso ámbar al revés.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <p>Datos reales: reporte exportado del portal (12 sep 2026) y bitácora de la caja en Supabase del mismo día. Se omitieron números de cuenta y referencias.</p>
+    <p>Los avisos de recargas marcados como "ejemplo" son ilustrativos: hoy no hubo recargas ni en portal ni en caja.</p>
+  </footer>
+</div>
+
+<script id="datos" type="application/json">{"fecha":"2026-09-12","portal":[{"hora":"17:37:27","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"PAGO DE SERVICIO FACTURADOR-BANORTE","operacion":"CASH-IN","montoTotal":853.0,"montoOperacion":838.0,"servicio":"BANORTE - PAGO DE SERVICIO FACTURADOR","comision":15.0,"ganancia":2.485,"operadorPortal":"606","status":"APROBADA","emisor":"BANORTE","idOperacion":"2026091217372455-BIIMDZ-TPS"},{"hora":"17:33:50","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"COBRO DE CUENTA DE FONDEO","descripcion":"COBRO DE CUENTA DE FONDEO","operacion":"-","montoTotal":8003.4,"montoOperacion":0.0,"servicio":"-","comision":0.0,"ganancia":0.0,"operadorPortal":"0","status":"APROBADA","emisor":"-","idOperacion":"202609122333507292-q7z6dw-CTA"},{"hora":"17:33:50","tipoCuenta":"Dinero Inmediato","tipoMovimiento":"COBRO DE CUENTA DE FONDEO","descripcion":"COBRO DE CUENTA DE FONDEO","operacion":"-","montoTotal":8003.4,"montoOperacion":0.0,"servicio":"-","comision":0.0,"ganancia":0.0,"operadorPortal":"0","status":"APROBADA","emisor":"-","idOperacion":"202609122333507251-AgSrAG-CTA"},{"hora":"17:33:50","tipoCuenta":"Dinero Inmediato","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"COMPARTAMOS-PAGO DE ODP","operacion":"CASH-OUT","montoTotal":8003.4,"montoOperacion":8003.4,"servicio":"COMPARTAMOS - PAGO DE ODP","comision":0.0,"ganancia":10.0,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091217334706-38NR1S-TPS"},{"hora":"17:12:11","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"DEPOSITO DE EFECTIVO-COMPARTAMOS","operacion":"CASH-IN","montoTotal":2200.0,"montoOperacion":2200.0,"servicio":"COMPARTAMOS - DEPOSITO DE EFECTIVO","comision":0.0,"ganancia":3.5,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091217120900-URX1JB-TPS"},{"hora":"17:07:27","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"COBRO DE CUENTA DE FONDEO","descripcion":"COBRO DE CUENTA DE FONDEO","operacion":"-","montoTotal":1550.0,"montoOperacion":0.0,"servicio":"-","comision":0.0,"ganancia":0.0,"operadorPortal":"0","status":"APROBADA","emisor":"-","idOperacion":"202609122307277294-X6Si2D-CTA"},{"hora":"17:07:27","tipoCuenta":"Dinero Inmediato","tipoMovimiento":"COBRO DE CUENTA DE FONDEO","descripcion":"COBRO DE CUENTA DE FONDEO","operacion":"-","montoTotal":1550.0,"montoOperacion":0.0,"servicio":"-","comision":0.0,"ganancia":0.0,"operadorPortal":"0","status":"APROBADA","emisor":"-","idOperacion":"202609122307277262-73roAm-CTA"},{"hora":"17:07:24","tipoCuenta":"Dinero Inmediato","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"COMPARTAMOS-RETIRO DE EFECTIVO","operacion":"CASH-OUT","montoTotal":1550.0,"montoOperacion":1550.0,"servicio":"COMPARTAMOS - RETIRO DE EFECTIVO","comision":0.0,"ganancia":6.0,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091217072176-2GPS10-TPS"},{"hora":"15:23:06","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"DEPOSITO DE EFECTIVO-COMPARTAMOS","operacion":"CASH-IN","montoTotal":6000.0,"montoOperacion":6000.0,"servicio":"COMPARTAMOS - DEPOSITO DE EFECTIVO","comision":0.0,"ganancia":8.4,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091215230370-3UQA2E-TPS"},{"hora":"14:59:17","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"DEPOSITO DE EFECTIVO-COMPARTAMOS","operacion":"CASH-IN","montoTotal":700.0,"montoOperacion":700.0,"servicio":"COMPARTAMOS - DEPOSITO DE EFECTIVO","comision":0.0,"ganancia":1.4,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091214591505-2O3W10-TPS"},{"hora":"13:55:05","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"PAGO DE CREDITO-COMPARTAMOS","operacion":"CASH-IN","montoTotal":1000.0,"montoOperacion":1000.0,"servicio":"COMPARTAMOS - PAGO DE CREDITO","comision":0.0,"ganancia":4.2,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091213550226-QD8BOF-TPS"},{"hora":"13:52:20","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"PAGO DE CREDITO-COMPARTAMOS","operacion":"CASH-IN","montoTotal":550.0,"montoOperacion":550.0,"servicio":"COMPARTAMOS - PAGO DE CREDITO","comision":0.0,"ganancia":4.2,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091213521783-3Q9SXF-TPS"},{"hora":"12:49:49","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"COBRO DE CUENTA DE FONDEO","descripcion":"COBRO DE CUENTA DE FONDEO","operacion":"-","montoTotal":300.0,"montoOperacion":0.0,"servicio":"-","comision":0.0,"ganancia":0.0,"operadorPortal":"0","status":"APROBADA","emisor":"-","idOperacion":"202609121849495314-cvT92F-CTA"},{"hora":"12:49:49","tipoCuenta":"Dinero Inmediato","tipoMovimiento":"COBRO DE CUENTA DE FONDEO","descripcion":"COBRO DE CUENTA DE FONDEO","operacion":"-","montoTotal":300.0,"montoOperacion":0.0,"servicio":"-","comision":0.0,"ganancia":0.0,"operadorPortal":"0","status":"APROBADA","emisor":"-","idOperacion":"202609121849495277-4gWW3K-CTA"},{"hora":"12:49:47","tipoCuenta":"Dinero Inmediato","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"COMPARTAMOS-RETIRO DE EFECTIVO","operacion":"CASH-OUT","montoTotal":300.0,"montoOperacion":300.0,"servicio":"COMPARTAMOS - RETIRO DE EFECTIVO","comision":0.0,"ganancia":4.0,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091212494497-3JN876-TPS"},{"hora":"12:48:07","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"PAGO DE CREDITO-COMPARTAMOS","operacion":"CASH-IN","montoTotal":23385.0,"montoOperacion":23385.0,"servicio":"COMPARTAMOS - PAGO DE CREDITO","comision":0.0,"ganancia":12.6,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091212480480-1QOEUB-TPS"},{"hora":"12:09:29","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"OPERACIONES FINANCIERAS","descripcion":"DEPOSITO DE EFECTIVO-COMPARTAMOS","operacion":"CASH-IN","montoTotal":4000.0,"montoOperacion":4000.0,"servicio":"COMPARTAMOS - DEPOSITO DE EFECTIVO","comision":0.0,"ganancia":3.5,"operadorPortal":"606","status":"APROBADA","emisor":"COMPARTAMOS BANCO","idOperacion":"2026091212092720-3PY9IB-TPS"},{"hora":"07:33:54","tipoCuenta":"Línea de sobregiro","tipoMovimiento":"COBRO DE CUENTA DE FONDEO","descripcion":"COBRO DE CUENTA DE FONDEO","operacion":"-","montoTotal":600.0,"montoOperacion":0.0,"servicio":"-","comision":0.0,"ganancia":0.0,"operadorPortal":"0","status":"APROBADA","emisor":"-","idOperacion":"202609121333549928-PXvabx-CTA"},{"hora":"07:33:54","tipoCuenta":"Inversión","tipoMovimiento":"COBRO DE CUENTA DE FONDEO","descripcion":"COBRO DE CUENTA DE FONDEO","operacion":"-","montoTotal":600.0,"montoOperacion":0.0,"servicio":"-","comision":0.0,"ganancia":0.0,"operadorPortal":"0","status":"APROBADA","emisor":"-","idOperacion":"202609121333549844-vGkKgz-CTA"},{"hora":"07:33:54","tipoCuenta":"Inversión","tipoMovimiento":"ABONO A INVERSION","descripcion":"Inversion a cuenta","operacion":"-","montoTotal":600.0,"montoOperacion":0.0,"servicio":"-","comision":0.0,"ganancia":0.0,"operadorPortal":"0","status":"APROBADA","emisor":"-","idOperacion":"2026091208335284-EjETXC-STP"}],"caja":[{"id":"de9d92ec-a351-4122-9666-346c88cf5ece","hora":"11:24:12","timestamp":"2026-09-12T17:24:12.173+00:00","category":"Cierre","amount":0.0,"operator":"Ingrid","details":"Turno cerrado y firmado [CR-20260912-112411]. Total Contado: $8,833.00. Diferencia: $1,000.00","extraData":null},{"id":"a102de4c-859a-4319-bc9c-85422ba6f3bb","hora":"11:26:15","timestamp":"2026-09-12T17:26:15.023+00:00","category":"Apertura","amount":6705.0,"operator":"Apertura","details":"Inicio de turno. Efectivo base: $6,705.00. Yastas: $72,263.00","extraData":null},{"id":"a90e5e3f-068b-45f7-90fb-b34697b8b11f","hora":"11:30:56","timestamp":"2026-09-12T17:30:56.813+00:00","category":"Cambio","amount":0.0,"operator":"Ingrid","details":"Cambio de efectivo. Recibido: 1x$100 | Entregado: 1x$50, 2x$20, 2x$5","extraData":null},{"id":"f9aafc92-1f40-455b-a744-df967fd0b69b","hora":"12:09:24","timestamp":"2026-09-12T18:09:24.014+00:00","category":"YASTAS","amount":4000.0,"operator":"Ingrid","details":"Op: DEPÓSITO. Monto de operación: $4,000.00","extraData":null},{"id":"54c18634-9b90-47e1-b792-ecf13574925e","hora":"12:41:06","timestamp":"2026-09-12T18:41:06.471+00:00","category":"Cambio","amount":0.0,"operator":"Ingrid","details":"Cambio de efectivo. Recibido: 1x$200 | Entregado: 1x$50, 5x$20, 5x$10","extraData":null},{"id":"13000286-2c04-41df-98ee-a1125f6162f9","hora":"12:48:34","timestamp":"2026-09-12T18:48:34.253+00:00","category":"YASTAS","amount":23385.0,"operator":"Ingrid","details":"Op: DEPÓSITO. Depósito de $23,385.00. Recibido: $23,400.00. Cambio: $15.00 (1x$5, 1x$10).","extraData":null},{"id":"b13406be-194a-4e0d-82ef-5424898cc469","hora":"12:49:57","timestamp":"2026-09-12T18:49:57.237+00:00","category":"YASTAS","amount":-300.0,"operator":"Ingrid","details":"Op: RETIRO. Monto de operación: $300.00","extraData":null},{"id":"16fe7fef-a4ee-4089-8831-735be3dd0055","hora":"13:13:05","timestamp":"2026-09-12T19:13:05.79+00:00","category":"Cambio","amount":0.0,"operator":"Ingrid","details":"Cambio de efectivo. Recibido: 1x$100 | Entregado: 10x$10","extraData":null},{"id":"e2b3cd1a-da30-4c5e-8b55-57b6ad8f1ed3","hora":"13:25:36","timestamp":"2026-09-12T19:25:36.462+00:00","category":"Cambio","amount":0.0,"operator":"Ingrid","details":"Cambio de efectivo. Recibido: 1x$500 | Entregado: 1x$200, 1x$100, 10x$20","extraData":null},{"id":"7fcb6294-3986-46a4-90e8-b4068b0b7a6f","hora":"13:27:02","timestamp":"2026-09-12T19:27:02.869+00:00","category":"Cambio","amount":0.0,"operator":"Ingrid","details":"Cambio de efectivo. Recibido: 1x$500 | Entregado: 20x$20, 5x$10, 10x$5","extraData":null},{"id":"4f8283cb-6f9d-4cf1-9ca4-02a45df4135d","hora":"13:52:28","timestamp":"2026-09-12T19:52:28.183+00:00","category":"YASTAS","amount":550.0,"operator":"Ingrid","details":"Op: DEPÓSITO. Monto de operación: $550.00","extraData":null},{"id":"fd20d792-ae4c-45b9-9fbd-ded5b9374d93","hora":"13:55:05","timestamp":"2026-09-12T19:55:05.502+00:00","category":"YASTAS","amount":1000.0,"operator":"Ingrid","details":"Op: DEPÓSITO. Monto de operación: $1,000.00","extraData":null},{"id":"0f0ca4f7-42dd-4ca6-8af0-efe404376046","hora":"13:58:21","timestamp":"2026-09-12T19:58:21.799+00:00","category":"Cambio","amount":0.0,"operator":"Ingrid","details":"Cambio de efectivo. Recibido: 1x$500 | Entregado: 5x$100","extraData":null},{"id":"e110694e-e172-4130-942f-141ca33b2d75","hora":"14:59:17","timestamp":"2026-09-12T20:59:17.568+00:00","category":"YASTAS","amount":700.0,"operator":"Ingrid","details":"Op: DEPÓSITO. Monto de operación: $700.00","extraData":null},{"id":"41236f8d-0c2a-4e10-b82a-e031375dcdc3","hora":"15:23:12","timestamp":"2026-09-12T21:23:12.672+00:00","category":"YASTAS","amount":6000.0,"operator":"Ingrid","details":"Op: DEPÓSITO. Monto de operación: $6,000.00","extraData":null},{"id":"09be07ab-f710-4e6c-b1bf-71b0d225a784","hora":"15:56:14","timestamp":"2026-09-12T21:56:14.232+00:00","category":"BANORTE","amount":132.84,"operator":"Miguel","details":"Op: INGRESO. Tarjeta. Bruto: $136.00, Com (2.32%): $3.16, Neto: $132.84","extraData":null},{"id":"8b7d5fb5-2790-4a36-b9c9-d89307c8f699","hora":"16:01:00","timestamp":"2026-09-12T22:01:00.127+00:00","category":"Cambio","amount":0.0,"operator":"Miguel","details":"Cambio de efectivo. Recibido: 1x$500 | Entregado: 2x$200, 1x$100","extraData":null},{"id":"0965db3d-93de-4d9f-b1f7-df8c30ed32f8","hora":"16:12:56","timestamp":"2026-09-12T22:12:56.24+00:00","category":"Cambio","amount":0.0,"operator":"Miguel","details":"Cambio de efectivo. Recibido: 1x$50 | Entregado: 1x$20, 6x$5","extraData":null},{"id":"260de1e3-86f7-4173-90a6-58ebf62037ee","hora":"17:11:07","timestamp":"2026-09-12T23:11:07.505+00:00","category":"YASTAS","amount":-1550.0,"operator":"Ingrid","details":"Op: RETIRO. Monto de operación: $1,550.00","extraData":null},{"id":"852ad901-3687-439c-9264-df19dc753e72","hora":"17:12:01","timestamp":"2026-09-12T23:12:01.6+00:00","category":"YASTAS","amount":2200.0,"operator":"Ingrid","details":"Op: DEPÓSITO. Monto de operación: $2,200.00","extraData":null},{"id":"ab9dc756-bed8-4501-baa6-cea96b53eab6","hora":"17:34:45","timestamp":"2026-09-12T23:34:45.481+00:00","category":"YASTAS","amount":-8000.0,"operator":"Ingrid","details":"Op: RETIRO. Monto de operación: $8,000.00","extraData":null},{"id":"8c43a65f-b7a7-4405-afac-75a8e0a1490e","hora":"17:37:22","timestamp":"2026-09-12T23:37:22.456+00:00","category":"YASTAS","amount":853.0,"operator":"Ingrid","details":"Op: DEPÓSITO. Depósito de $853.00. Recibido: $903.00. Cambio: $50.00 (1x$50).","extraData":null},{"id":"e0b84935-3a1e-4a1c-93e1-4d37bd0039b1","hora":"18:18:30","timestamp":"2026-09-13T00:18:30.464+00:00","category":"BANORTE","amount":14.65,"operator":"Miguel","details":"Op: INGRESO. Tarjeta. Bruto: $15.00, Com (2.32%): $0.35, Neto: $14.65","extraData":null},{"id":"971dadb7-d83d-4e50-9b37-f8626e12ce04","hora":"18:27:14","timestamp":"2026-09-13T00:27:14.905+00:00","category":"Cambio","amount":0.0,"operator":"Miguel","details":"Cambio de efectivo. Recibido: 1x$500 | Entregado: 2x$200, 1x$100","extraData":null}]}</script>
+<script>
+(function () {
+  const DATOS = JSON.parse(document.getElementById('datos').textContent);
+  const fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+  const TOL_ABS = 5, TOL_PCT = 0.005, VENTANA_MIN = 15;
+
+  // ---------- Normalización ----------
+  function seg(hhmmss) { const [h, m, s] = hhmmss.split(':').map(Number); return h * 3600 + m * 60 + (s || 0); }
+  const RE_RECARGA = /RECARGA|TELCEL|MOVISTAR|AT&T|UNEFON|BAIT|VIRGIN|TIEMPO AIRE/i;
+
+  function opsPortal(filas) {
+    const ops = [], internos = [];
+    filas.forEach((f, i) => {
+      const esCliente = f.tipoMovimiento === 'OPERACIONES FINANCIERAS' && /^CASH-(IN|OUT)$/.test(f.operacion);
+      if (!esCliente) {
+        internos.push({ ...f, why: f.tipoMovimiento === 'ABONO A INVERSION' ? 'Abono a inversión (movimiento propio)' : `Fondeo interno · ${f.tipoCuenta}` });
+        return;
+      }
+      const tipo = RE_RECARGA.test(f.servicio + ' ' + f.descripcion) ? 'RECARGA' : (f.operacion === 'CASH-IN' ? 'DEPÓSITO' : 'RETIRO');
+      ops.push({ id: 'p' + i, fuente: 'portal', hora: f.hora, t: seg(f.hora), tipo, montoTotal: f.montoTotal, montoOperacion: f.montoOperacion, comision: f.comision, descripcion: f.descripcion, servicio: f.servicio, emisor: f.emisor, status: f.status, raw: f });
+    });
+    return { ops, internos };
+  }
+
+  function opsCaja(logs) {
+    const ops = [];
+    logs.forEach((l) => {
+      const cat = (l.category || '').toUpperCase();
+      if (cat === 'YASTAS_RECARGA') {
+        ops.push({ id: 'c' + l.id, fuente: 'caja', hora: l.hora, t: seg(l.hora), tipo: 'RECARGA', monto: Math.abs(l.amount), operator: l.operator, details: l.details, category: l.category });
+      } else if (cat === 'YASTAS' || cat === 'YASTAS_GETNET') {
+        ops.push({ id: 'c' + l.id, fuente: 'caja', hora: l.hora, t: seg(l.hora), tipo: l.amount >= 0 ? 'DEPÓSITO' : 'RETIRO', monto: Math.abs(l.amount), operator: l.operator, details: l.details, category: l.category });
+      } else if (cat === 'RE-DEPÓSITO' && l.extraData) {
+        (l.extraData.retiros || []).forEach((r, k) => ops.push({ id: `c${l.id}r${k}`, fuente: 'caja', hora: l.hora, t: seg(l.hora), tipo: 'RETIRO', monto: Math.abs(r), operator: l.operator, details: 'Re-depósito · retiro virtual', category: l.category }));
+        if (l.extraData.deposito) ops.push({ id: `c${l.id}d`, fuente: 'caja', hora: l.hora, t: seg(l.hora), tipo: 'DEPÓSITO', monto: Math.abs(l.extraData.deposito), operator: l.operator, details: 'Re-depósito · depósito', category: l.category });
+      }
+    });
+    return ops;
+  }
+
+  // ---------- Cruce (las combinaciones, en orden) ----------
+  function encuadrar(portal, caja) {
+    const libresP = new Set(portal.map(p => p.id)), libresC = new Set(caja.map(c => c.id));
+    const pares = [];
+    const pasos = [
+      { key: 'exacto',   estado: 'good', label: 'Cuadra',              cond: (p, c) => c.monto === p.montoTotal, ventana: VENTANA_MIN },
+      { key: 'sin-com',  estado: 'warn', label: 'Cuadra · sin comisión', cond: (p, c) => p.montoOperacion !== p.montoTotal && c.monto === p.montoOperacion, ventana: VENTANA_MIN },
+      { key: 'aprox',    estado: 'warn', label: 'Diferencia',          cond: (p, c) => { const d = Math.abs(c.monto - p.montoTotal); return d > 0 && (d <= TOL_ABS || d / p.montoTotal <= TOL_PCT); }, ventana: VENTANA_MIN },
+      { key: 'hora',     estado: 'warn', label: 'Hora no coincide',    cond: (p, c) => c.monto === p.montoTotal, ventana: 24 * 60 },
+    ];
+    pasos.forEach((paso) => {
+      // candidatos ordenados por cercanía en tiempo, greedy
+      const cands = [];
+      portal.forEach(p => { if (!libresP.has(p.id)) return; caja.forEach(c => {
+        if (!libresC.has(c.id) || c.tipo !== p.tipo) return;
+        const dt = Math.abs(c.t - p.t) / 60;
+        if (dt <= paso.ventana && paso.cond(p, c)) cands.push({ p, c, dt });
+      }); });
+      cands.sort((a, b) => a.dt - b.dt);
+      cands.forEach(({ p, c, dt }) => {
+        if (!libresP.has(p.id) || !libresC.has(c.id)) return;
+        libresP.delete(p.id); libresC.delete(c.id);
+        pares.push({ p, c, paso: paso.key, estado: paso.estado, label: paso.label, dt, diff: c.monto - p.montoTotal });
+      });
+    });
+    portal.forEach(p => { if (libresP.has(p.id)) pares.push({ p, c: null, paso: 'solo-portal', estado: 'bad', label: 'Solo en portal' }); });
+    caja.forEach(c => { if (libresC.has(c.id)) pares.push({ p: null, c, paso: 'solo-caja', estado: 'bad', label: 'Solo en caja' }); });
+    pares.sort((a, b) => ((a.p || a.c).t) - ((b.p || b.c).t));
+    return pares;
+  }
+
+  // ---------- Render ----------
+  const { ops: portal, internos } = opsPortal(DATOS.portal);
+  const caja = opsCaja(DATOS.caja);
+  const pares = encuadrar(portal, caja);
+
+  const cuenta = (k) => pares.filter(x => x.paso === k).length;
+  const nCuadra = cuenta('exacto'), nDiff = cuenta('sin-com') + cuenta('aprox') + cuenta('hora');
+  const nSoloP = cuenta('solo-portal'), nSoloC = cuenta('solo-caja');
+  const recP = portal.filter(p => p.tipo === 'RECARGA'), recC = caja.filter(c => c.tipo === 'RECARGA');
+
+  document.getElementById('fecha-titulo').textContent = new Date(DATOS.fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  document.getElementById('chip-portal').textContent = `${portal.length} op · ${fmt.format(portal.reduce((s, p) => s + (p.tipo === 'RETIRO' ? -p.montoTotal : p.montoTotal), 0))} neto`;
+  document.getElementById('chip-caja').textContent = `${caja.length} op · ${fmt.format(caja.reduce((s, c) => s + (c.tipo === 'RETIRO' ? -c.monto : c.monto), 0))} neto`;
+
+  document.getElementById('kpis').innerHTML = [
+    ['good', nCuadra, 'Cuadran', 'monto y hora coinciden'],
+    ['warn', nDiff, 'Con diferencia', 'monto u hora no exactos'],
+    ['bad', nSoloP, 'Solo en portal', 'no registrados en caja'],
+    ['bad', nSoloC, 'Solo en caja', 'no existen en Yastás'],
+    ['yastas', `${recC.length}/${recP.length}`, 'Recargas caja / portal', recP.length + recC.length === 0 ? 'sin recargas hoy' : 'cotejadas aparte'],
+  ].map(([cls, n, t, s]) => `<div class="kpi ${cls}"><div class="eyebrow">${t}</div><div class="n mono">${n}</div><div class="sub">${s}</div></div>`).join('');
+
+  const ini = (name) => (name || '?').trim().charAt(0).toUpperCase();
+  const st = (estado, label) => `<span class="st ${estado}"><span class="i"></span>${label}</span>`;
+  const rowsHtml = pares.map(({ p, c, estado, label, paso, diff }) => {
+    const pCells = p ? `
+      <td class="side-portal time mono">${p.hora}</td>
+      <td class="desc">${p.descripcion}<small>${p.servicio && p.servicio !== '-' ? p.servicio : p.tipo}${p.comision ? ` · comisión ${fmt.format(p.comision)}` : ''}</small></td>
+      <td class="amt mono ${p.tipo === 'RETIRO' ? 'out' : 'in'}">${p.tipo === 'RETIRO' ? '−' : '+'}${fmt.format(p.montoTotal)}</td>`
+      : `<td class="side-portal empty-cell" colspan="3">— sin movimiento en el portal —</td>`;
+    const cCells = c ? `
+      <td class="side-caja time mono">${c.hora}</td>
+      <td class="desc">${c.tipo}<small>${c.details.replace(/^Op: [A-ZÁÉÍÓÚ-]+\. /, '')}</small></td>
+      <td class="amt mono ${c.tipo === 'RETIRO' ? 'out' : 'in'}">${c.tipo === 'RETIRO' ? '−' : '+'}${fmt.format(c.monto)}${paso === 'aprox' ? `<span class="diff-note">caja ${diff > 0 ? '+' : '−'}${fmt.format(Math.abs(diff))}</span>` : ''}</td>
+      <td><span class="who"><span class="av">${ini(c.operator)}</span>${c.operator}</span></td>`
+      : `<td class="side-caja empty-cell" colspan="4">— nadie lo registró en la caja —</td>`;
+    return `<tr class="${estado === 'warn' ? 'row-warn' : ''}">${pCells}<td class="center">${st(estado, label)}</td>${cCells}</tr>`;
+  }).join('');
+  document.getElementById('ledger-body').innerHTML = rowsHtml;
+  document.getElementById('ledger-count').textContent = `${pares.length} filas · ${portal.length} del portal, ${caja.length} de la caja`;
+
+  // Recargas
+  const sumP = recP.reduce((s, p) => s + p.montoTotal, 0), sumC = recC.reduce((s, c) => s + c.monto, 0);
+  document.getElementById('rec-count').textContent = recP.length + recC.length === 0 ? 'Hoy no hubo recargas' : `${recP.length} en portal · ${recC.length} en caja`;
+  document.getElementById('rec-tiles').innerHTML = `
+    <div class="rec-tile saldo"><div class="eyebrow">Saldo recargas · portal</div><div class="n mono">${fmt.format(sumP)}</div><div class="muted" style="font-size:11px">${recP.length} recarga${recP.length === 1 ? '' : 's'}</div></div>
+    <div class="rec-tile"><div class="eyebrow">Cobrado en caja</div><div class="n mono">${fmt.format(sumC)}</div><div class="muted" style="font-size:11px">${recC.length} registro${recC.length === 1 ? '' : 's'}</div></div>
+    <div class="rec-tile"><div class="eyebrow">Diferencia</div><div class="n mono">${fmt.format(sumC - sumP)}</div><div class="muted" style="font-size:11px">${sumC === sumP ? 'sin diferencia' : 'revisar'}</div></div>`;
+  const recPares = pares.filter(x => (x.p && x.p.tipo === 'RECARGA') || (x.c && x.c.tipo === 'RECARGA'));
+  const avisos = [];
+  recPares.forEach(x => {
+    if (x.paso === 'solo-caja') avisos.push(`<div class="callout bad"><div class="ic">!</div><div><b>Recarga cobrada en caja, pero no aplicada en Yastás</b><span>${x.c.hora} · ${fmt.format(x.c.monto)} · ${x.c.operator}. No hay recarga en el portal cerca de esa hora.</span></div></div>`);
+    if (x.paso === 'solo-portal') avisos.push(`<div class="callout warn"><div class="ic">?</div><div><b>Recarga aplicada en Yastás sin registro en caja</b><span>${x.p.hora} · ${x.p.servicio} ${fmt.format(x.p.montoTotal)}.</span></div></div>`);
+  });
+  document.getElementById('rec-avisos').innerHTML = avisos.length ? avisos.join('') :
+    `<div class="callout good"><div class="ic">✓</div><div><b>Sin avisos</b><span>${recP.length + recC.length === 0 ? 'No se hizo ninguna recarga hoy, ni en el portal ni en la caja. El saldo de recargas se queda como está.' : 'Todas las recargas del portal tienen su cobro en caja y viceversa.'}</span></div></div>`;
+  document.getElementById('btn-saldo').addEventListener('click', () => {
+    const b = document.getElementById('btn-saldo'); b.textContent = `Saldo actualizado a ${fmt.format(sumP)}`; b.disabled = true; b.style.opacity = .7;
+  });
+
+  // Internos
+  document.getElementById('int-count').textContent = `${internos.length} filas ignoradas`;
+  document.getElementById('int-list').innerHTML = internos.map(f => `
+    <div class="int-row"><span class="time mono">${f.hora}</span><span><span class="desc" style="font-weight:600">${f.descripcion}</span><div class="why">${f.why}</div></span><span class="amt mono">${fmt.format(f.montoTotal)}</span></div>`).join('');
+})();
+</script>
+</body>
+</html>

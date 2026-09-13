@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Yastás Auto-Descarga · Caja Registradora",
+  "version": "0.1.0",
+  "description": "Automatiza, desde el botón del dashboard de Caja Registradora, la descarga de movimientos del Portal de Autoservicio de Yastás en una pestaña real del navegador.",
+  "permissions": ["storage", "tabs", "downloads"],
+  "host_permissions": [
+    "https://portales-ext.prd.cloud.yastas.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://portales-ext.prd.cloud.yastas.com/*"],
+      "js": ["config.local.js", "content-scripts/watcher.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://caja-registradora.vercel.app/*",
+      "http://localhost:*/*"
+    ]
+  },
+  "action": {
+    "default_popup": "popup/popup.html"
+  }
+}

@@ -9031,3 +9031,552 @@
 
       cargarBitacora();
     }
+
+    // === ENCUADRE YASTÁS (conciliación diaria contra el Reporte de Movimientos del portal) ===
+    // Diseño y motor validados en yastas-extension/docs/encuadre_*.html. Documentación:
+    // .agents/PLAN_YASTAS_ENCUADRE.md · .agents/INSTRUCCIONES_CLAUDE_ENCUADRE.md
+    // Reglas de negocio decididas con el usuario (2026-09-12):
+    //   - La terminal Yastás SIEMPRE se mueve por "Monto Total" del portal; la caja le carga lo que
+    //     pagó/recibió el cliente. La diferencia (comisión de recargas, vales/ODP) es GANANCIA.
+    //   - NUNCA se estima con porcentajes: solo el valor exacto de cada fila del reporte.
+    //   - Un solo AJUSTE_DE_SALDO por día a yastasTerminal, incremental si se ejecuta más de una vez.
+    //   - La bitácora es inmutable: nunca se edita un log existente.
+    const ENC_TOL_ABS = 5, ENC_TOL_PCT = 0.005, ENC_VENTANA_MIN = 15, ENC_VENTANA_ERR = 120;
+    const ENC_RE_RECARGA = /RECARGA|TELCEL|MOVISTAR|AT&T|UNEFON|BAIT|VIRGIN|TIEMPO AIRE/i;
+    const ENC_MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const encState = { fecha: null, portalFilas: [], caja: [], otrosCaja: [], pares: [], internos: [], filtro: 'all', busqueda: '', acumulado: 0, sumGan: 0, desglose: {} };
+
+    function encHoy() {
+      const n = new Date();
+      return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+    }
+    function encSeg(hhmmss) { const [h, m, s] = String(hhmmss || '0:0:0').split(':').map(Number); return (h || 0) * 3600 + (m || 0) * 60 + (s || 0); }
+    function encFechaHoraLocal(log) {
+      // caja_logs guarda timestamp en UTC; el portal reporta hora local. Se convierte aquí.
+      const d = log.timestamp ? new Date(log.timestamp) : null;
+      if (d && !isNaN(d.getTime())) {
+        const p = (x) => String(x).padStart(2, '0');
+        return { fecha: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, hora: `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}` };
+      }
+      return { fecha: log.date || '', hora: log.time || '00:00:00' };
+    }
+    function encMontoDeDetalle(details) {
+      const m = String(details || '').match(/Monto:\s*\$?\s*([\d,]+(?:\.\d+)?)/i);
+      return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+    }
+    function encEsc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+    // ---------- Normalización: portal ----------
+    function encOpsPortal(filas) {
+      const ops = [], internos = [];
+      filas.forEach((f, i) => {
+        const tipoMov = (f.tipoMovimiento || '').toUpperCase();
+        const esRecarga = tipoMov === 'RECARGA DE TIEMPO AIRE' || ENC_RE_RECARGA.test((f.servicio || '') + ' ' + (f.descripcion || ''));
+        const esCliente = (tipoMov === 'OPERACIONES FINANCIERAS' || esRecarga) && /^CASH-(IN|OUT)$/.test(f.operacion || '');
+        if (!esCliente) { internos.push({ ...f, why: tipoMov === 'ABONO A INVERSION' ? 'Abono a inversión (propio)' : `Fondeo interno · ${f.tipoCuenta || ''}` }); return; }
+        if ((f.status || '').toUpperCase() !== 'APROBADA') { internos.push({ ...f, why: `Operación ${f.status} — el portal la rechazó, no movió dinero` }); return; }
+        if (!f.montoTotal && !f.montoOperacion) { internos.push({ ...f, why: `${f.descripcion} — sin dinero de por medio` }); return; }
+        const tipo = esRecarga ? 'RECARGA' : (f.operacion === 'CASH-IN' ? 'DEPÓSITO' : 'RETIRO');
+        // Recargas: el cliente paga "Monto Operación"; "Monto Total" es lo neto que descuenta la terminal.
+        const montoCliente = esRecarga ? f.montoOperacion : f.montoTotal;
+        ops.push({ id: 'p' + (f.idOperacion || i), fuente: 'portal', hora: f.hora, t: encSeg(f.hora), tipo, montoTotal: montoCliente, montoOperacion: f.montoOperacion, montoTerminal: f.montoTotal, operacion: f.operacion, comision: f.comision || 0, descripcion: f.descripcion, servicio: f.servicio, status: f.status, idOperacion: f.idOperacion });
+      });
+      return { ops, internos };
+    }
+
+    // ---------- Normalización: caja ----------
+    function encOpsCaja(logs) {
+      const ops = [];
+      logs.forEach((l) => {
+        const cat = (l.category || '').toUpperCase();
+        const base = { fuente: 'caja', hora: l.hora, t: encSeg(l.hora), operator: l.operator, details: l.details, category: l.category, logId: l.id };
+        if (cat === 'YASTAS_RECARGA') {
+          // Recarga pagada con terminal: amount = 0 en bitácora; el monto real está en details.
+          const monto = Math.abs(l.amount) || encMontoDeDetalle(l.details);
+          ops.push({ ...base, id: 'c' + l.id, tipo: 'RECARGA', monto });
+        } else if (cat === 'YASTAS' || cat === 'YASTAS_GETNET') {
+          ops.push({ ...base, id: 'c' + l.id, tipo: l.amount >= 0 ? 'DEPÓSITO' : 'RETIRO', monto: Math.abs(l.amount) });
+        } else if (cat === 'RE-DEPÓSITO' && l.extraData) {
+          (l.extraData.retiros || []).forEach((r, k) => ops.push({ ...base, id: `c${l.id}r${k}`, tipo: 'RETIRO', monto: Math.abs(r), details: 'Re-depósito · retiro virtual' }));
+          if (l.extraData.deposito) ops.push({ ...base, id: `c${l.id}d`, tipo: 'DEPÓSITO', monto: Math.abs(l.extraData.deposito), details: 'Re-depósito · depósito' });
+        }
+      });
+      return ops;
+    }
+    function encOpsCajaOtros(logs) {
+      return logs.filter((l) => { const c = (l.category || '').toUpperCase(); return !c.startsWith('YASTAS') && c !== 'RE-DEPÓSITO' && Math.abs(l.amount) > 0 && !['APERTURA', 'CIERRE', 'AJUSTE_DE_SALDO'].includes(c); })
+        .map((l) => ({ hora: l.hora, t: encSeg(l.hora), monto: Math.abs(l.amount), category: l.category, operator: l.operator, details: l.details }));
+    }
+
+    // ---------- Hipótesis de error de captura (solo entre huérfanos) ----------
+    function encDigitos(n) { return String(Math.round(n * 100)); }
+    function encUnDigitoMenos(corto, largo) {
+      if (largo.length !== corto.length + 1) return false;
+      for (let i = 0; i < largo.length; i++) if (largo.slice(0, i) + largo.slice(i + 1) === corto) return true;
+      return false;
+    }
+    function encTranspuestos(a, b) {
+      if (a.length !== b.length || a === b) return false;
+      for (let i = 0; i < a.length - 1; i++) if (a.slice(0, i) + a[i + 1] + a[i] + a.slice(i + 2) === b) return true;
+      return false;
+    }
+    function encHipotesisMonto(mp, mc) {
+      if (!mp || !mc || mp === mc) return null;
+      const r = +(mp / mc).toFixed(4);
+      if (r === 10 || r === 100 || r === 1000) return { tipo: 'ceros', texto: `faltó ${r === 10 ? 'un cero' : r === 100 ? 'dos ceros' : 'tres ceros'} al capturar (o se corrió el punto)`, correcto: mp };
+      if (r === 0.1 || r === 0.01 || r === 0.001) return { tipo: 'ceros', texto: `se capturó ${r === 0.1 ? 'un cero' : 'ceros'} de más (o se corrió el punto)`, correcto: mp };
+      const dp = encDigitos(mp), dc = encDigitos(mc);
+      if (encUnDigitoMenos(dc, dp)) return { tipo: 'digito', texto: 'faltó un dígito al capturar', correcto: mp };
+      if (encUnDigitoMenos(dp, dc)) return { tipo: 'digito', texto: 'se capturó un dígito de más', correcto: mp };
+      if (encTranspuestos(dp, dc)) return { tipo: 'transpuestos', texto: 'dos dígitos quedaron al revés', correcto: mp };
+      return null;
+    }
+
+    // ---------- Motor de cruce ----------
+    function encuadrarYastas(portal, caja, otrosCaja = []) {
+      const libresP = new Set(portal.map((p) => p.id)), libresC = new Set(caja.map((c) => c.id));
+      const pares = [];
+      const pasos = [
+        { key: 'exacto',  estado: 'good', label: 'Cuadra exacto',      cond: (p, c) => c.monto === p.montoTotal, ventana: ENC_VENTANA_MIN },
+        { key: 'sin-com', estado: 'warn', label: 'Cuadra sin comisión', cond: (p, c) => p.montoOperacion !== p.montoTotal && c.monto === p.montoOperacion, ventana: ENC_VENTANA_MIN },
+        { key: 'aprox',   estado: 'warn', label: 'Varía',              cond: (p, c) => { const d = Math.abs(c.monto - p.montoTotal); return d > 0 && (d <= ENC_TOL_ABS || d / p.montoTotal <= ENC_TOL_PCT); }, ventana: ENC_VENTANA_MIN },
+        { key: 'hora',    estado: 'warn', label: 'Otra hora',          cond: (p, c) => c.monto === p.montoTotal, ventana: 24 * 60 },
+      ];
+      const correrPaso = (paso) => {
+        const cands = [];
+        portal.forEach((p) => { if (!libresP.has(p.id)) return; caja.forEach((c) => {
+          if (!libresC.has(c.id) || c.tipo !== p.tipo) return;
+          const dt = Math.abs(c.t - p.t) / 60;
+          if (dt <= paso.ventana && paso.cond(p, c)) cands.push({ p, c, dt });
+        }); });
+        cands.sort((a, b) => a.dt - b.dt);
+        cands.forEach(({ p, c, dt }) => {
+          if (!libresP.has(p.id) || !libresC.has(c.id)) return;
+          libresP.delete(p.id); libresC.delete(c.id);
+          pares.push({ p, c, paso: paso.key, estado: paso.estado, label: paso.label, dt, diff: c.monto - p.montoTotal });
+        });
+      };
+      const orfP = () => portal.filter((p) => libresP.has(p.id));
+      const orfC = () => caja.filter((c) => libresC.has(c.id));
+      const marcarError = (p, c, h, extra = {}) => { if (p) libresP.delete(p.id); if (c) libresC.delete(c.id); pares.push({ p, c, paso: 'error', estado: 'bad', label: 'Posible error de captura', hipotesis: h, ...extra }); };
+      const erroresMonto = (ventanaMin) => {
+        const cand = [];
+        orfP().forEach((p) => orfC().forEach((c) => {
+          const dt = Math.abs(c.t - p.t) / 60;
+          if (dt > ventanaMin) return;
+          if (c.tipo === p.tipo) { const hm = encHipotesisMonto(p.montoTotal, c.monto); if (hm) cand.push({ p, c, dt, prio: 1, h: hm }); }
+          else if (c.tipo !== 'RECARGA' && p.tipo !== 'RECARGA' && c.monto === p.montoTotal) {
+            cand.push({ p, c, dt, prio: 2, h: { tipo: 'sentido', texto: `en caja se capturó como ${c.tipo.toLowerCase()} y en Yastás fue ${p.tipo.toLowerCase()}`, correcto: p.montoTotal } });
+          }
+        }));
+        cand.sort((a, b) => a.prio - b.prio || a.dt - b.dt);
+        cand.forEach(({ p, c, h }) => { if (libresP.has(p.id) && libresC.has(c.id)) marcarError(p, c, h); });
+      };
+
+      // Orden: exacto → sin comisión → aproximado → ERROR CERCANO (≤10 min) → otra hora → error lejano.
+      // Un error de tecleo a segundos de distancia gana sobre una coincidencia exacta a una hora de distancia.
+      correrPaso(pasos[0]); correrPaso(pasos[1]); correrPaso(pasos[2]);
+      erroresMonto(10);
+      correrPaso(pasos[3]);
+      erroresMonto(ENC_VENTANA_ERR);
+
+      // Dos en una: un huérfano de un lado = suma de dos del otro (mismo tipo, cerca en hora)
+      const buscarSuma = (uno, lista, key) => {
+        const objetivo = +(key === 'monto' ? uno.montoTotal : uno.monto).toFixed(2);
+        const cerca = lista.filter((x) => x.tipo === uno.tipo && Math.abs(x.t - uno.t) / 60 <= ENC_VENTANA_ERR);
+        for (let i = 0; i < cerca.length; i++) for (let j = i + 1; j < cerca.length; j++) {
+          if (+(cerca[i][key] + cerca[j][key]).toFixed(2) === objetivo) return [cerca[i], cerca[j]];
+        }
+        return null;
+      };
+      orfP().forEach((p) => {
+        const par = buscarSuma(p, orfC(), 'monto'); if (!par) return;
+        const [c1, c2] = par;
+        marcarError(p, { ...c1, monto: +(c1.monto + c2.monto).toFixed(2), details: `Capturada en dos partes: ${fmt.format(c1.monto)} (${c1.hora.slice(0, 5)}) + ${fmt.format(c2.monto)} (${c2.hora.slice(0, 5)})` },
+          { tipo: 'suma', texto: 'en caja se capturó en dos partes lo que en Yastás fue una sola operación', correcto: p.montoTotal });
+        libresC.delete(c2.id);
+      });
+      orfC().forEach((c) => {
+        const par = buscarSuma(c, orfP(), 'montoTotal'); if (!par) return;
+        const [p1, p2] = par;
+        marcarError({ ...p1, montoTotal: +(p1.montoTotal + p2.montoTotal).toFixed(2), montoTerminal: +(p1.montoTerminal + p2.montoTerminal).toFixed(2), descripcion: `${p1.descripcion} + ${p2.descripcion}`, servicio: `2 operaciones: ${fmt.format(p1.montoTotal)} (${p1.hora.slice(0, 5)}) + ${fmt.format(p2.montoTotal)} (${p2.hora.slice(0, 5)})` }, c,
+          { tipo: 'suma', texto: 'en caja se capturó como una sola operación lo que en Yastás fueron dos', correcto: null, separar: [p1.montoTotal, p2.montoTotal] });
+        libresP.delete(p2.id);
+      });
+      // Capturado dos veces en caja
+      orfC().forEach((c) => {
+        const gemela = pares.find((x) => x.c && x.p && x.c.id !== c.id && x.c.tipo === c.tipo && x.c.monto === c.monto && Math.abs(x.c.t - c.t) / 60 <= 30);
+        if (gemela) marcarError(null, c, { tipo: 'duplicado', texto: `ya está registrada a las ${gemela.c.hora.slice(0, 5)} (${gemela.c.operator}); parece capturada dos veces`, correcto: 0 });
+      });
+      // Capturado en otra cuenta (ej. Banorte) en vez de Yastás
+      orfP().forEach((p) => {
+        const otro = otrosCaja.find((o) => o.monto === p.montoTotal && Math.abs(o.t - p.t) / 60 <= ENC_VENTANA_ERR);
+        if (otro) marcarError(p, null, { tipo: 'categoria', texto: `en caja se capturó como "${otro.category}" (${otro.hora.slice(0, 5)}, ${otro.operator}) en vez de Yastás`, correcto: p.montoTotal }, { cajaOtra: otro });
+      });
+
+      portal.forEach((p) => { if (libresP.has(p.id)) pares.push({ p, c: null, paso: 'solo-portal', estado: 'bad', label: 'No registrado en caja' }); });
+      caja.forEach((c) => { if (libresC.has(c.id)) pares.push({ p: null, c, paso: 'solo-caja', estado: 'bad', label: 'No existe en Yastás' }); });
+
+      // Ganancia por pareja (no aplica a errores): terminal real − lo que la caja le cargó a la terminal.
+      pares.forEach((x) => {
+        if (!x.p || !x.c || x.paso === 'error') return;
+        const g = x.p.operacion === 'CASH-OUT' ? x.p.montoTerminal - x.c.monto : x.c.monto - x.p.montoTerminal;
+        x.ganancia = Math.round(g * 100) / 100;
+        if (x.ganancia < 0) { x.estado = 'bad'; x.label = 'Faltante en caja'; }
+        else if (x.ganancia > 0 && x.paso !== 'exacto') { x.estado = 'warn'; x.label = 'Ganancia a ajustar'; }
+      });
+      pares.sort((a, b) => ((a.p || a.c).t) - ((b.p || b.c).t));
+      return pares;
+    }
+
+    // ---------- Datos: caja del día (memoria local) ----------
+    function encCargarCajaDelDia(fecha) {
+      const historico = DB.get('historical_logs_by_date', {}) || {};
+      const todos = [...(DB.get('logs', []) || []), ...(historico[fecha] || [])];
+      const vistos = new Set(), out = [];
+      todos.forEach((l) => {
+        if (!l) return;
+        const { fecha: f, hora } = encFechaHoraLocal(l);
+        if (f !== fecha) return;
+        const k = String(l.id || `${l.timestamp}|${l.amount}|${l.category}`);
+        if (vistos.has(k)) return;
+        vistos.add(k);
+        out.push({ id: k, hora, timestamp: l.timestamp, category: l.category, amount: parseFloat(l.amount) || 0, operator: l.operator || 'Sistema', details: l.details || '', extraData: l.extraData || l.redepExtraData || null });
+      });
+      return out;
+    }
+
+    // ---------- Datos: portal (Supabase) ----------
+    async function encCargarPortalDesdeSupabase(fecha) {
+      if (!supabaseClient) return [];
+      const { data, error } = await supabaseClient.from('yastas_movimientos_portal').select('*').eq('fecha', fecha).order('hora', { ascending: true });
+      if (error) throw error;
+      return (data || []).map((r) => ({
+        hora: String(r.hora).slice(0, 8), tipoCuenta: r.tipo_cuenta, tipoMovimiento: r.tipo_movimiento, descripcion: r.descripcion, operacion: r.operacion,
+        montoTotal: parseFloat(r.monto_total) || 0, montoOperacion: parseFloat(r.monto_operacion) || 0, comision: parseFloat(r.comision) || 0, ganancia: parseFloat(r.ganancia) || 0,
+        servicio: r.servicio, status: r.status, emisor: r.emisor, idOperacion: r.id_operacion,
+      }));
+    }
+    async function encCargarAcumuladoAjuste(fecha) {
+      if (!supabaseClient) return { monto: 0, veces: 0, log_ids: [] };
+      const { data } = await supabaseClient.from('yastas_encuadre_ajustes').select('monto,veces,log_ids').eq('fecha', fecha).eq('concepto', 'ganancia_terminal').maybeSingle();
+      return data ? { monto: parseFloat(data.monto) || 0, veces: data.veces || 0, log_ids: data.log_ids || [] } : { monto: 0, veces: 0, log_ids: [] };
+    }
+
+    // ---------- Importar el XLSX del portal a Supabase ----------
+    function encCeldaFecha(v) {
+      if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+      if (typeof v === 'number' && window.XLSX) { const d = XLSX.SSF.parse_date_code(v); return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`; }
+      return String(v || '').trim().slice(0, 10);
+    }
+    function encCeldaHora(v) {
+      if (v instanceof Date) return `${String(v.getHours()).padStart(2, '0')}:${String(v.getMinutes()).padStart(2, '0')}:${String(v.getSeconds()).padStart(2, '0')}`;
+      if (typeof v === 'number') { const s = Math.round((v % 1) * 86400); return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
+      return String(v || '00:00:00').trim().slice(0, 8);
+    }
+    function encNum(v) { const n = parseFloat(String(v ?? '').replace(/[$,\s]/g, '')); return isNaN(n) ? 0 : n; }
+
+    async function cargarReporteYastasDesdeArchivo(file) {
+      if (!file) return;
+      if (!window.XLSX) { mostrarToast('No se pudo cargar el lector de Excel (sin internet?). Intenta de nuevo.', 'error'); return; }
+      if (!supabaseClient) { mostrarToast('Sin conexión a Supabase: no se puede guardar el reporte.', 'error'); return; }
+      try {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+        // Fila 0 = filtros del reporte, fila 1 = encabezados, datos desde la fila 2.
+        const idxHdr = filas.findIndex((r) => r && r.some((x) => String(x).trim() === 'ID Operación'));
+        if (idxHdr < 0) { mostrarToast('Ese archivo no parece el "Reporte de Movimientos" de Yastás (no tiene la columna "ID Operación").', 'error'); return; }
+        const hdr = filas[idxHdr].map((x) => String(x ?? '').trim());
+        const col = (nombre) => hdr.indexOf(nombre);
+        const iFecha = col('Fecha'), iHora = col('Hora'), iTipoC = col('Tipo Cuenta'), iTipoM = col('Tipo Movimiento'), iDesc = col('Descripción'), iOp = col('Operación'),
+          iId = col('ID Operación'), iTot = col('Monto Total'), iOpM = col('Monto Operación'), iServ = col('Servicio'), iSt = col('Status'), iComUF = col('Comisión UF'), iIva = col('Iva Comisión'), iGan = col('Ganancia'), iEm = col('Nombre Emisor');
+        const rows = [];
+        for (let r = idxHdr + 1; r < filas.length; r++) {
+          const f = filas[r]; if (!f || !f[iId]) continue;
+          const tipoMov = String(f[iTipoM] ?? '').trim();
+          rows.push({
+            fecha: encCeldaFecha(f[iFecha]), hora: encCeldaHora(f[iHora]), id_operacion: String(f[iId]).trim(),
+            tipo_movimiento: tipoMov, descripcion: String(f[iDesc] ?? '').trim(), operacion: String(f[iOp] ?? '').trim(),
+            monto_total: encNum(f[iTot]), monto_operacion: encNum(f[iOpM]), comision: +(encNum(f[iComUF]) + encNum(f[iIva])).toFixed(2), ganancia: encNum(f[iGan]),
+            servicio: String(f[iServ] ?? '').trim(), status: String(f[iSt] ?? '').trim(), emisor: String(f[iEm] ?? '').trim(), tipo_cuenta: String(f[iTipoC] ?? '').trim(),
+            es_interno: !(tipoMov === 'OPERACIONES FINANCIERAS' || tipoMov === 'RECARGA DE TIEMPO AIRE'), origen: 'manual',
+          });
+        }
+        if (!rows.length) { mostrarToast('El archivo no trae movimientos.', 'warning'); return; }
+        // La fecha manda desde el archivo, no desde la pantalla: evita mezclar días.
+        const fechas = [...new Set(rows.map((x) => x.fecha))];
+        if (fechas.length > 1) { mostrarToast(`El archivo trae ${fechas.length} fechas distintas (${fechas.join(', ')}). Exporta un solo día a la vez.`, 'error'); return; }
+        const fechaArchivo = fechas[0];
+        if (fechaArchivo !== encState.fecha) {
+          mostrarToast(`El archivo es del ${fechaArchivo}; se cambia la vista a ese día.`, 'info');
+          encState.fecha = fechaArchivo;
+          const inp = document.getElementById('enc-fecha'); if (inp) inp.value = fechaArchivo;
+        }
+        const { error } = await supabaseClient.from('yastas_movimientos_portal').upsert(rows, { onConflict: 'id_operacion' });
+        if (error) throw error;
+        const jobId = `manual-${Date.now()}`;
+        await supabaseClient.from('yastas_import_jobs').upsert({ job_id: jobId, fecha: fechaArchivo, estado: 'importado', paso: 'upsert', detalle: `${rows.length} filas desde ${file.name}`, filas: rows.length, origen: 'manual', actualizado_en: new Date().toISOString() });
+        mostrarToast(`Reporte cargado: ${rows.length} filas del ${fechaArchivo}.`, 'success');
+        await encRecargar();
+      } catch (err) {
+        console.error('[Encuadre] error al importar:', err);
+        const msg = /relation .* does not exist|schema cache/i.test(String(err.message || err)) ? 'Faltan las tablas del encuadre en Supabase (aplica la migración 20260912230000_encuadre_yastas.sql).' : `No se pudo importar: ${err.message || err}`;
+        mostrarToast(msg, 'error');
+      }
+    }
+
+    // ---------- Abrir / cerrar / recargar ----------
+    async function abrirModalEncuadreYastas(fecha) {
+      encState.fecha = fecha || encHoy();
+      encState.filtro = 'all'; encState.busqueda = '';
+      const modal = document.getElementById('modal-encuadre-yastas'); if (!modal) return;
+      const panel = document.getElementById('enc-panel');
+      if (panel && !panel.dataset.temaFijado) panel.setAttribute('data-enc-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+      const btnTema = document.getElementById('enc-btn-tema');
+      if (btnTema && panel) btnTema.textContent = panel.getAttribute('data-enc-theme') === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Oscuro';
+      const inp = document.getElementById('enc-fecha'); if (inp) { inp.value = encState.fecha; inp.max = encHoy(); }
+      const buscar = document.getElementById('enc-buscar'); if (buscar) buscar.value = '';
+      modal.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+      await encRecargar();
+    }
+    function cerrarModalEncuadreYastas() {
+      const modal = document.getElementById('modal-encuadre-yastas'); if (modal) modal.classList.add('hidden');
+    }
+    async function cambiarFechaEncuadre(fecha) {
+      if (!fecha) return;
+      encState.fecha = fecha; encState.filtro = 'all';
+      await encRecargar();
+    }
+    function alternarTemaEncuadre() {
+      const panel = document.getElementById('enc-panel'); if (!panel) return;
+      const nuevo = panel.getAttribute('data-enc-theme') === 'dark' ? 'light' : 'dark';
+      panel.setAttribute('data-enc-theme', nuevo); panel.dataset.temaFijado = '1';
+      const btn = document.getElementById('enc-btn-tema'); if (btn) btn.textContent = nuevo === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Oscuro';
+    }
+    function tamanoLetraEncuadre(px) { const panel = document.getElementById('enc-panel'); if (panel) panel.style.setProperty('--enc-font', px); }
+    function filtrarEncuadrePorTexto(q) { encState.busqueda = q || ''; encRenderTabla(); }
+    function filtrarEncuadre(clave) {
+      encState.filtro = clave;
+      document.querySelectorAll('#enc-kpis .enc-kpi').forEach((b) => b.classList.toggle('active', b.dataset.filtro === clave));
+      const etiquetas = { all: 'Todas las operaciones', warn: 'Por ajustar', error: 'Errores de captura', huerfano: 'Sin pareja', good: 'Cuadran exacto', recarga: 'Recargas' };
+      const lbl = document.getElementById('enc-filtro-activo'); if (lbl) lbl.textContent = `Mostrando: ${etiquetas[clave] || 'Todo'}`;
+      encRenderTabla();
+    }
+
+    async function encRecargar() {
+      const fecha = encState.fecha;
+      const txt = document.getElementById('enc-fecha-texto');
+      if (txt) { const f = new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); txt.textContent = f.charAt(0).toUpperCase() + f.slice(1); }
+      const cajaLogs = encCargarCajaDelDia(fecha);
+      let portalFilas = [];
+      try {
+        portalFilas = await encCargarPortalDesdeSupabase(fecha);
+        const ac = await encCargarAcumuladoAjuste(fecha);
+        encState.acumulado = ac.monto; encState.veces = ac.veces;
+      } catch (err) {
+        console.error('[Encuadre] Supabase:', err);
+        mostrarToast(/does not exist|schema cache/i.test(String(err.message || err)) ? 'Faltan las tablas del encuadre en Supabase (aplica la migración).' : 'No se pudo leer el reporte del portal desde Supabase.', 'error');
+      }
+      const { ops: portal, internos } = encOpsPortal(portalFilas);
+      encState.portalFilas = portalFilas; encState.internos = internos;
+      encState.caja = encOpsCaja(cajaLogs); encState.otrosCaja = encOpsCajaOtros(cajaLogs);
+      encState.pares = encuadrarYastas(portal, encState.caja, encState.otrosCaja);
+      encRender();
+    }
+
+    // ---------- Render ----------
+    function encRender() {
+      const { pares, caja, portalFilas, internos, fecha } = encState;
+      const sinDatos = document.getElementById('enc-sin-datos'), contenido = document.getElementById('enc-contenido');
+      const btnAj = document.getElementById('enc-btn-ajustar'), infoAj = document.getElementById('enc-ajuste-info');
+      if (!portalFilas.length) {
+        sinDatos.classList.remove('hidden'); contenido.classList.add('hidden');
+        sinDatos.innerHTML = `<div style="font-size:2.2em">📄</div><div class="mt-2">Todavía no hay reporte del portal para el <b>${encEsc(fecha)}</b>.</div><div class="mt-1 text-[0.9em]" style="color:var(--enc-ink2)">Expórtalo en Yastás (Consultas → Reporte de Movimientos → EXPORTAR) y súbelo con <b>Cargar reporte del portal</b>. La caja tiene <b>${caja.length}</b> operaciones Yastás ese día.</div>`;
+        if (btnAj) { btnAj.disabled = true; btnAj.textContent = '⚡ Ajustar Terminal Yastás'; }
+        if (infoAj) infoAj.textContent = 'Carga el reporte del portal para calcular la ganancia del día.';
+        return;
+      }
+      sinDatos.classList.add('hidden'); contenido.classList.remove('hidden');
+
+      const nCuadra = pares.filter((x) => x.paso === 'exacto').length;
+      const nSoloP = pares.filter((x) => x.paso === 'solo-portal').length, nSoloC = pares.filter((x) => x.paso === 'solo-caja').length;
+      const nError = pares.filter((x) => x.paso === 'error').length, nHora = pares.filter((x) => x.paso === 'hora').length;
+      const conGan = pares.filter((x) => x.ganancia > 0), conFalt = pares.filter((x) => x.ganancia < 0);
+      const sumGan = Math.round(conGan.reduce((s, x) => s + x.ganancia, 0) * 100) / 100;
+      const sumFalt = Math.round(conFalt.reduce((s, x) => s + x.ganancia, 0) * 100) / 100;
+      const concepto = (x) => x.p.tipo === 'RECARGA' ? 'Recargas' : (/ODP/i.test(x.p.descripcion || '') ? 'Vales (ODP)' : 'Otros');
+      const desglose = {}; conGan.forEach((x) => { desglose[concepto(x)] = Math.round(((desglose[concepto(x)] || 0) + x.ganancia) * 100) / 100; });
+      const desgloseTxt = Object.entries(desglose).map(([k, v]) => `${k} +${fmt.format(v)}`).join(' · ');
+      const nPorAjustar = pares.filter((x) => (x.ganancia && x.ganancia !== 0) || ['sin-com', 'aprox', 'hora'].includes(x.paso)).length;
+      const recP = pares.filter((x) => x.p && x.p.tipo === 'RECARGA'), recC = caja.filter((c) => c.tipo === 'RECARGA');
+      encState.sumGan = sumGan; encState.desglose = desglose;
+
+      // Banner en español llano
+      const hero = document.getElementById('enc-hero'), ico = document.getElementById('enc-hero-ico'), tit = document.getElementById('enc-hero-titulo'), desc = document.getElementById('enc-hero-desc');
+      const problemas = nSoloP + nSoloC + conFalt.length + nError;
+      if (problemas === 0 && sumGan === 0) {
+        hero.className = 'enc-hero good'; ico.textContent = '✅'; tit.textContent = '¡Excelente! Todo cuadró al centavo';
+        desc.innerHTML = `Las ${pares.length} operaciones de la caja coinciden con la terminal Yastás.${nHora ? ` ${nHora} se registró a otra hora, pero con la cantidad correcta.` : ''}`;
+      } else if (problemas === 0) {
+        hero.className = 'enc-hero good'; ico.textContent = '⚡'; tit.textContent = `Todo cuadra. Hay ${fmt.format(sumGan)} de ganancia por pasar a la terminal`;
+        desc.innerHTML = `${nCuadra} operaciones coinciden con lo que pagó o recibió el cliente. ${conGan.length} dejaron comisión (${encEsc(desgloseTxt)}) que la terminal Yastás ya tiene y la caja todavía no. Da clic en <b>⚡ Ajustar Terminal Yastás</b> abajo.${nHora ? ` ${nHora} se registró a otra hora, con la cantidad correcta.` : ''}`;
+      } else {
+        hero.className = 'enc-hero' + (nError || nSoloP || nSoloC ? ' bad' : ''); ico.textContent = '⚠️';
+        tit.textContent = `Atención: ${problemas} ${problemas === 1 ? 'operación necesita' : 'operaciones necesitan'} revisión`;
+        const partes = [];
+        if (nError) partes.push(`<b>${nError}</b> con posible error de captura (monto mal tecleado, duplicada, sentido invertido…)`);
+        if (nSoloP) partes.push(`<b>${nSoloP}</b> del portal no se registr${nSoloP === 1 ? 'ó' : 'aron'} en la caja`);
+        if (nSoloC) partes.push(`<b>${nSoloC}</b> de la caja no aparece${nSoloC === 1 ? '' : 'n'} en Yastás`);
+        if (conFalt.length) partes.push(`<b>${conFalt.length}</b> con faltante en caja (${fmt.format(Math.abs(sumFalt))})`);
+        desc.innerHTML = `${partes.join('; ')}. Usa las tarjetas rojas para verlas. ${nCuadra} operaciones sí cuadran${sumGan ? ` y hay ${fmt.format(sumGan)} de ganancia por pasar a la terminal` : ''}.`;
+      }
+
+      // KPIs = filtros
+      const kpis = [
+        { key: 'all', cls: 'accent', label: 'Ver todo', n: pares.length, sub: 'Todas las operaciones' },
+        { key: 'warn', cls: 'warn', label: 'Por ajustar', n: nPorAjustar, sub: sumGan ? `+${fmt.format(sumGan)} a terminal` : 'Sin ajustes' },
+        { key: 'error', cls: 'bad', label: 'Errores de captura', n: nError, sub: nError ? 'Con corrección sugerida' : 'Ninguno detectado' },
+        { key: 'huerfano', cls: 'bad', label: 'Sin pareja', n: nSoloP + nSoloC, sub: `${nSoloP} portal · ${nSoloC} caja` },
+        { key: 'good', cls: 'good', label: 'Cuadran exacto', n: nCuadra, sub: 'Monto y hora OK' },
+        { key: 'recarga', cls: 'yastas', label: 'Recargas', n: `${recC.length}/${recP.length}`, sub: 'Caja vs portal' },
+      ];
+      document.getElementById('enc-kpis').innerHTML = kpis.map((k) => `
+        <button type="button" class="enc-kpi ${k.cls} ${encState.filtro === k.key ? 'active' : ''}" data-filtro="${k.key}" onclick="filtrarEncuadre('${k.key}')">
+          <span class="lbl">${k.label}</span><span class="n enc-mono">${k.n}</span><span class="sub">${encEsc(k.sub)}</span>
+        </button>`).join('');
+      const lbl = document.getElementById('enc-filtro-activo'); if (lbl) lbl.textContent = 'Mostrando: ' + ({ all: 'Todas las operaciones', warn: 'Por ajustar', error: 'Errores de captura', huerfano: 'Sin pareja', good: 'Cuadran exacto', recarga: 'Recargas' }[encState.filtro] || 'Todo');
+
+      // Recargas: cobrado / descontado en terminal / utilidad
+      const recOk = recP.filter((x) => x.c);
+      const sumC = recC.reduce((s, c) => s + c.monto, 0), sumNeto = recOk.reduce((s, x) => s + (x.p.montoTerminal || 0), 0);
+      const utilidad = Math.round((recOk.reduce((s, x) => s + x.p.montoTotal, 0) - sumNeto) * 100) / 100;
+      document.getElementById('enc-rec-conteo').textContent = recP.length + recC.length === 0 ? 'Hoy no hubo recargas' : `${recP.length} en portal · ${recC.length} en caja`;
+      document.getElementById('enc-rec-tiles').innerHTML = `
+        <div class="enc-tile"><div class="lbl">Cobrado en caja</div><div class="n enc-mono">${fmt.format(sumC)}</div><div class="text-[0.8em] font-bold" style="color:var(--enc-ink2)">lo que pagó el cliente</div></div>
+        <div class="enc-tile"><div class="lbl">Descontado en terminal</div><div class="n enc-mono" style="color:var(--enc-yastas)">${fmt.format(sumNeto)}</div><div class="text-[0.8em] font-bold" style="color:var(--enc-ink2)">neto real según el portal</div></div>
+        <div class="enc-tile" style="background:var(--enc-good-soft); border-color:var(--enc-good)"><div class="lbl" style="color:var(--enc-good)">Tu utilidad</div><div class="n enc-mono" style="color:var(--enc-good)">${fmt.format(utilidad)}</div><div class="text-[0.8em] font-bold" style="color:var(--enc-ink2)">${recOk.length} recarga${recOk.length === 1 ? '' : 's'} · va a Terminal Yastás</div></div>`;
+      const avisos = [];
+      pares.filter((x) => (x.p && x.p.tipo === 'RECARGA') || (x.c && x.c.tipo === 'RECARGA')).forEach((x) => {
+        if (x.paso === 'solo-caja') avisos.push(`<div class="enc-callout bad">🚫 Recarga de ${fmt.format(x.c.monto)} cobrada en caja a las ${x.c.hora.slice(0, 5)} por ${encEsc(x.c.operator)}, pero <b>no aparece en Yastás</b>. El cliente pagó y la recarga no salió: hay que reintentarla o devolver.</div>`);
+        if (x.paso === 'solo-portal') avisos.push(`<div class="enc-callout warn">⚠️ Recarga ${encEsc(x.p.servicio)} de ${fmt.format(x.p.montoTotal)} a las ${x.p.hora.slice(0, 5)} está en Yastás pero <b>nadie la registró en la caja</b>.</div>`);
+      });
+      if (!avisos.length) avisos.push(recP.length + recC.length === 0 ? `<div class="enc-callout">Hoy no hubo recargas ni en el portal ni en la caja.</div>` : `<div class="enc-callout good">✅ ${recOk.length} recarga${recOk.length === 1 ? '' : 's'} coincide${recOk.length === 1 ? '' : 'n'} entre la caja y el portal.</div>`);
+      document.getElementById('enc-rec-avisos').innerHTML = avisos.join('');
+
+      // Internos
+      document.getElementById('enc-int-conteo').textContent = `${internos.length} asientos`;
+      document.getElementById('enc-int-lista').innerHTML = internos.length ? internos.map((f) => `
+        <div class="flex items-center gap-3 py-1.5 border-b" style="border-color:var(--enc-line)">
+          <span class="enc-mono text-[0.85em] font-bold" style="color:var(--enc-ink2)">${encEsc(String(f.hora).slice(0, 5))}</span>
+          <span class="flex-1"><span class="font-bold">${encEsc(f.descripcion)}</span><span class="block text-[0.8em] font-semibold" style="color:var(--enc-ink2)">${encEsc(f.why)}</span></span>
+          <span class="enc-mono font-bold">${fmt.format(f.montoTotal)}</span>
+        </div>`).join('') : '<div class="enc-empty">Ninguno.</div>';
+
+      // Botón de ajuste (incremental)
+      const delta = Math.round((sumGan - (encState.acumulado || 0)) * 100) / 100;
+      if (btnAj) {
+        btnAj.disabled = !(delta > 0);
+        btnAj.textContent = delta > 0 ? `⚡ Ajustar Terminal Yastás +${fmt.format(delta)}` : (sumGan > 0 ? '✅ Ganancia del día ya aplicada' : 'Sin ganancia pendiente de ajustar');
+      }
+      if (infoAj) infoAj.textContent = sumGan > 0
+        ? `Ganancia del día: ${fmt.format(sumGan)} (${desgloseTxt}). Ya aplicado: ${fmt.format(encState.acumulado || 0)}${encState.veces ? ` en ${encState.veces} ejecución${encState.veces === 1 ? '' : 'es'}` : ''}.`
+        : 'Sin ganancia por ajustar en este día.';
+
+      encRenderTabla();
+    }
+
+    function encRenderTabla() {
+      const { pares, filtro, busqueda } = encState;
+      const tbody = document.getElementById('enc-tabla'), vacia = document.getElementById('enc-tabla-vacia'), conteo = document.getElementById('enc-conteo');
+      const q = (busqueda || '').trim().toLowerCase();
+      const filtradas = pares.filter((x) => {
+        if (filtro === 'warn' && !((x.ganancia && x.ganancia !== 0) || ['sin-com', 'aprox', 'hora'].includes(x.paso))) return false;
+        if (filtro === 'error' && x.paso !== 'error') return false;
+        if (filtro === 'huerfano' && x.paso !== 'solo-portal' && x.paso !== 'solo-caja') return false;
+        if (filtro === 'good' && x.paso !== 'exacto') return false;
+        if (filtro === 'recarga' && !((x.p && x.p.tipo === 'RECARGA') || (x.c && x.c.tipo === 'RECARGA'))) return false;
+        if (q) {
+          const t = [x.p && `${x.p.descripcion} ${x.p.servicio} ${x.p.montoTotal} ${x.p.montoTerminal}`, x.c && `${x.c.tipo} ${x.c.details} ${x.c.operator} ${x.c.monto}`].filter(Boolean).join(' ').toLowerCase();
+          if (!t.includes(q)) return false;
+        }
+        return true;
+      });
+      if (conteo) conteo.textContent = `Mostrando ${filtradas.length} de ${pares.length} operaciones`;
+      vacia.classList.toggle('hidden', filtradas.length > 0);
+      tbody.innerHTML = filtradas.map(({ p, c, paso, diff, ganancia, hipotesis, cajaOtra }) => {
+        const g = ganancia || 0;
+        const clase = paso === 'error' || paso === 'solo-portal' || paso === 'solo-caja' || g < 0 ? 'enc-bad' : (g > 0 || ['aprox', 'sin-com', 'hora'].includes(paso) ? 'enc-warn' : '');
+        const quien = c ? c.operator : (cajaOtra ? cajaOtra.operator : 'Portal');
+        const hora = (p || c).hora;
+        const concepto = p ? p.descripcion : (c ? c.details : '—');
+        const sub = p ? `${p.servicio && p.servicio !== '-' ? p.servicio : ''} · ${p.tipo}` : `${c.tipo} en caja`;
+        const pMonto = p ? `${p.tipo === 'RETIRO' ? '−' : '+'}${fmt.format(p.montoTerminal)}` : '—';
+        const cMonto = c ? `${c.tipo === 'RETIRO' ? '−' : '+'}${fmt.format(c.monto)}` : (cajaOtra ? `<span style="color:var(--enc-bad);font-size:.85em">${fmt.format(cajaOtra.monto)} en ${encEsc(cajaOtra.category)}</span>` : '—');
+        let res = '';
+        if (paso === 'error') {
+          const hp = hipotesis || {};
+          res = `<span class="enc-pill bad">❌ Posible error de captura</span><div class="enc-note bad">${encEsc(hp.texto || '')}</div>${hp.correcto ? `<div class="enc-note">Debería ser <b>${fmt.format(hp.correcto)}</b></div>` : ''}${hp.separar ? `<div class="enc-note">Debería ser ${fmt.format(hp.separar[0])} + ${fmt.format(hp.separar[1])}</div>` : ''}`;
+        } else if (paso === 'solo-portal') {
+          res = `<span class="enc-pill bad">❌ Falta en caja</span><div class="enc-note bad">Nadie la registró</div>`;
+        } else if (paso === 'solo-caja') {
+          res = `<span class="enc-pill bad">❌ No está en Yastás</span><div class="enc-note bad">Revisar ticket</div>`;
+        } else if (g < 0) {
+          res = `<span class="enc-pill bad">❌ Faltante ${fmt.format(Math.abs(g))}</span><div class="enc-note bad">la caja ${p.operacion === 'CASH-OUT' ? 'entregó de más' : 'recibió de menos'}</div>`;
+        } else if (g > 0) {
+          res = `<span class="enc-pill ${paso === 'exacto' ? 'good' : 'warn'}">${paso === 'hora' ? '🕒 Otra hora' : '✅ Cuadra'}</span><div class="enc-note warn">⚡ Ganancia +${fmt.format(g)}</div><div class="enc-note">${p.tipo === 'RECARGA' ? 'comisión de recarga' : (/ODP/i.test(p.descripcion || '') ? 'comisión del vale' : 'comisión')} · ya está en la terminal</div>`;
+        } else if (paso === 'exacto') {
+          res = `<span class="enc-pill good">✅ Cuadra exacto</span>`;
+        } else if (paso === 'hora') {
+          res = `<span class="enc-pill warn">🕒 Otra hora</span><div class="enc-note">misma cantidad, se registró tarde</div>`;
+        } else {
+          res = `<span class="enc-pill warn">⚠️ Varía por ${fmt.format(Math.abs(diff || 0))}</span>`;
+        }
+        return `<tr class="${clase}">
+          <td><div class="enc-who"><span class="enc-av">${encEsc(String(quien).charAt(0).toUpperCase())}</span><div><div class="enc-mono">${encEsc(hora)}</div><div class="text-[0.85em]" style="color:var(--enc-ink2)">${encEsc(quien)}</div></div></div></td>
+          <td class="enc-op">${encEsc(concepto)}<small>${encEsc(sub)}</small></td>
+          <td class="enc-amt ${p && p.tipo === 'RETIRO' ? 'out' : 'in'} enc-mono">${pMonto}</td>
+          <td class="enc-amt ${c && c.tipo === 'RETIRO' ? 'out' : 'in'} enc-mono">${cMonto}</td>
+          <td style="text-align:center">${res}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // ---------- Ajuste de ganancia a Terminal Yastás (incremental, un AJUSTE_DE_SALDO por ejecución) ----------
+    // Se firma con el PIN del cajero, igual que cualquier operación de la caja (abrirPINModal → nombre real).
+    function aplicarGananciaTerminal() {
+      const fecha = encState.fecha;
+      const delta = Math.round(((encState.sumGan || 0) - (encState.acumulado || 0)) * 100) / 100;
+      if (!(delta > 0)) { mostrarToast('No hay ganancia pendiente de aplicar.', 'info'); return; }
+      if (!supabaseClient) { mostrarToast('Sin conexión a Supabase: el ajuste no se puede registrar.', 'error'); return; }
+      const desgloseTxt = Object.entries(encState.desglose || {}).map(([k, v]) => `${k} +${fmt.format(v)}`).join(' · ');
+      abrirPINModal(`Confirmación de AJUSTE +${fmt.format(delta)} · Encuadre Yastás`, (opName) => encEjecutarAjusteGanancia(opName, delta, desgloseTxt, fecha));
+    }
+
+    async function encEjecutarAjusteGanancia(operador, delta, desgloseTxt, fecha) {
+      const btn = document.getElementById('enc-btn-ajustar'); if (btn) btn.disabled = true;
+      try {
+        const balances = DB.get('balances', {});
+        const antes = balances.yastasTerminal || 0;
+        balances.yastasTerminal = Math.round((antes + delta) * 100) / 100;
+        DB.set('balances', balances);
+        registrarMovimientoBitacora(operador, 'AJUSTE_DE_SALDO', 0,
+          `Encuadre Yastás ${fecha}: ganancia +${fmt.format(delta)} (${desgloseTxt}). Terminal Yastás: ${fmt.format(antes)} -> ${fmt.format(balances.yastasTerminal)}. Acumulado del día: ${fmt.format((encState.acumulado || 0) + delta)}.`);
+        const logId = String(((DB.get('logs', []) || [])[0] || {}).id || Date.now());
+        const prev = await encCargarAcumuladoAjuste(fecha);
+        const { error } = await supabaseClient.from('yastas_encuadre_ajustes').upsert({
+          fecha, concepto: 'ganancia_terminal', monto: Math.round((prev.monto + delta) * 100) / 100, veces: (prev.veces || 0) + 1,
+          detalle: desgloseTxt, operador, log_ids: [...(prev.log_ids || []), logId], aplicado_en: new Date().toISOString(),
+        }, { onConflict: 'fecha,concepto' });
+        if (error) throw error;
+        mostrarToast(`Terminal Yastás ajustada +${fmt.format(delta)} por ${operador}. Registrado en bitácora.`, 'success');
+        refrescarPantallas();
+        await encRecargar();
+      } catch (err) {
+        console.error('[Encuadre] ajuste:', err);
+        mostrarToast(`El saldo se ajustó localmente pero no se pudo registrar el acumulado en Supabase: ${err.message || err}`, 'error');
+        if (btn) btn.disabled = false;
+      }
+    }
