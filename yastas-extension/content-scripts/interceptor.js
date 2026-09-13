@@ -42,48 +42,27 @@
     reader.readAsDataURL(blob);
   }
 
-  // 1. Interceptar URL.createObjectURL (usado habitualmente por Angular y librerías de exportación)
-  const origCreateObjectURL = window.URL.createObjectURL;
-  window.URL.createObjectURL = function (obj) {
-    if (obj instanceof Blob) {
-      notificarBlob(obj, 'URL.createObjectURL');
-    }
-    return origCreateObjectURL.apply(this, arguments);
-  };
-
-  // 2. Interceptar fetch por si el backend de Gentera devuelve el stream directamente
-  const origFetch = window.fetch;
-  window.fetch = async function (...args) {
-    const res = await origFetch.apply(this, args);
-    try {
-      const ct = (res.headers.get('content-type') || '').toLowerCase();
-      const cd = (res.headers.get('content-disposition') || '').toLowerCase();
-      if (
-        cd.includes('.xls') ||
-        cd.includes('.xlsx') ||
-        ct.includes('spreadsheet') ||
-        ct.includes('excel') ||
-        ct.includes('octet-stream')
-      ) {
-        const clon = res.clone();
-        clon.blob().then((b) => notificarBlob(b, 'fetch')).catch(() => {});
-      }
-    } catch (e) {}
-    return res;
-  };
-
-  // 3. Interceptar XMLHttpRequest
-  const origOpen = XMLHttpRequest.prototype.open;
-  const origSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.open = function () {
-    this._url = arguments[1];
-    return origOpen.apply(this, arguments);
-  };
-  XMLHttpRequest.prototype.send = function () {
-    this.addEventListener('load', function () {
+  // 1. Interceptar URL.createObjectURL de forma segura (evita "Illegal invocation")
+  const origCreateObjectURL = window.URL?.createObjectURL ? window.URL.createObjectURL.bind(window.URL) : null;
+  if (origCreateObjectURL) {
+    window.URL.createObjectURL = function (obj) {
       try {
-        const ct = (this.getResponseHeader('content-type') || '').toLowerCase();
-        const cd = (this.getResponseHeader('content-disposition') || '').toLowerCase();
+        if (obj instanceof Blob) {
+          notificarBlob(obj, 'URL.createObjectURL');
+        }
+      } catch (e) {}
+      return origCreateObjectURL(obj);
+    };
+  }
+
+  // 2. Interceptar fetch con contexto window obligatorio (evita "Illegal invocation")
+  const origFetch = window.fetch ? window.fetch.bind(window) : null;
+  if (origFetch) {
+    window.fetch = async function (...args) {
+      const res = await origFetch(...args);
+      try {
+        const ct = (res.headers?.get('content-type') || '').toLowerCase();
+        const cd = (res.headers?.get('content-disposition') || '').toLowerCase();
         if (
           cd.includes('.xls') ||
           cd.includes('.xlsx') ||
@@ -91,11 +70,48 @@
           ct.includes('excel') ||
           ct.includes('octet-stream')
         ) {
-          if (this.response instanceof Blob) {
-            notificarBlob(this.response, 'XHR-blob');
-          } else if (this.response instanceof ArrayBuffer) {
-            notificarBlob(new Blob([this.response]), 'XHR-arraybuffer');
-          }
+          const clon = res.clone();
+          clon.blob().then((b) => notificarBlob(b, 'fetch')).catch(() => {});
+        }
+      } catch (e) {}
+      return res;
+    };
+  }
+
+  // 3. Interceptar XMLHttpRequest de forma segura
+  const origOpen = XMLHttpRequest.prototype.open;
+  const origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function () {
+    try { this._url = arguments[1]; } catch (e) {}
+    return origOpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function () {
+    const xhr = this;
+    xhr.addEventListener('load', function () {
+      try {
+        // Solo consultar cabeceras si la petición terminó exitosamente (readyState 4 y status 200)
+        // Evita el DOMException "The object's state must be HEADERS_RECEIVED or LOADING or DONE"
+        if (!xhr || xhr.readyState !== 4 || xhr.status !== 200) return;
+
+        let ct = '';
+        let cd = '';
+        try { ct = (xhr.getResponseHeader('content-type') || '').toLowerCase(); } catch (e) {}
+        try { cd = (xhr.getResponseHeader('content-disposition') || '').toLowerCase(); } catch (e) {}
+
+        if (
+          cd.includes('.xls') ||
+          cd.includes('.xlsx') ||
+          ct.includes('spreadsheet') ||
+          ct.includes('excel') ||
+          ct.includes('octet-stream')
+        ) {
+          try {
+            if (xhr.response instanceof Blob) {
+              notificarBlob(xhr.response, 'XHR-blob');
+            } else if (xhr.response instanceof ArrayBuffer) {
+              notificarBlob(new Blob([xhr.response]), 'XHR-arraybuffer');
+            }
+          } catch (e) {}
         }
       } catch (e) {}
     });

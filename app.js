@@ -9402,7 +9402,7 @@
       const btn = document.getElementById('enc-btn-descarga-auto');
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Solicitando descarga...';
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando del portal...';
         if (window.lucide) lucide.createIcons();
       }
 
@@ -9415,20 +9415,32 @@
         jobId: `auto-${Date.now()}`
       }, '*');
 
-      setTimeout(() => {
-        if (btn && btn.disabled) {
-          btn.disabled = false;
-          btn.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
+      // Timeout de seguridad amplio (90s) solo por si la extensión falla o se interrumpe la red,
+      // para evitar que el botón quede congelado indefinidamente ante un error fatal.
+      if (window._yastasTimeoutSeguridad) clearTimeout(window._yastasTimeoutSeguridad);
+      window._yastasTimeoutSeguridad = setTimeout(() => {
+        const b = document.getElementById('enc-btn-descarga-auto');
+        if (b && b.disabled && !window._encRecargandoAuto) {
+          b.disabled = false;
+          b.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
           if (window.lucide) lucide.createIcons();
+          mostrarToast('Tiempo límite de espera alcanzado. Intente de nuevo si no se completó.', 'warning');
         }
-      }, 12000);
+      }, 90000);
     }
 
     window.addEventListener('message', (ev) => {
       if (!ev.data) return;
       if (ev.data.tipo === 'YASTAS_DESCARGA_INICIADA') {
-        mostrarToast('Portal de Yastás abierto en el navegador. Generando reporte...', 'info');
+        const btn = document.getElementById('enc-btn-descarga-auto');
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Descargando del portal...';
+          if (window.lucide) lucide.createIcons();
+        }
+        mostrarToast('Conectando al portal en segundo plano. Generando reporte...', 'info');
       } else if (ev.data.tipo === 'YASTAS_DESCARGA_ERROR') {
+        if (window._yastasTimeoutSeguridad) clearTimeout(window._yastasTimeoutSeguridad);
         mostrarToast(`Aviso de extensión Yastás: ${ev.data.error}`, 'error');
         const btn = document.getElementById('enc-btn-descarga-auto');
         if (btn) {
@@ -9445,18 +9457,23 @@
           btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Cargando datos...';
           if (window.lucide) lucide.createIcons();
         }
-        mostrarToast('Portal cerrado. Actualizando encuadre en 2 segundos…', 'info');
+        mostrarToast('Portal finalizado. Actualizando encuadre en 2 segundos…', 'info');
         setTimeout(async () => {
           try {
             if (typeof encRecargar === 'function') {
               await encRecargar();
             }
             mostrarToast('¡Encuadre actualizado con los datos de Yastás!', 'success');
+          } catch (errRecarga) {
+            console.error('Error al recargar encuadre:', errRecarga);
+            mostrarToast('Error al recargar datos del encuadre', 'error');
           } finally {
+            if (window._yastasTimeoutSeguridad) clearTimeout(window._yastasTimeoutSeguridad);
             window._encRecargandoAuto = false;
-            if (btn) {
-              btn.disabled = false;
-              btn.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
+            const b = document.getElementById('enc-btn-descarga-auto');
+            if (b) {
+              b.disabled = false;
+              b.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
               if (window.lucide) lucide.createIcons();
             }
           }

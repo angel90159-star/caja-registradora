@@ -261,10 +261,10 @@ async function guardarTrabajoPendiente(job) {
 async function abrirOEnfocarPestanaYastas() {
   const [existente] = await chrome.tabs.query({ url: 'https://portales-ext.prd.cloud.yastas.com/*' });
   if (existente) {
-    await chrome.tabs.update(existente.id, { active: true, url: YASTAS_LOGIN_URL });
+    await chrome.tabs.update(existente.id, { active: false, url: YASTAS_LOGIN_URL });
     return existente;
   }
-  return chrome.tabs.create({ url: YASTAS_LOGIN_URL, active: true });
+  return chrome.tabs.create({ url: YASTAS_LOGIN_URL, active: false });
 }
 
 // --- Mensajes internos ---
