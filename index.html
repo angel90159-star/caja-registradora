@@ -2521,21 +2521,22 @@
     #enc-reglas code { background: rgba(148, 163, 184, .18); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
   </style>
 
-  <div id="modal-encuadre-yastas" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-40 flex items-center justify-center hidden p-2 sm:p-4">
-    <div id="enc-panel" data-enc-theme="dark" class="w-full max-w-7xl h-[94vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-slate-700">
+  <div id="modal-encuadre-yastas" class="fixed inset-0 z-40 bg-slate-950 flex flex-col hidden">
+    <div id="enc-panel" data-enc-theme="dark" class="w-full h-full flex flex-col overflow-hidden">
 
-      <!-- Header -->
-      <div class="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 text-white flex flex-wrap items-center gap-3">
+      <!-- Header de Pantalla Completa -->
+      <div class="bg-gradient-to-r from-indigo-600 to-purple-600 px-5 py-3.5 text-white flex flex-wrap items-center gap-3 flex-none shadow-md z-10">
         <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-none">
           <i data-lucide="scale" class="w-5 h-5 text-white"></i>
         </div>
         <div class="mr-auto">
-          <h3 class="text-base font-black text-white leading-tight">Encuadre de Caja vs. Yastás</h3>
+          <h3 class="text-base font-black text-white leading-tight uppercase tracking-wider">Encuadre de Caja vs. Yastás (Pantalla Completa)</h3>
           <p class="text-[11px] text-indigo-100 font-semibold">Fecha: <span id="enc-fecha-texto" class="font-black text-white">—</span></p>
         </div>
         <label class="flex items-center gap-2 text-[11px] font-bold text-indigo-100">
           Día
           <input type="date" id="enc-fecha" class="!text-slate-900 !bg-white !border-0 rounded-lg px-2 py-1.5 text-sm font-bold" onchange="cambiarFechaEncuadre(this.value)">
+        </label>
         <button type="button" class="enc-btn primary" id="enc-btn-descarga-auto" onclick="solicitarDescargaAutomaticaYastas()" title="Descarga automáticamente del portal de Yastás y actualiza la pantalla">
           <i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal
         </button>
@@ -2549,13 +2550,13 @@
           <button type="button" class="px-3 py-1.5 text-base font-black bg-white/10 hover:bg-white/25 border-l-2 border-white/40" onclick="tamanoLetraEncuadre('18px')" title="Letra grande">A+</button>
         </div>
         <button type="button" class="enc-btn" onclick="document.getElementById('enc-reglas').showModal()" title="Ver cómo se calcula el cruce">ℹ️ ¿Cómo calcula el cruce?</button>
-        <button type="button" onclick="cerrarModalEncuadreYastas()" class="w-9 h-9 flex items-center justify-center rounded-full bg-white text-indigo-900 shadow-sm hover:bg-indigo-50 transition flex-none" title="Cerrar">
-          <i data-lucide="x" class="w-5 h-5"></i>
+        <button type="button" onclick="cerrarModalEncuadreYastas()" class="px-3.5 py-1.5 flex items-center justify-center rounded-xl bg-white text-indigo-900 shadow-sm hover:bg-indigo-50 font-black text-xs transition flex-none gap-1.5 cursor-pointer" title="Volver al punto de venta">
+          <i data-lucide="x" class="w-4 h-4"></i> Salir al POS
         </button>
       </div>
 
-      <!-- Cuerpo -->
-      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+      <!-- Cuerpo de Pantalla Completa -->
+      <div class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 w-full">
 
         <div id="enc-sin-datos" class="enc-card enc-empty hidden"></div>
 
@@ -2652,6 +2653,6 @@
        ========================================== -->
   <!-- SheetJS (lector de Excel) solo se usa al subir el Reporte de Movimientos: defer para no retrasar el arranque -->
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260913_ENCUADRE_HORAS"></script>
+  <script src="app.js?v=20260913_ENCUADRE_FULLSCREEN"></script>
 </body>
 </html>
