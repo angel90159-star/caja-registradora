@@ -298,6 +298,10 @@ chrome.runtime.onMessage.addListener((mensaje, sender, sendResponse) => {
           }
         }
         console.log('[Yastás extensión] 🚪 Pestaña del portal cerrada automáticamente.');
+        const allTabs = await chrome.tabs.query({});
+        allTabs.forEach((t) => {
+          chrome.tabs.sendMessage(t.id, { tipo: 'YASTAS_PORTAL_CERRADO' }).catch(() => {});
+        });
       } catch (e) {
         console.warn('[Yastás extensión] Aviso al cerrar pestaña:', e);
       }

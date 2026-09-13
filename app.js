@@ -9436,17 +9436,31 @@
           btn.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
           if (window.lucide) lucide.createIcons();
         }
-      } else if (ev.data.tipo === 'YASTAS_IMPORTACION_COMPLETA') {
-        mostrarToast(`¡Reporte del ${ev.data.fecha} importado automáticamente (${ev.data.filas} movimientos)!`, 'success');
+      } else if (ev.data.tipo === 'YASTAS_PORTAL_CERRADO' || ev.data.tipo === 'YASTAS_IMPORTACION_COMPLETA') {
+        if (window._encRecargandoAuto) return;
+        window._encRecargandoAuto = true;
         const btn = document.getElementById('enc-btn-descarga-auto');
         if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
+          btn.disabled = true;
+          btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Cargando datos...';
           if (window.lucide) lucide.createIcons();
         }
-        if (typeof encRecargar === 'function') {
-          encRecargar();
-        }
+        mostrarToast('Portal cerrado. Actualizando encuadre en 2 segundos…', 'info');
+        setTimeout(async () => {
+          try {
+            if (typeof encRecargar === 'function') {
+              await encRecargar();
+            }
+            mostrarToast('¡Encuadre actualizado con los datos de Yastás!', 'success');
+          } finally {
+            window._encRecargandoAuto = false;
+            if (btn) {
+              btn.disabled = false;
+              btn.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
+              if (window.lucide) lucide.createIcons();
+            }
+          }
+        }, 2000);
       }
     });
     function alternarTemaEncuadre() {
@@ -9610,8 +9624,8 @@
     const ENC_MAPA_CAJEROS = {
       'miguel':  { bg: 'rgba(37, 99, 235, 0.15)',  border: '#3B82F6', text: '#1D4ED8', dot: '#2563EB' }, // Azul Rey
       'leticia': { bg: 'rgba(139, 92, 246, 0.15)', border: '#8B5CF6', text: '#6D28D9', dot: '#7C3AED' }, // Morado Intenso
-      'ingrid':  { bg: 'rgba(16, 185, 129, 0.15)', border: '#10B981', text: '#047857', dot: '#059669' }, // Verde Esmeralda
-      'dita':    { bg: 'rgba(249, 115, 22, 0.15)', border: '#F97316', text: '#C2410C', dot: '#EA580C' }, // Naranja
+      'ingrid':  { bg: 'rgba(6, 182, 212, 0.15)',  border: '#06B6D4', text: '#0e7490', dot: '#0891B2' }, // Turquesa / Cian
+      'dita':    { bg: 'rgba(67, 56, 202, 0.15)',  border: '#6366F1', text: '#3730A3', dot: '#4338CA' }, // Índigo Noche
       'yoyis':   { bg: 'rgba(236, 72, 153, 0.15)', border: '#EC4899', text: '#BE185D', dot: '#DB2777' }, // Rosa Fucsia
       'portal':  { bg: 'rgba(100, 116, 139, 0.15)', border: '#64748B', text: '#334155', dot: '#475569' }, // Gris Pizarra
     };
@@ -9620,8 +9634,8 @@
       const k = str.toLowerCase();
       if (ENC_MAPA_CAJEROS[k]) return ENC_MAPA_CAJEROS[k];
       const fallback = [
-        { bg: 'rgba(6, 182, 212, 0.15)',  border: '#06B6D4', text: '#0e7490', dot: '#0891B2' },
-        { bg: 'rgba(234, 179, 8, 0.15)',  border: '#EAB308', text: '#A16207', dot: '#CA8A04' },
+        { bg: 'rgba(120, 53, 15, 0.15)', border: '#A16207', text: '#78350F', dot: '#92400E' },
+        { bg: 'rgba(100, 116, 139, 0.15)', border: '#94A3B8', text: '#475569', dot: '#64748B' },
       ];
       let hash = 0;
       for (let i = 0; i < str.length; i++) { hash = (hash << 5) - hash + str.charCodeAt(i); hash |= 0; }

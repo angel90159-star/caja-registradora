@@ -51,7 +51,7 @@
 
   // Reenviar avisos desde el Service Worker hacia la ventana web
   chrome.runtime.onMessage.addListener((mensaje) => {
-    if (mensaje?.tipo === 'YASTAS_PROGRESO' || mensaje?.tipo === 'YASTAS_TERMINADO' || mensaje?.tipo === 'YASTAS_ERROR') {
+    if (mensaje?.tipo && mensaje.tipo.startsWith('YASTAS_')) {
       window.postMessage(mensaje, '*');
     }
   });
