@@ -9583,11 +9583,13 @@
         const g = ganancia || 0;
         const clase = paso === 'error' || paso === 'solo-portal' || paso === 'solo-caja' || g < 0 ? 'enc-bad' : (g > 0 || ['aprox', 'sin-com', 'hora'].includes(paso) ? 'enc-warn' : '');
         const quien = c ? c.operator : (cajaOtra ? cajaOtra.operator : 'Portal');
-        const hora = (p || c).hora;
         const concepto = p ? p.descripcion : (c ? c.details : '—');
         const sub = p ? `${p.servicio && p.servicio !== '-' ? p.servicio : ''} · ${p.tipo}` : `${c.tipo} en caja`;
+        const pHora = p ? p.hora : '—';
+        const cHora = c ? c.hora : (cajaOtra ? cajaOtra.hora : '—');
         const pMonto = p ? `${p.tipo === 'RETIRO' ? '−' : '+'}${fmt.format(p.montoTerminal)}` : '—';
         const cMonto = c ? `${c.tipo === 'RETIRO' ? '−' : '+'}${fmt.format(c.monto)}` : (cajaOtra ? `<span style="color:var(--enc-bad);font-size:.85em">${fmt.format(cajaOtra.monto)} en ${encEsc(cajaOtra.category)}</span>` : '—');
+        const dtMin = p && c ? Math.round(Math.abs(c.t - p.t) / 60) : null;
         let res = '';
         if (paso === 'error') {
           const hp = hipotesis || {};
@@ -9608,10 +9610,16 @@
           res = `<span class="enc-pill warn">⚠️ Varía por ${fmt.format(Math.abs(diff || 0))}</span>`;
         }
         return `<tr class="${clase}">
-          <td><div class="enc-who"><span class="enc-av">${encEsc(String(quien).charAt(0).toUpperCase())}</span><div><div class="enc-mono">${encEsc(hora)}</div><div class="text-[0.85em]" style="color:var(--enc-ink2)">${encEsc(quien)}</div></div></div></td>
+          <td><div class="enc-who"><span class="enc-av">${encEsc(String(quien).charAt(0).toUpperCase())}</span><div><div class="font-bold text-[0.95em]">${encEsc(quien)}</div><div class="enc-mono text-[0.8em]" style="color:var(--enc-ink2)">${dtMin !== null ? (dtMin === 0 ? 'Mismo minuto' : `Δ ${dtMin} min`) : ''}</div></div></div></td>
           <td class="enc-op">${encEsc(concepto)}<small>${encEsc(sub)}</small></td>
-          <td class="enc-amt ${p && p.tipo === 'RETIRO' ? 'out' : 'in'} enc-mono">${pMonto}</td>
-          <td class="enc-amt ${c && c.tipo === 'RETIRO' ? 'out' : 'in'} enc-mono">${cMonto}</td>
+          <td class="enc-amt ${p && p.tipo === 'RETIRO' ? 'out' : 'in'} enc-mono">
+            <div>${pMonto}</div>
+            <div class="text-[0.78em] font-bold" style="color:var(--enc-yastas); opacity:0.9">🕒 ${encEsc(pHora)}</div>
+          </td>
+          <td class="enc-amt ${c && c.tipo === 'RETIRO' ? 'out' : 'in'} enc-mono">
+            <div>${cMonto}</div>
+            <div class="text-[0.78em] font-bold" style="color:var(--enc-ink2)">🕒 ${encEsc(cHora)}</div>
+          </td>
           <td style="text-align:center">${res}</td>
         </tr>`;
       }).join('');
