@@ -87,7 +87,7 @@ yastas-extension/
 **Limitaciones conocidas:**
 - El navegador debe estar abierto en esa máquina para que reaccione (inherente a "usar la IP real").
 - `chrome.downloads` da solo metadata (ruta/nombre), **no el contenido** del archivo → ver Fase B.
-- `externally_connectable` tiene el dominio de Vercel supuesto (`caja-registradora.vercel.app`); el ID de la extensión lo asigna el navegador al cargarla y hay que ponerlo en la app.
+- `externally_connectable` tiene el dominio de Vercel supuesto (`caja-registradora-lyart.vercel.app` (dominio real de producción; `caja-registradora.vercel.app` es OTRO proyecto)); el ID de la extensión lo asigna el navegador al cargarla y hay que ponerlo en la app.
 - Los selectores del calendario son los estándar de Angular Material 19; si el portal actualiza versión pueden cambiar.
 - Recargas (`YASTAS_RECARGA`), retiros Getnet y RE-DEPÓSITO **no se han visto todavía en un reporte real del portal** (no hubo el día de la prueba); su mapeo es supuesto (sección 5.4).
 

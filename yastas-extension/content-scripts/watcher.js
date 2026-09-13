@@ -24,6 +24,23 @@
   let descargaEnCurso = false; // candado de la Fase 2
   let loginIntentado = false;  // evita rellenar/clic en ENTRAR más de una vez
   let intentosFase2 = 0;
+  let blobCapturadoResolve = null;
+
+  window.addEventListener('message', (ev) => {
+    if (ev.data?.origen === 'YASTAS_INTERCEPTOR' && ev.data?.tipo === 'BLOB_CAPTURADO') {
+      reportar('excel-capturado', `${ev.data.metodo} (${ev.data.tamano} bytes)`);
+      chrome.runtime.sendMessage({
+        tipo: 'YASTAS_XLSX_CAPTURADO',
+        base64: ev.data.base64,
+        metodo: ev.data.metodo,
+        tamano: ev.data.tamano,
+      });
+      if (blobCapturadoResolve) {
+        blobCapturadoResolve(ev.data);
+        blobCapturadoResolve = null;
+      }
+    }
+  });
 
   function reportar(paso, detalle) {
     console.log('[Yastás extensión]', paso, detalle ?? '');
@@ -348,11 +365,17 @@
       botonExportar.click();
       reportar('exportar-click');
 
+      // Dar oportunidad a que el interceptor capture el blob en memoria
+      await Promise.race([
+        new Promise((res) => { blobCapturadoResolve = res; }),
+        esperar(6000),
+      ]);
+
       // Marcar el job como terminado ANTES del logout: si no, al volver al
       // login el watcher lo vería pendiente y repetiría todo en bucle.
       await marcarJob({ estado: 'terminado' });
       terminar({ fecha: job.fecha, paso: 'exportar-disparado' });
-      await pausaHumana(2500, 4000); // deja que arranque la descarga
+      await pausaHumana(2500, 4000); // deja que arranque la descarga / borrado
 
       // Cierre de sesión — igual que en la grabación. Si prefieres que la
       // sesión quede viva para la siguiente corrida, comenta esta línea.

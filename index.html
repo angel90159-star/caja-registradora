@@ -2536,9 +2536,11 @@
         <label class="flex items-center gap-2 text-[11px] font-bold text-indigo-100">
           Día
           <input type="date" id="enc-fecha" class="!text-slate-900 !bg-white !border-0 rounded-lg px-2 py-1.5 text-sm font-bold" onchange="cambiarFechaEncuadre(this.value)">
-        </label>
-        <label class="enc-btn primary cursor-pointer" title="Sube el archivo 'Reporte de Movimientos.xlsx' que exportaste del portal">
-          <i data-lucide="upload" class="w-4 h-4"></i> Cargar reporte del portal
+        <button type="button" class="enc-btn primary" id="enc-btn-descarga-auto" onclick="solicitarDescargaAutomaticaYastas()" title="Descarga automáticamente del portal de Yastás y actualiza la pantalla">
+          <i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal
+        </button>
+        <label class="enc-btn secondary cursor-pointer" title="Sube el archivo 'Reporte de Movimientos.xlsx' manualmente si no usas la extensión">
+          <i data-lucide="upload" class="w-4 h-4"></i> Cargar manual
           <input type="file" id="enc-archivo" accept=".xlsx,.xls" class="hidden" onchange="cargarReporteYastasDesdeArchivo(this.files[0]); this.value='';">
         </label>
         <button type="button" class="enc-btn" id="enc-btn-tema" onclick="alternarTemaEncuadre()" title="Cambiar a fondo claro u oscuro">☀️ Modo Claro</button>
@@ -2650,6 +2652,6 @@
        ========================================== -->
   <!-- SheetJS (lector de Excel) solo se usa al subir el Reporte de Movimientos: defer para no retrasar el arranque -->
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260912_ENCUADRE"></script>
+  <script src="app.js?v=20260913_ENCUADRE_AUTO"></script>
 </body>
 </html>

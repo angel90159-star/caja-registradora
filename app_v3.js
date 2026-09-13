@@ -727,6 +727,18 @@
               }
             }
           })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'yastas_import_jobs' }, payload => {
+            if (payload.new && payload.new.estado === 'importado') {
+              console.log('[Supabase Realtime] Reporte de Yastás importado:', payload.new);
+              if (typeof mostrarToast === 'function') {
+                mostrarToast(`¡Reporte de Yastás del ${payload.new.fecha} actualizado automáticamente!`, 'success');
+              }
+              const modal = document.getElementById('modal-encuadre-yastas');
+              if (modal && !modal.classList.contains('hidden') && typeof encRecargar === 'function') {
+                encRecargar();
+              }
+            }
+          })
           .subscribe();
       } catch (e) {
         console.warn("[Supabase Realtime] Notificación:", e.message || e);
@@ -9318,6 +9330,14 @@
         if (error) throw error;
         const jobId = `manual-${Date.now()}`;
         await supabaseClient.from('yastas_import_jobs').upsert({ job_id: jobId, fecha: fechaArchivo, estado: 'importado', paso: 'upsert', detalle: `${rows.length} filas desde ${file.name}`, filas: rows.length, origen: 'manual', actualizado_en: new Date().toISOString() });
+        // Purgar movimientos con más de 7 días de antigüedad (regla de retención estricta)
+        try {
+          const d7 = new Date(); d7.setDate(d7.getDate() - 7);
+          const lim7 = d7.toISOString().slice(0, 10);
+          await supabaseClient.from('yastas_movimientos_portal').delete().lt('fecha', lim7);
+          await supabaseClient.from('yastas_import_jobs').delete().lt('fecha', lim7);
+          await supabaseClient.from('yastas_encuadre_ajustes').delete().lt('fecha', lim7);
+        } catch (e) {}
         mostrarToast(`Reporte cargado: ${rows.length} filas del ${fechaArchivo}.`, 'success');
         await encRecargar();
       } catch (err) {
@@ -9350,6 +9370,59 @@
       encState.fecha = fecha; encState.filtro = 'all';
       await encRecargar();
     }
+
+    function solicitarDescargaAutomaticaYastas() {
+      const fecha = (encState && encState.fecha) || encHoy();
+      const btn = document.getElementById('enc-btn-descarga-auto');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Solicitando descarga...';
+        if (window.lucide) lucide.createIcons();
+      }
+
+      mostrarToast(`Iniciando descarga de Yastás para el día ${fecha}…`, 'info');
+
+      // Comunicar a través del puente de la extensión
+      window.postMessage({
+        tipo: 'YASTAS_SOLICITAR_DESCARGA',
+        fecha,
+        jobId: `auto-${Date.now()}`
+      }, '*');
+
+      setTimeout(() => {
+        if (btn && btn.disabled) {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
+          if (window.lucide) lucide.createIcons();
+        }
+      }, 12000);
+    }
+
+    window.addEventListener('message', (ev) => {
+      if (!ev.data) return;
+      if (ev.data.tipo === 'YASTAS_DESCARGA_INICIADA') {
+        mostrarToast('Portal de Yastás abierto en el navegador. Generando reporte...', 'info');
+      } else if (ev.data.tipo === 'YASTAS_DESCARGA_ERROR') {
+        mostrarToast(`Aviso de extensión Yastás: ${ev.data.error}`, 'error');
+        const btn = document.getElementById('enc-btn-descarga-auto');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
+          if (window.lucide) lucide.createIcons();
+        }
+      } else if (ev.data.tipo === 'YASTAS_IMPORTACION_COMPLETA') {
+        mostrarToast(`¡Reporte del ${ev.data.fecha} importado automáticamente (${ev.data.filas} movimientos)!`, 'success');
+        const btn = document.getElementById('enc-btn-descarga-auto');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="cloud-download" class="w-4 h-4"></i> Descargar del portal';
+          if (window.lucide) lucide.createIcons();
+        }
+        if (typeof encRecargar === 'function') {
+          encRecargar();
+        }
+      }
+    });
     function alternarTemaEncuadre() {
       const panel = document.getElementById('enc-panel'); if (!panel) return;
       const nuevo = panel.getAttribute('data-enc-theme') === 'dark' ? 'light' : 'dark';

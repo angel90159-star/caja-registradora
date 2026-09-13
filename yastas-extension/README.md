@@ -97,7 +97,7 @@ Antes de que el botón funcione hace falta:
    dashboard.
 2. Cambiar en [`manifest.json`](manifest.json) el dominio de
    `externally_connectable` por tu dominio real de Vercel si no es
-   `caja-registradora.vercel.app`.
+   `caja-registradora-lyart.vercel.app` (dominio real de producción; `caja-registradora.vercel.app` es OTRO proyecto).
 
 Snippet de ejemplo para `app.js` (aún no está agregado al proyecto, es solo
 la forma que tomaría):

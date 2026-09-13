@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Yastás Auto-Descarga · Caja Registradora",
-  "version": "0.1.0",
-  "description": "Automatiza, desde el botón del dashboard de Caja Registradora, la descarga de movimientos del Portal de Autoservicio de Yastás en una pestaña real del navegador.",
+  "version": "0.2.0",
+  "description": "Automatiza la descarga y conciliación del Portal Yastás con la Caja Registradora en Supabase sin intervención manual y con borrado automático de archivos.",
   "permissions": ["storage", "tabs", "downloads"],
   "host_permissions": [
-    "https://portales-ext.prd.cloud.yastas.com/*"
+    "https://portales-ext.prd.cloud.yastas.com/*",
+    "https://kpddjyytabxuxdjqsjze.supabase.co/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -13,13 +14,29 @@
   "content_scripts": [
     {
       "matches": ["https://portales-ext.prd.cloud.yastas.com/*"],
+      "js": ["content-scripts/interceptor.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://portales-ext.prd.cloud.yastas.com/*"],
       "js": ["config.local.js", "content-scripts/watcher.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://caja-registradora-lyart.vercel.app/*",
+        "https://caja-registradora-git-main-calculadora2.vercel.app/*",
+        "http://localhost:*/*"
+      ],
+      "js": ["content-scripts/bridge.js"],
+      "run_at": "document_start"
     }
   ],
   "externally_connectable": {
     "matches": [
-      "https://caja-registradora.vercel.app/*",
+      "https://caja-registradora-lyart.vercel.app/*",
+      "https://caja-registradora-git-main-calculadora2.vercel.app/*",
       "http://localhost:*/*"
     ]
   },
