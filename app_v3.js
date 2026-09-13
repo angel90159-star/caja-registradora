@@ -4,15 +4,27 @@
     const ADMIN_PIN = '02'; // Miguel — PIN de administrador
     const DEFAULT_OPERATORS = {
       "20": "Ingrid", "64": "Leticia", "02": "Miguel",
-      "86": "Dita", "26": "Yoyis", "15": "Mabeli"
+      "15": "Dita", "26": "Yoyis"
     };
 
     // Operadores se cargan desde localStorage (persistentes y editables)
     function getOperators() {
-      if (!localStorage.getItem('lc5_operators')) {
-        localStorage.setItem('lc5_operators', JSON.stringify(DEFAULT_OPERATORS));
+      let ops = null;
+      try {
+        ops = JSON.parse(localStorage.getItem('lc5_operators'));
+      } catch (e) {}
+      if (!ops || typeof ops !== 'object') {
+        ops = { ...DEFAULT_OPERATORS };
+        localStorage.setItem('lc5_operators', JSON.stringify(ops));
       }
-      return JSON.parse(localStorage.getItem('lc5_operators'));
+      // Migración: Mabeli eliminada, código 15 transferido a Dita (código 86 retirado)
+      if (ops["15"] === "Mabeli" || ops["86"] === "Dita" || !ops["15"]) {
+        delete ops["86"];
+        ops["15"] = "Dita";
+        Object.keys(ops).forEach((k) => { if (ops[k] === "Mabeli") delete ops[k]; });
+        localStorage.setItem('lc5_operators', JSON.stringify(ops));
+      }
+      return ops;
     }
     function saveOperators(ops) {
       localStorage.setItem('lc5_operators', JSON.stringify(ops));
@@ -9056,7 +9068,7 @@
     const ENC_TOL_ABS = 5, ENC_TOL_PCT = 0.005, ENC_VENTANA_MIN = 15, ENC_VENTANA_ERR = 120;
     const ENC_RE_RECARGA = /RECARGA|TELCEL|MOVISTAR|AT&T|UNEFON|BAIT|VIRGIN|TIEMPO AIRE/i;
     const ENC_MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-    const encState = { fecha: null, portalFilas: [], caja: [], otrosCaja: [], pares: [], internos: [], filtro: 'all', busqueda: '', acumulado: 0, sumGan: 0, desglose: {} };
+    const encState = { fecha: null, portalFilas: [], caja: [], otrosCaja: [], pares: [], internos: [], filtro: 'all', busqueda: '', filtroCajero: '', acumulado: 0, sumGan: 0, desglose: {} };
 
     function encHoy() {
       const n = new Date();
@@ -9350,7 +9362,7 @@
     // ---------- Abrir / cerrar / recargar ----------
     async function abrirModalEncuadreYastas(fecha) {
       encState.fecha = fecha || encHoy();
-      encState.filtro = 'all'; encState.busqueda = '';
+      encState.filtro = 'all'; encState.busqueda = ''; encState.filtroCajero = '';
       const modal = document.getElementById('modal-encuadre-yastas'); if (!modal) return;
       const panel = document.getElementById('enc-panel');
       if (panel && !panel.dataset.temaFijado) panel.setAttribute('data-enc-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
@@ -9358,6 +9370,7 @@
       if (btnTema && panel) btnTema.textContent = panel.getAttribute('data-enc-theme') === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Oscuro';
       const inp = document.getElementById('enc-fecha'); if (inp) { inp.value = encState.fecha; inp.max = encHoy(); }
       const buscar = document.getElementById('enc-buscar'); if (buscar) buscar.value = '';
+      const selCaj = document.getElementById('enc-filtro-cajero'); if (selCaj) selCaj.value = '';
       modal.classList.remove('hidden');
       if (window.lucide) lucide.createIcons();
       await encRecargar();
@@ -9365,9 +9378,22 @@
     function cerrarModalEncuadreYastas() {
       const modal = document.getElementById('modal-encuadre-yastas'); if (modal) modal.classList.add('hidden');
     }
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const modal = document.getElementById('modal-encuadre-yastas');
+        if (modal && !modal.classList.contains('hidden')) {
+          const reglas = document.getElementById('enc-reglas');
+          if (reglas && reglas.open) {
+            reglas.close();
+          } else {
+            cerrarModalEncuadreYastas();
+          }
+        }
+      }
+    });
     async function cambiarFechaEncuadre(fecha) {
       if (!fecha) return;
-      encState.fecha = fecha; encState.filtro = 'all';
+      encState.fecha = fecha; encState.filtro = 'all'; encState.filtroCajero = '';
       await encRecargar();
     }
 
@@ -9431,6 +9457,12 @@
     }
     function tamanoLetraEncuadre(px) { const panel = document.getElementById('enc-panel'); if (panel) panel.style.setProperty('--enc-font', px); }
     function filtrarEncuadrePorTexto(q) { encState.busqueda = q || ''; encRenderTabla(); }
+    function filtrarEncuadrePorCajero(nombre) {
+      encState.filtroCajero = encState.filtroCajero === nombre ? '' : (nombre || '');
+      const sel = document.getElementById('enc-filtro-cajero');
+      if (sel) sel.value = encState.filtroCajero;
+      encRenderTabla();
+    }
     function filtrarEncuadre(clave) {
       encState.filtro = clave;
       document.querySelectorAll('#enc-kpis .enc-kpi').forEach((b) => b.classList.toggle('active', b.dataset.filtro === clave));
@@ -9443,6 +9475,11 @@
       const fecha = encState.fecha;
       const txt = document.getElementById('enc-fecha-texto');
       if (txt) { const f = new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); txt.textContent = f.charAt(0).toUpperCase() + f.slice(1); }
+      const sincEl = document.getElementById('enc-sinc-texto');
+      if (sincEl) {
+        const ahora = new Date();
+        sincEl.textContent = `· Sincronizado ${String(ahora.getHours()).padStart(2, '0')}:${String(ahora.getMinutes()).padStart(2, '0')} hrs`;
+      }
       const cajaLogs = encCargarCajaDelDia(fecha);
       let portalFilas = [];
       try {
@@ -9558,11 +9595,41 @@
         ? `Ganancia del día: ${fmt.format(sumGan)} (${desgloseTxt}). Ya aplicado: ${fmt.format(encState.acumulado || 0)}${encState.veces ? ` en ${encState.veces} ejecución${encState.veces === 1 ? '' : 'es'}` : ''}.`
         : 'Sin ganancia por ajustar en este día.';
 
+      // Población de cajeros en el selector desplegable
+      const selCaj = document.getElementById('enc-filtro-cajero');
+      if (selCaj) {
+        const cajerosUnicos = [...new Set(pares.map((x) => x.c ? x.c.operator : (x.cajaOtra ? x.cajaOtra.operator : null)).filter(Boolean))].sort();
+        const cur = encState.filtroCajero || '';
+        selCaj.innerHTML = `<option value="">👤 Todos los cajeros (${cajerosUnicos.length})</option>` +
+          cajerosUnicos.map((c) => `<option value="${encEsc(c)}" ${cur === c ? 'selected' : ''}>👤 ${encEsc(c)}</option>`).join('');
+      }
+
       encRenderTabla();
     }
 
+    const ENC_MAPA_CAJEROS = {
+      'miguel':  { bg: 'rgba(37, 99, 235, 0.15)',  border: '#3B82F6', text: '#1D4ED8', dot: '#2563EB' }, // Azul Rey
+      'leticia': { bg: 'rgba(139, 92, 246, 0.15)', border: '#8B5CF6', text: '#6D28D9', dot: '#7C3AED' }, // Morado Intenso
+      'ingrid':  { bg: 'rgba(16, 185, 129, 0.15)', border: '#10B981', text: '#047857', dot: '#059669' }, // Verde Esmeralda
+      'dita':    { bg: 'rgba(249, 115, 22, 0.15)', border: '#F97316', text: '#C2410C', dot: '#EA580C' }, // Naranja
+      'yoyis':   { bg: 'rgba(236, 72, 153, 0.15)', border: '#EC4899', text: '#BE185D', dot: '#DB2777' }, // Rosa Fucsia
+      'portal':  { bg: 'rgba(100, 116, 139, 0.15)', border: '#64748B', text: '#334155', dot: '#475569' }, // Gris Pizarra
+    };
+    function encEstiloCajero(nombre) {
+      const str = String(nombre || 'Sistema').trim();
+      const k = str.toLowerCase();
+      if (ENC_MAPA_CAJEROS[k]) return ENC_MAPA_CAJEROS[k];
+      const fallback = [
+        { bg: 'rgba(6, 182, 212, 0.15)',  border: '#06B6D4', text: '#0e7490', dot: '#0891B2' },
+        { bg: 'rgba(234, 179, 8, 0.15)',  border: '#EAB308', text: '#A16207', dot: '#CA8A04' },
+      ];
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) { hash = (hash << 5) - hash + str.charCodeAt(i); hash |= 0; }
+      return fallback[Math.abs(hash) % fallback.length];
+    }
+
     function encRenderTabla() {
-      const { pares, filtro, busqueda } = encState;
+      const { pares, filtro, busqueda, filtroCajero } = encState;
       const tbody = document.getElementById('enc-tabla'), vacia = document.getElementById('enc-tabla-vacia'), conteo = document.getElementById('enc-conteo');
       const q = (busqueda || '').trim().toLowerCase();
       const filtradas = pares.filter((x) => {
@@ -9571,25 +9638,30 @@
         if (filtro === 'huerfano' && x.paso !== 'solo-portal' && x.paso !== 'solo-caja') return false;
         if (filtro === 'good' && x.paso !== 'exacto') return false;
         if (filtro === 'recarga' && !((x.p && x.p.tipo === 'RECARGA') || (x.c && x.c.tipo === 'RECARGA'))) return false;
+        const quienFiltro = x.c ? x.c.operator : (x.cajaOtra ? x.cajaOtra.operator : 'Portal');
+        if (filtroCajero && quienFiltro !== filtroCajero) return false;
         if (q) {
           const t = [x.p && `${x.p.descripcion} ${x.p.servicio} ${x.p.montoTotal} ${x.p.montoTerminal}`, x.c && `${x.c.tipo} ${x.c.details} ${x.c.operator} ${x.c.monto}`].filter(Boolean).join(' ').toLowerCase();
           if (!t.includes(q)) return false;
         }
         return true;
       });
-      if (conteo) conteo.textContent = `Mostrando ${filtradas.length} de ${pares.length} operaciones`;
+      if (conteo) {
+        const extraCajero = filtroCajero ? ` [Cajero: ${filtroCajero}]` : '';
+        conteo.textContent = `Mostrando ${filtradas.length} de ${pares.length} operaciones${extraCajero}`;
+      }
       vacia.classList.toggle('hidden', filtradas.length > 0);
       tbody.innerHTML = filtradas.map(({ p, c, paso, diff, ganancia, hipotesis, cajaOtra }) => {
         const g = ganancia || 0;
         const clase = paso === 'error' || paso === 'solo-portal' || paso === 'solo-caja' || g < 0 ? 'enc-bad' : (g > 0 || ['aprox', 'sin-com', 'hora'].includes(paso) ? 'enc-warn' : '');
         const quien = c ? c.operator : (cajaOtra ? cajaOtra.operator : 'Portal');
+        const col = encEstiloCajero(quien);
         const concepto = p ? p.descripcion : (c ? c.details : '—');
         const sub = p ? `${p.servicio && p.servicio !== '-' ? p.servicio : ''} · ${p.tipo}` : `${c.tipo} en caja`;
         const pHora = p ? p.hora : '—';
         const cHora = c ? c.hora : (cajaOtra ? cajaOtra.hora : '—');
         const pMonto = p ? `${p.tipo === 'RETIRO' ? '−' : '+'}${fmt.format(p.montoTerminal)}` : '—';
         const cMonto = c ? `${c.tipo === 'RETIRO' ? '−' : '+'}${fmt.format(c.monto)}` : (cajaOtra ? `<span style="color:var(--enc-bad);font-size:.85em">${fmt.format(cajaOtra.monto)} en ${encEsc(cajaOtra.category)}</span>` : '—');
-        const dtMin = p && c ? Math.round(Math.abs(c.t - p.t) / 60) : null;
         let res = '';
         if (paso === 'error') {
           const hp = hipotesis || {};
@@ -9601,7 +9673,10 @@
         } else if (g < 0) {
           res = `<span class="enc-pill bad">❌ Faltante ${fmt.format(Math.abs(g))}</span><div class="enc-note bad">la caja ${p.operacion === 'CASH-OUT' ? 'entregó de más' : 'recibió de menos'}</div>`;
         } else if (g > 0) {
-          res = `<span class="enc-pill ${paso === 'exacto' ? 'good' : 'warn'}">${paso === 'hora' ? '🕒 Otra hora' : '✅ Cuadra'}</span><div class="enc-note warn">⚡ Ganancia +${fmt.format(g)}</div><div class="enc-note">${p.tipo === 'RECARGA' ? 'comisión de recarga' : (/ODP/i.test(p.descripcion || '') ? 'comisión del vale' : 'comisión')} · ya está en la terminal</div>`;
+          const yaAjustado = (encState.acumulado || 0) >= (encState.sumGan || 0) && (encState.sumGan || 0) > 0;
+          const estadoAj = yaAjustado ? 'ya reflejada en caja' : 'pendiente de sumar a caja';
+          const txtCom = p.tipo === 'RECARGA' ? 'comisión de recarga' : (/ODP/i.test(p.descripcion || '') ? 'comisión del vale' : 'comisión');
+          res = `<span class="enc-pill ${paso === 'exacto' ? 'good' : 'warn'}">${paso === 'hora' ? '🕒 Otra hora' : '✅ Cuadra'}</span><div class="enc-note warn">⚡ Ganancia +${fmt.format(g)}</div><div class="enc-note">${txtCom} en terminal física · ${estadoAj}</div>`;
         } else if (paso === 'exacto') {
           res = `<span class="enc-pill good">✅ Cuadra exacto</span>`;
         } else if (paso === 'hora') {
@@ -9610,7 +9685,7 @@
           res = `<span class="enc-pill warn">⚠️ Varía por ${fmt.format(Math.abs(diff || 0))}</span>`;
         }
         return `<tr class="${clase}">
-          <td><div class="enc-who"><span class="enc-av">${encEsc(String(quien).charAt(0).toUpperCase())}</span><div><div class="font-bold text-[0.95em]">${encEsc(quien)}</div><div class="enc-mono text-[0.8em]" style="color:var(--enc-ink2)">${dtMin !== null ? (dtMin === 0 ? 'Mismo minuto' : `Δ ${dtMin} min`) : ''}</div></div></div></td>
+          <td><div onclick="filtrarEncuadrePorCajero('${encEsc(quien)}')" title="Clic para ver solo movimientos de ${encEsc(quien)}" style="display:inline-flex;align-items:center;gap:7px;padding:3px 10px;border-radius:999px;background:${col.bg};border:1.5px solid ${col.border};cursor:pointer;user-select:none;transition:transform 0.12s ease;" onmouseenter="this.style.transform='scale(1.05)'" onmouseleave="this.style.transform='scale(1)'"><span style="width:20px;height:20px;border-radius:50%;background:${col.dot};color:#ffffff;display:grid;place-items:center;font-size:0.75em;font-weight:900;flex:none;">${encEsc(String(quien).charAt(0).toUpperCase())}</span><span style="font-weight:800;font-size:0.9em;color:${col.text};white-space:nowrap;">${encEsc(quien)}</span></div></td>
           <td class="enc-op">${encEsc(concepto)}<small>${encEsc(sub)}</small></td>
           <td class="enc-amt ${p && p.tipo === 'RETIRO' ? 'out' : 'in'} enc-mono">
             <div>${pMonto}</div>

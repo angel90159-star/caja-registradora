@@ -285,8 +285,23 @@ chrome.runtime.onMessage.addListener((mensaje, sender, sendResponse) => {
     });
   }
 
-  if (mensaje?.tipo === 'YASTAS_TERMINADO') {
-    console.log('[Yastás extensión] Secuencia de portal terminada:', mensaje.detalle);
+  if (mensaje?.tipo === 'YASTAS_TERMINADO' || mensaje?.tipo === 'YASTAS_CERRAR_PORTAL') {
+    console.log('[Yastás extensión] Secuencia de portal terminada:', mensaje.detalle || mensaje.tipo);
+    setTimeout(async () => {
+      try {
+        if (sender?.tab?.id) {
+          await chrome.tabs.remove(sender.tab.id);
+        } else {
+          const portalTabs = await chrome.tabs.query({ url: 'https://portales-ext.prd.cloud.yastas.com/*' });
+          for (const pt of portalTabs) {
+            await chrome.tabs.remove(pt.id);
+          }
+        }
+        console.log('[Yastás extensión] 🚪 Pestaña del portal cerrada automáticamente.');
+      } catch (e) {
+        console.warn('[Yastás extensión] Aviso al cerrar pestaña:', e);
+      }
+    }, 1500);
   }
 });
 

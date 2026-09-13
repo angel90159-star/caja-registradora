@@ -380,6 +380,8 @@
       // Cierre de sesión — igual que en la grabación. Si prefieres que la
       // sesión quede viva para la siguiente corrida, comenta esta línea.
       await cerrarSesion();
+      await pausaHumana(1200, 1800);
+      chrome.runtime.sendMessage({ tipo: 'YASTAS_CERRAR_PORTAL', fecha: job.fecha });
     } catch (err) {
       reportar('error', String(err));
       if (intentosFase2 < MAX_INTENTOS_FASE2) {
