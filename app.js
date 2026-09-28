@@ -3303,7 +3303,8 @@
       }
 
       // Validación de stock de la charola para salidas en efectivo
-      const isSalidaDeCaja = (srv === 'caja') ? (currentOpType === 'ingreso') : (currentOpType === 'salida');
+      // En 'cambio' la charola izquierda es efectivo RECIBIDO; su stock de salida ya se validó arriba (cambio-out-*)
+      const isSalidaDeCaja = (srv === 'cambio') ? false : (srv === 'caja') ? (currentOpType === 'ingreso') : (currentOpType === 'salida');
       if (isSalidaDeCaja && !isManualAmount) {
         const isRetiro = (srv !== 'caja' && currentOpType === 'salida');
         const isPhysical = (srv === 'yastas' || srv === 'bbva' || srv === 'capital' || srv === 'tconecta' || (srv === 'meli' && document.getElementById('op-modo-meli-val').value === 'tienda'));
