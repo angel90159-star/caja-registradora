@@ -728,6 +728,14 @@
               }
             }
           })
+          .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'caja_logs' }, payload => {
+            // Borrado de operación hecho desde otro equipo: solo se quita la fila; saldos y piezas
+            // llegan por sus propios canales (caja_state / caja_inventory).
+            const idBorrado = payload.old && payload.old.id;
+            if (idBorrado && quitarLogLocal(idBorrado) && !isUserTyping() && typeof cargarBitacora === 'function') {
+              cargarBitacora();
+            }
+          })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'cierre_reports' }, payload => {
             if (payload.new && payload.new.date_str) {
               const reports = DB.get('cierre_reports', {});
@@ -3494,6 +3502,9 @@
       const balances = DB.get('balances', {});
       const inventory = DB.get('inventory', {});
       const inventoryBoveda = DB.get('inventoryBoveda', {});
+      // Delta neto real de piezas de un re-depósito (lo que `pieces` de la bitácora no refleja con exactitud);
+      // se guarda en extraData para poder revertirlo si el administrador borra la operación.
+      const redepInventarioDelta = {};
 
       // 1. Modificar inventarios físicos
       if (srv === 'cambio') {
@@ -3543,6 +3554,7 @@
           } else {
             inventory[denom] = (inventory[denom] || 0) - cant;
           }
+          if (isRedeposito && cant) redepInventarioDelta[denom] = (redepInventarioDelta[denom] || 0) + cant;
         });
 
         // Descontar piezas de cambio en Re-depósito si aplica
@@ -3552,12 +3564,14 @@
               const denom = parseFloat(denomStr);
               const cantOut = currentSugerenciaRedepCambio[denomStr] || 0;
               inventory[denom] = (inventory[denom] || 0) - cantOut;
+              if (cantOut) redepInventarioDelta[denom] = (redepInventarioDelta[denom] || 0) - cantOut;
             });
           } else if (currentModoRedepCambio === 'manual' && redepositoCambioManualPiezas) {
             Object.keys(redepositoCambioManualPiezas).forEach(denomStr => {
               const denom = parseFloat(denomStr);
               const cantOut = redepositoCambioManualPiezas[denomStr] || 0;
               inventory[denom] = (inventory[denom] || 0) - cantOut;
+              if (cantOut) redepInventarioDelta[denom] = (redepInventarioDelta[denom] || 0) - cantOut;
             });
           }
         }
@@ -3980,7 +3994,8 @@
           retiros: [...redepositoRetiros],
           deposito: totalDeposito,
           efectivoRecibido: charolaRedepSum,
-          cambioEntregado: montoCambioRedep
+          cambioEntregado: montoCambioRedep,
+          inventarioDelta: Object.fromEntries(Object.entries(redepInventarioDelta).filter(([, v]) => v !== 0))
         };
         
         // Resetear estado de redeposito
@@ -4266,6 +4281,194 @@
       });
     }
 
+
+    // === BORRADO DE OPERACIONES DE YASTÁS (SOLO ADMINISTRADOR) ===
+    // Solo se pueden borrar operaciones del TURNO ABIERTO: los saldos y el inventario actuales
+    // corresponden a ese turno; un turno ya cerrado quedó asentado en su cierre.
+    // Cada borrado exige el PIN de Administración (3 dígitos), no el PIN de cajero ni el maestro.
+    const CATEGORIAS_YASTAS_BORRABLES = ['YASTAS', 'YASTAS_RECARGA', 'YASTAS_GETNET', 'RE-DEPÓSITO'];
+
+    function esLogYastasBorrable(log) {
+      return !!log && CATEGORIAS_YASTAS_BORRABLES.includes((log.category || '').toUpperCase());
+    }
+
+    function obtenerLogYastasBorrable(logId) {
+      if (!sessionActive) return null;
+      const log = (DB.get('logs', []) || []).find(l => l && String(l.id) === String(logId));
+      return esLogYastasBorrable(log) ? log : null;
+    }
+
+    // Calcula qué hay que deshacer: deltas de saldos y de piezas. Es el espejo exacto de lo que
+    // completarTransaccion() aplicó al registrar la operación.
+    function calcularReversoOperacionYastas(log) {
+      const cat = (log.category || '').toUpperCase();
+      const monto = parseFloat(log.amount) || 0;
+      const saldos = { yastasEfectivo: 0, yastasTerminal: 0, yastasGetnet: 0 };
+      let piezas = log.pieces || {};
+
+      if (cat === 'YASTAS' || cat === 'YASTAS_RECARGA') {
+        // Al registrar: efectivo += monto, terminal -= monto (recarga pagada con terminal registra monto 0).
+        saldos.yastasEfectivo = -monto;
+        saldos.yastasTerminal = monto;
+      } else if (cat === 'YASTAS_GETNET') {
+        // Al registrar: efectivo += monto (negativo) y Getnet += |monto|; no toca Terminal Yastás.
+        saldos.yastasEfectivo = -monto;
+        saldos.yastasGetnet = -Math.abs(monto);
+      } else if (cat === 'RE-DEPÓSITO') {
+        const extra = log.extraData || log.redepExtraData;
+        if (!extra || !extra.inventarioDelta) {
+          return { error: 'Este re-depósito es anterior a la función de borrado y no guardó el desglose real de piezas; no se puede revertir automáticamente.' };
+        }
+        // Al registrar: efectivo += (recibido - cambio entregado), terminal -= monto.
+        saldos.yastasEfectivo = -((extra.efectivoRecibido || 0) - (extra.cambioEntregado || 0));
+        saldos.yastasTerminal = monto;
+        piezas = extra.inventarioDelta;
+      } else {
+        return { error: 'Esta operación no se puede borrar.' };
+      }
+      return { saldos, piezas };
+    }
+
+    function quitarLogLocal(logId) {
+      const idStr = String(logId);
+      let encontrado = false;
+
+      const logs = DB.get('logs', []) || [];
+      const logsRestantes = logs.filter(l => !(l && String(l.id) === idStr));
+      if (logsRestantes.length !== logs.length) {
+        encontrado = true;
+        DB.set('logs', logsRestantes);
+      }
+
+      const historical = DB.get('historical_logs_by_date', {}) || {};
+      let historicoCambio = false;
+      Object.keys(historical).forEach(fecha => {
+        if (!Array.isArray(historical[fecha])) return;
+        const restantes = historical[fecha].filter(l => !(l && String(l.id) === idStr));
+        if (restantes.length !== historical[fecha].length) {
+          historical[fecha] = restantes;
+          historicoCambio = true;
+        }
+      });
+      if (historicoCambio) {
+        encontrado = true;
+        DB.set('historical_logs_by_date', historical);
+      }
+      return encontrado;
+    }
+
+    // Borra la fila de caja_logs. Si el registro nunca llegó a la nube no hay nada que borrar.
+    // Si ya estaba sincronizado y no se borró ninguna fila (RLS, otro equipo ya lo borró), se aborta:
+    // de lo contrario la fila reaparecería en el siguiente arranque con los saldos ya revertidos.
+    async function borrarLogEnNube(log) {
+      if (!supabaseClient) return { ok: true };
+      try {
+        const idStr = String(log.id);
+        const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idStr);
+        let query = supabaseClient.from('caja_logs').delete();
+        query = esUuid
+          ? query.eq('id', idStr)
+          : query.eq('timestamp', log.timestamp).eq('category', log.category).eq('operator', log.operator).eq('amount', log.amount);
+        const { data, error } = await query.select();
+        if (error) return { ok: false, error };
+        if (log._synced && (!data || data.length === 0)) {
+          return { ok: false, error: new Error('La nube no borró ninguna fila') };
+        }
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e };
+      }
+    }
+
+    function solicitarBorradoOperacionYastas(logId) {
+      const log = obtenerLogYastasBorrable(logId);
+      if (!log) {
+        mostrarToast('Solo se pueden borrar operaciones de Yastás del turno abierto.', 'warning');
+        return;
+      }
+      const reverso = calcularReversoOperacionYastas(log);
+      if (reverso.error) {
+        mostrarToast(reverso.error, 'error');
+        return;
+      }
+      document.getElementById('yastas-borrar-log-id').value = String(log.id);
+      document.getElementById('yastas-borrar-desc').textContent =
+        `¿Borrar la operación de ${log.operator} de las ${log.time} (${fmt.format(Math.abs(log.amount || 0))})? ` +
+        `Se devolverán los saldos y las piezas a la caja. Requiere el PIN de Administración y no se puede deshacer.`;
+      document.getElementById('modal-confirmar-borrar-yastas').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function cerrarConfirmarBorrarYastas() {
+      document.getElementById('modal-confirmar-borrar-yastas').classList.add('hidden');
+    }
+
+    function ejecutarBorradoOperacionYastas() {
+      const logId = document.getElementById('yastas-borrar-log-id').value;
+      cerrarConfirmarBorrarYastas();
+
+      abrirPINModal('Autorizar Borrado de Operación Yastás (PIN de Administración)', async (opName, pin) => {
+        if (pin !== ADMIN_SETTINGS_PIN) {
+          mostrarToast('Solo el administrador puede borrar operaciones de Yastás.', 'error');
+          return;
+        }
+        await borrarOperacionYastas(logId);
+      });
+    }
+
+    async function borrarOperacionYastas(logId) {
+      const log = obtenerLogYastasBorrable(logId);
+      if (!log) {
+        mostrarToast('La operación ya no está en el turno abierto (puede que ya se haya borrado).', 'warning');
+        cargarBitacora();
+        return;
+      }
+      const reverso = calcularReversoOperacionYastas(log);
+      if (reverso.error) {
+        mostrarToast(reverso.error, 'error');
+        return;
+      }
+
+      // Candado anti-negativos: si las piezas que dejó la operación ya salieron de la caja (p. ej. un
+      // billete depositado que luego se dio de cambio), revertirla dejaría el inventario en negativo.
+      const inventory = DB.get('inventory', {});
+      const faltantes = Object.keys(reverso.piezas).filter(d => (inventory[d] || 0) - (reverso.piezas[d] || 0) < 0);
+      if (faltantes.length > 0) {
+        const lista = faltantes.map(d => (parseFloat(d) === 0.5 ? '50¢' : '$' + d)).join(', ');
+        mostrarToast(`No se puede borrar: la caja ya no tiene las piezas que dejó esta operación (${lista}).`, 'error');
+        return;
+      }
+
+      // Nube primero: si falla no se toca nada local y el estado queda consistente.
+      const nube = await borrarLogEnNube(log);
+      if (!nube.ok) {
+        console.warn('[Borrado Yastás] No se pudo borrar en la nube:', nube.error);
+        mostrarToast('No se pudo confirmar el borrado en la nube. No se hizo ningún cambio. Si otro equipo ya la borró, recargue la página.', 'error');
+        return;
+      }
+
+      quitarLogLocal(log.id);
+
+      Object.keys(reverso.piezas).forEach(d => {
+        inventory[d] = (inventory[d] || 0) - (reverso.piezas[d] || 0);
+      });
+      DB.set('inventory', inventory);
+
+      const balances = DB.get('balances', {});
+      Object.keys(reverso.saldos).forEach(k => {
+        balances[k] = (balances[k] || 0) + reverso.saldos[k];
+      });
+      DB.set('balances', balances);
+
+      // Huella de auditoría: monto 0 para no contaminar el encuadre ni los totales.
+      registrarMovimientoBitacora('Administrador', 'BORRADO_OP_YASTAS', 0,
+        `Operación de Yastás eliminada por el administrador. Original: ${log.category} ${fmt.format(Math.abs(log.amount || 0))} ` +
+        `de ${log.operator} (${log.date || ''} ${log.time || ''}). Detalle: ${log.details || '-'}. Saldos y piezas revertidos.`);
+
+      mostrarToast('Operación borrada. Saldos y piezas devueltos a caja.', 'success');
+      cargarSaldosDigitales();
+      cargarBitacora();
+    }
 
     // === ANEXAR CAPITAL ===
     let modoAnexarCapital = 'efectivo'; // 'terminal' | 'efectivo'
@@ -5100,6 +5303,10 @@
       if (btnNext) btnNext.disabled = (bitacoraCurrentPage >= totalPages || bitacoraPerPage === 'todo');
 
       if (bitacoraActiveTab === 'saldos') {
+        // Solo las operaciones de Yastás del turno abierto muestran el botón de borrar (exige PIN de administrador)
+        const idsYastasBorrables = new Set(
+          sessionActive ? (DB.get('logs', []) || []).filter(esLogYastasBorrable).map(l => String(l.id)) : []
+        );
         pageLogs.forEach(log => {
           const tr = document.createElement('tr');
           tr.className = "hover:bg-slate-50 transition duration-150 border-b border-slate-100";
@@ -5145,9 +5352,14 @@
           else if (log.category === 'CAPITAL_EFECTIVO') friendlyCategory = 'Capital (Efectivo)';
           else if (log.category === 'CAPITAL_RETIRO') friendlyCategory = 'Retiro de Capital';
           else if (log.category === 'YASTAS_GETNET') friendlyCategory = 'Yastas (Retiro Getnet)';
+          else if (log.category === 'BORRADO_OP_YASTAS') friendlyCategory = 'Operación Yastás borrada';
 
           const logDate = log.date || selectedDate;
           const syncPendingIcon = log._synced ? '' : '<i data-lucide="triangle-alert" class="w-3 h-3 text-amber-500 inline-block ml-1 align-text-top" title="Aún no se ha subido a la nube"></i>';
+
+          const borrarYastasBtn = idsYastasBorrables.has(String(log.id))
+            ? `<button onclick="solicitarBorradoOperacionYastas('${String(log.id).replace(/[^\w-]/g, '')}')" class="w-7 h-7 inline-flex items-center justify-center rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-400 hover:text-rose-600 transition cursor-pointer" title="Borrar operación (solo administrador)"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`
+            : '';
 
           tr.innerHTML = `
             <td class="py-3 px-4 font-mono text-slate-500 dark:text-slate-300 text-xs font-semibold">${logDate}${syncPendingIcon}</td>
@@ -5158,6 +5370,7 @@
             <td class="py-3 px-4 text-right ${typeClass} font-mono text-xs">${fmt.format(log.amount)}</td>
             <td class="py-3 px-4 text-center">${piecesBtn}</td>
             <td class="py-3 px-6 text-xs text-slate-500 dark:text-slate-300 font-medium">${log.details}</td>
+            <td class="py-3 px-3 text-center">${borrarYastasBtn}</td>
           `;
           if (tbodySaldos) tbodySaldos.appendChild(tr);
         });
@@ -9190,8 +9403,11 @@
           const dt = Math.abs(c.t - p.t) / 60;
           if (dt > ventanaMin) return;
           if (c.tipo === p.tipo) { const hm = encHipotesisMonto(p.montoTotal, c.monto); if (hm) cand.push({ p, c, dt, prio: 1, h: hm }); }
-          else if (c.tipo !== 'RECARGA' && p.tipo !== 'RECARGA' && c.monto === p.montoTotal) {
-            cand.push({ p, c, dt, prio: 2, h: { tipo: 'sentido', texto: `en caja se capturó como ${c.tipo.toLowerCase()} y en Yastás fue ${p.tipo.toLowerCase()}`, correcto: p.montoTotal } });
+          else if (c.tipo !== 'RECARGA' && p.tipo !== 'RECARGA') {
+            const d = Math.abs(c.monto - p.montoTotal);
+            if (d === 0 || d <= ENC_TOL_ABS || d / p.montoTotal <= ENC_TOL_PCT) {
+              cand.push({ p, c, dt, prio: d === 0 ? 2 : 3, h: { tipo: 'sentido', texto: `en caja se capturó como ${c.tipo.toLowerCase()} y en Yastás fue ${p.tipo.toLowerCase()}`, correcto: p.montoTotal } });
+            }
           }
         }));
         cand.sort((a, b) => a.prio - b.prio || a.dt - b.dt);
@@ -9286,6 +9502,14 @@
       if (!supabaseClient) return { monto: 0, veces: 0, log_ids: [] };
       const { data } = await supabaseClient.from('yastas_encuadre_ajustes').select('monto,veces,log_ids').eq('fecha', fecha).eq('concepto', 'ganancia_terminal').maybeSingle();
       return data ? { monto: parseFloat(data.monto) || 0, veces: data.veces || 0, log_ids: data.log_ids || [] } : { monto: 0, veces: 0, log_ids: [] };
+    }
+
+    async function encCargarAjustesDia(fecha) {
+      if (!supabaseClient) return {};
+      const { data, error } = await supabaseClient.from('yastas_encuadre_ajustes').select('concepto,monto,operador,aplicado_en').eq('fecha', fecha);
+      if (error) throw error;
+      const out = {}; (data || []).forEach((r) => { out[r.concepto] = { ...r, monto: parseFloat(r.monto) || 0 }; });
+      return out;
     }
 
     // ---------- Importar el XLSX del portal a Supabase ----------
@@ -9514,10 +9738,12 @@
       }
       const cajaLogs = encCargarCajaDelDia(fecha);
       let portalFilas = [];
+      encState.ajustesDia = {};
       try {
         portalFilas = await encCargarPortalDesdeSupabase(fecha);
         const ac = await encCargarAcumuladoAjuste(fecha);
         encState.acumulado = ac.monto; encState.veces = ac.veces;
+        encState.ajustesDia = await encCargarAjustesDia(fecha);
       } catch (err) {
         console.error('[Encuadre] Supabase:', err);
         mostrarToast(/does not exist|schema cache/i.test(String(err.message || err)) ? 'Faltan las tablas del encuadre en Supabase (aplica la migración).' : 'No se pudo leer el reporte del portal desde Supabase.', 'error');
@@ -9525,6 +9751,12 @@
       const { ops: portal, internos } = encOpsPortal(portalFilas);
       encState.portalFilas = portalFilas; encState.internos = internos;
       encState.caja = encOpsCaja(cajaLogs); encState.otrosCaja = encOpsCajaOtros(cajaLogs);
+      // Salidas BBVA (efectivo de la charola que se lleva a fondear la terminal): del día y del día anterior,
+      // porque el efectivo suele salir un día y el abono aparece en el portal al siguiente.
+      const dPrev = new Date(fecha + 'T12:00:00'); dPrev.setDate(dPrev.getDate() - 1);
+      const fechaPrev = `${dPrev.getFullYear()}-${String(dPrev.getMonth() + 1).padStart(2, '0')}-${String(dPrev.getDate()).padStart(2, '0')}`;
+      encState.bbva = [...encCargarCajaDelDia(fechaPrev).map((l) => ({ ...l, fecha: fechaPrev })), ...cajaLogs.map((l) => ({ ...l, fecha }))]
+        .filter((l) => (l.category || '').toUpperCase() === 'BBVA' && Math.abs(l.amount) > 0);
       encState.pares = encuadrarYastas(portal, encState.caja, encState.otrosCaja);
       encRender();
     }
@@ -9608,6 +9840,8 @@
       if (!avisos.length) avisos.push(recP.length + recC.length === 0 ? `<div class="enc-callout">Hoy no hubo recargas ni en el portal ni en la caja.</div>` : `<div class="enc-callout good">✅ ${recOk.length} recarga${recOk.length === 1 ? '' : 's'} coincide${recOk.length === 1 ? '' : 'n'} entre la caja y el portal.</div>`);
       document.getElementById('enc-rec-avisos').innerHTML = avisos.join('');
 
+      encRenderFondeos();
+
       // Internos
       document.getElementById('enc-int-conteo').textContent = `${internos.length} asientos`;
       document.getElementById('enc-int-lista').innerHTML = internos.length ? internos.map((f) => `
@@ -9683,7 +9917,8 @@
         conteo.textContent = `Mostrando ${filtradas.length} de ${pares.length} operaciones${extraCajero}`;
       }
       vacia.classList.toggle('hidden', filtradas.length > 0);
-      tbody.innerHTML = filtradas.map(({ p, c, paso, diff, ganancia, hipotesis, cajaOtra }) => {
+      tbody.innerHTML = filtradas.map((par) => {
+        const { p, c, paso, diff, ganancia, hipotesis, cajaOtra } = par;
         const g = ganancia || 0;
         const clase = paso === 'error' || paso === 'solo-portal' || paso === 'solo-caja' || g < 0 ? 'enc-bad' : (g > 0 || ['aprox', 'sin-com', 'hora'].includes(paso) ? 'enc-warn' : '');
         const quien = c ? c.operator : (cajaOtra ? cajaOtra.operator : 'Portal');
@@ -9698,6 +9933,14 @@
         if (paso === 'error') {
           const hp = hipotesis || {};
           res = `<span class="enc-pill bad">❌ Posible error de captura</span><div class="enc-note bad">${encEsc(hp.texto || '')}</div>${hp.correcto ? `<div class="enc-note">Debería ser <b>${fmt.format(hp.correcto)}</b></div>` : ''}${hp.separar ? `<div class="enc-note">Debería ser ${fmt.format(hp.separar[0])} + ${fmt.format(hp.separar[1])}</div>` : ''}`;
+          const corr = encCorreccionDe(par);
+          if (corr) {
+            const hecho = (encState.ajustesDia || {})[corr.concepto];
+            const txt = `${corr.delta > 0 ? '+' : '−'}${fmt.format(Math.abs(corr.delta))}`;
+            res += hecho
+              ? `<div class="enc-note good">✅ Terminal corregida ${txt} (${encEsc(hecho.operador || '—')})</div>`
+              : `<div class="mt-1"><button type="button" class="enc-btn" style="padding:4px 10px;font-size:.8em" onclick="aplicarAjusteEncuadre('${encEsc(corr.concepto)}')">🔧 Corregir terminal ${txt}</button></div><div class="enc-note">El efectivo esperado también difiere; revísalo en el arqueo.</div>`;
+          }
         } else if (paso === 'solo-portal') {
           res = `<span class="enc-pill bad">❌ Falta en caja</span><div class="enc-note bad">Nadie la registró</div>`;
         } else if (paso === 'solo-caja') {
@@ -9730,6 +9973,102 @@
           <td style="text-align:center">${res}</td>
         </tr>`;
       }).join('');
+    }
+
+    // ---------- Fondeos y correcciones de captura → Terminal Yastás ----------
+    // Un "Abono a inversión" del portal es dinero que entra a la terminal (paga la línea de sobregiro).
+    // La caja no lo registra por sí sola, así que se ofrece aplicarlo una sola vez, firmado con PIN.
+    // Cada fondeo/corrección queda en yastas_encuadre_ajustes con concepto único (no se puede aplicar dos veces).
+    function encFondeosPortal() {
+      return (encState.portalFilas || [])
+        .filter((f) => (f.tipoMovimiento || '').toUpperCase() === 'ABONO A INVERSION' && (f.status || '').toUpperCase() === 'APROBADA' && f.montoTotal > 0)
+        .map((f) => ({ ...f, concepto: `fondeo:${f.idOperacion}` }));
+    }
+    // Efecto sobre la terminal: CASH-OUT/RETIRO la sube, CASH-IN/DEPÓSITO/RECARGA la baja.
+    function encEfectoPortal(p) { return p ? (p.operacion === 'CASH-OUT' ? p.montoTerminal : -p.montoTerminal) : 0; }
+    function encEfectoCaja(c) { return c ? (c.tipo === 'RETIRO' ? c.monto : -c.monto) : 0; }
+    function encCorreccionDe(x) {
+      if (x.paso !== 'error' || (x.hipotesis || {}).tipo === 'categoria') return null;
+      const clave = (x.p && x.p.idOperacion) || (x.c && x.c.logId);
+      if (!clave) return null;
+      const delta = Math.round((encEfectoPortal(x.p) - encEfectoCaja(x.c)) * 100) / 100;
+      if (!delta) return null;
+      return { concepto: `correccion:${clave}`, delta };
+    }
+
+    function encRenderFondeos() {
+      const cont = document.getElementById('enc-fondeos'); if (!cont) return;
+      const fondeos = encFondeosPortal(), aj = encState.ajustesDia || {};
+      if (!fondeos.length) { cont.classList.add('hidden'); cont.innerHTML = ''; return; }
+      // Un fondeo ya registrado como salida BBVA (con piezas) NO se vuelve a sumar: la operación BBVA ya subió la terminal.
+      const usados = new Set();
+      fondeos.forEach((f) => {
+        const b = (encState.bbva || []).find((x) => !usados.has(x.id) && Math.abs(Math.abs(x.amount) - f.montoTotal) <= ENC_TOL_ABS);
+        if (b) { usados.add(b.id); f.bbva = b; }
+      });
+      encState.fondeosBbva = new Set(fondeos.filter((f) => f.bbva).map((f) => f.concepto));
+      const pend = fondeos.filter((f) => !aj[f.concepto] && !f.bbva);
+      cont.classList.remove('hidden');
+      cont.innerHTML = `<div class="enc-callout ${pend.length ? 'warn' : 'good'}">
+        <div>${pend.length ? `💰 El portal tiene <b>${pend.length}</b> fondeo${pend.length === 1 ? '' : 's'} a la terminal que la caja todavía no ha sumado.` : '✅ Todos los fondeos del portal ya están sumados a la Terminal Yastás.'}</div>
+        <div class="text-[0.85em] font-semibold mt-1" style="color:var(--enc-ink2)">Si el dinero <b>salió de la charola</b>, no uses este botón: regístralo como <b>operación BBVA</b> con las piezas que salieron (así baja el efectivo, cuadra el inventario y sube la terminal). Usa <b>Sumar a terminal</b> solo si el dinero vino de fuera de la caja. Revisa también que no esté ya incluido en el saldo de apertura.</div>
+        ${fondeos.map((f) => {
+          const hecho = aj[f.concepto];
+          return `<div class="flex items-center gap-3 flex-wrap mt-2 pt-2 border-t" style="border-color:var(--enc-line)">
+            <span class="enc-mono font-bold">${encEsc(String(f.hora).slice(0, 5))}</span>
+            <span class="flex-1" style="color:var(--enc-ink)">${encEsc(f.descripcion)} <span class="enc-mono font-black">+${fmt.format(f.montoTotal)}</span></span>
+            ${f.bbva ? `<span class="enc-pill good">✅ Registrado como BBVA ${encEsc(f.bbva.fecha.slice(5))} ${encEsc(f.bbva.hora.slice(0, 5))} (${encEsc(f.bbva.operator)})</span>`
+              : hecho ? `<span class="enc-pill good">✅ Aplicado por ${encEsc(hecho.operador || '—')}</span>`
+                    : `<button type="button" class="enc-btn primary" onclick="aplicarAjusteEncuadre('${encEsc(f.concepto)}')">💰 Sumar a terminal +${fmt.format(f.montoTotal)}</button>`}
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    // Ajuste único por concepto (fondeo:<id> o correccion:<id>), firmado con PIN.
+    function aplicarAjusteEncuadre(concepto) {
+      if (!supabaseClient) { mostrarToast('Sin conexión a Supabase: el ajuste no se puede registrar.', 'error'); return; }
+      if ((encState.ajustesDia || {})[concepto]) { mostrarToast('Ese ajuste ya se aplicó.', 'info'); return; }
+      if (encState.fondeosBbva && encState.fondeosBbva.has(concepto)) { mostrarToast('Ese fondeo ya está registrado como operación BBVA; no se suma dos veces.', 'info'); return; }
+      let delta = 0, detalle = '';
+      if (concepto.startsWith('fondeo:')) {
+        const f = encFondeosPortal().find((x) => x.concepto === concepto); if (!f) return;
+        delta = f.montoTotal;
+        detalle = `fondeo del portal (${f.descripcion}, ${String(f.hora).slice(0, 5)}, ID ${f.idOperacion})`;
+      } else {
+        const x = (encState.pares || []).find((y) => { const k = encCorreccionDe(y); return k && k.concepto === concepto; }); if (!x) return;
+        delta = encCorreccionDe(x).delta;
+        const ref = x.p ? `portal ${x.p.tipo.toLowerCase()} ${fmt.format(x.p.montoTerminal)} ${x.p.hora.slice(0, 5)}` : 'sin operación en portal';
+        const cap = x.c ? `caja ${x.c.tipo.toLowerCase()} ${fmt.format(x.c.monto)} ${x.c.hora.slice(0, 5)} (${x.c.operator})` : '';
+        detalle = `corrección de captura: ${(x.hipotesis || {}).texto || ''} · ${ref}${cap ? ' · ' + cap : ''}`;
+      }
+      const signo = delta > 0 ? '+' : '−';
+      abrirPINModal(`Confirmación de AJUSTE ${signo}${fmt.format(Math.abs(delta))} · Terminal Yastás`, (opName) => encEjecutarAjusteConcepto(opName, concepto, delta, detalle, encState.fecha));
+    }
+
+    async function encEjecutarAjusteConcepto(operador, concepto, delta, detalle, fecha) {
+      try {
+        // Re-verificar en Supabase justo antes, por si otra caja ya lo aplicó.
+        const { data: ya } = await supabaseClient.from('yastas_encuadre_ajustes').select('id').eq('fecha', fecha).eq('concepto', concepto).maybeSingle();
+        if (ya) { mostrarToast('Ese ajuste ya lo aplicó alguien más.', 'info'); await encRecargar(); return; }
+        const balances = DB.get('balances', {});
+        const antes = balances.yastasTerminal || 0;
+        balances.yastasTerminal = Math.round((antes + delta) * 100) / 100;
+        DB.set('balances', balances);
+        registrarMovimientoBitacora(operador, 'AJUSTE_DE_SALDO', 0,
+          `Encuadre Yastás ${fecha}: ${detalle}. Terminal Yastás: ${fmt.format(antes)} -> ${fmt.format(balances.yastasTerminal)} (${delta > 0 ? '+' : '−'}${fmt.format(Math.abs(delta))}).`);
+        const logId = String(((DB.get('logs', []) || [])[0] || {}).id || Date.now());
+        const { error } = await supabaseClient.from('yastas_encuadre_ajustes').insert({
+          fecha, concepto, monto: Math.round(delta * 100) / 100, veces: 1, detalle, operador, log_ids: [logId], aplicado_en: new Date().toISOString(),
+        });
+        if (error) throw error;
+        mostrarToast(`Terminal Yastás ajustada ${delta > 0 ? '+' : '−'}${fmt.format(Math.abs(delta))} por ${operador}. Registrado en bitácora.`, 'success');
+        refrescarPantallas();
+        await encRecargar();
+      } catch (err) {
+        console.error('[Encuadre] ajuste:', err);
+        mostrarToast(`El saldo se ajustó localmente pero no se pudo registrar en Supabase: ${err.message || err}`, 'error');
+      }
     }
 
     // ---------- Ajuste de ganancia a Terminal Yastás (incremental, un AJUSTE_DE_SALDO por ejecución) ----------

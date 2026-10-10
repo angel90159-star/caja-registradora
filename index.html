@@ -1095,6 +1095,7 @@
                 <th class="py-3.5 px-4 w-32 text-right">Monto</th>
                 <th class="py-3.5 px-4 w-24 text-center">Físico</th>
                 <th class="py-3.5 px-6">Detalles del Movimiento</th>
+                <th class="py-3.5 px-3 w-12"></th>
               </tr>
             </thead>
             <tbody id="bitacora-tbody" class="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
@@ -2258,6 +2259,23 @@
       </div>
     </div>
   </div>
+  <!-- MODAL: CONFIRMAR BORRADO DE OPERACIÓN YASTÁS (SOLO ADMINISTRADOR) -->
+  <div id="modal-confirmar-borrar-yastas" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-100 dark:border-slate-800 p-6 space-y-4">
+      <div class="text-center">
+        <div class="w-12 h-12 bg-rose-50 dark:bg-rose-950 text-rose-500 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="trash-2" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-base font-bold text-slate-900">Borrar Operación de Yastás</h3>
+        <p id="yastas-borrar-desc" class="text-xs text-slate-500 dark:text-slate-400 mt-1">¿Confirmas que deseas eliminar esta operación?</p>
+      </div>
+      <input type="hidden" id="yastas-borrar-log-id">
+      <div class="flex gap-2 pt-2">
+        <button onclick="cerrarConfirmarBorrarYastas()" class="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition">Cancelar</button>
+        <button onclick="ejecutarBorradoOperacionYastas()" class="flex-1 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-xl text-xs transition">Sí, Borrar</button>
+      </div>
+    </div>
+  </div>
   <!-- MODAL: CONFIRMAR BORRADO DE CAPITAL -->
   <div id="modal-confirmar-borrar-capital" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[60] flex items-center justify-center hidden p-4">
     <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-100 dark:border-slate-800 p-6 space-y-4">
@@ -2502,7 +2520,7 @@
     #enc-panel .enc-pill.warn { color: var(--enc-warn); background: var(--enc-warn-soft); border-color: var(--enc-warn); }
     #enc-panel .enc-pill.bad { color: var(--enc-bad); background: var(--enc-bad-soft); border-color: var(--enc-bad); }
     #enc-panel .enc-note { font-size: 0.8em; font-weight: 700; margin-top: 4px; max-width: 280px; white-space: normal; color: var(--enc-ink2); }
-    #enc-panel .enc-note.warn { color: var(--enc-warn); } #enc-panel .enc-note.bad { color: var(--enc-bad); }
+    #enc-panel .enc-note.warn { color: var(--enc-warn); } #enc-panel .enc-note.good { color: var(--enc-good); } #enc-panel .enc-note.bad { color: var(--enc-bad); }
     #enc-panel .enc-tile { background: var(--enc-surface2); border: 2px solid var(--enc-line); border-radius: 10px; padding: 10px 12px; }
     #enc-panel .enc-tile .lbl { font-size: 0.78em; font-weight: 800; color: var(--enc-ink2); text-transform: uppercase; }
     #enc-panel .enc-tile .n { font-size: 1.45em; font-weight: 900; }
@@ -2561,6 +2579,9 @@
             <div class="ico" id="enc-hero-ico">⚠️</div>
             <div><h4 id="enc-hero-titulo"></h4><p id="enc-hero-desc"></p></div>
           </div>
+
+          <!-- Fondeos del portal (Abono a inversión) que suben el saldo de la terminal -->
+          <div id="enc-fondeos" class="hidden"></div>
 
           <div class="flex items-center justify-between flex-wrap gap-2">
             <span class="text-[0.8em] font-black uppercase tracking-wider" style="color:var(--enc-ink2)">Filtros rápidos (un clic para ver solo ese grupo)</span>
@@ -2659,6 +2680,6 @@
        ========================================== -->
   <!-- SheetJS (lector de Excel) solo se usa al subir el Reporte de Movimientos: defer para no retrasar el arranque -->
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260928_FIX_CAMBIO_STOCK"></script>
+  <script src="app.js?v=20261010_BORRAR_OP_YASTAS"></script>
 </body>
 </html>
