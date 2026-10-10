@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Yastás Auto-Descarga · Caja Registradora",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Automatiza la descarga y conciliación del Portal Yastás con la Caja Registradora en Supabase sin intervención manual y con borrado automático de archivos.",
   "permissions": ["storage", "tabs", "downloads"],
   "host_permissions": [

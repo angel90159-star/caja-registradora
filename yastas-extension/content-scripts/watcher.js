@@ -62,8 +62,12 @@
 
   function esVisible(el) {
     if (!el) return false;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
     const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+    if (r.width > 0 && r.height > 0) return true;
+    if (el.offsetWidth > 0 || el.offsetHeight > 0) return true;
+    return el.offsetParent !== null;
   }
 
   async function esperarSelector(buscar, { timeoutMs = 8000, intervaloMs = 250 } = {}) {
@@ -390,7 +394,10 @@
         descargaEnCurso = false; // permite UN reintento más desde tick()
       } else {
         await marcarJob({ estado: 'abortado', error: String(err) });
-        reportar('abortado', 'máximo de intentos alcanzado; vuelve a lanzarlo desde el popup');
+        reportar('abortado', 'máximo de intentos alcanzado; cerrando portal');
+        setTimeout(() => {
+          chrome.runtime.sendMessage({ tipo: 'YASTAS_CERRAR_PORTAL', error: String(err) });
+        }, 1500);
         // descargaEnCurso se queda en true: no hay más ciclos.
       }
     }
@@ -400,7 +407,11 @@
   async function tick() {
     const { pendingJob, credenciales: credPopup } = await chrome.storage.local.get(['pendingJob', 'credenciales']);
     if (!pendingJob || ESTADOS_FINALES.includes(pendingJob.estado)) return;
-    const credenciales = credencialesDeArchivo() || credPopup;
+    // Prioridad 1: Credenciales guardadas en el Popup (la interfaz explícita del usuario)
+    // Prioridad 2: config.local.js (archivo de desarrollo local)
+    const credenciales = (credPopup?.usuario && credPopup?.password)
+      ? credPopup
+      : (credencialesDeArchivo() || credPopup);
 
     const inputUsuario = document.querySelector('#mat-input-0');
     const inputPassword = document.querySelector('#mat-input-1');
@@ -414,8 +425,10 @@
       }
       if (loginIntentado) return; // ya rellenamos/clicamos; esperar a que el portal responda
 
-      // Opción A: hay credenciales guardadas y los campos están vacíos.
-      if (!inputUsuario.value && !inputPassword.value && credenciales?.usuario && credenciales?.password) {
+      // Opción A: hay credenciales configuradas en la extensión.
+      // SIEMPRE sobrescribimos los campos para asegurar que se use la contraseña nueva
+      // y nunca una contraseña obsoleta que Chrome haya rellenado por autofill.
+      if (credenciales?.usuario && credenciales?.password) {
         loginIntentado = true;
         await pausaHumana(800, 1500);
         setValorAngular(inputUsuario, credenciales.usuario);
@@ -434,7 +447,7 @@
         return;
       }
 
-      // Opción B: el autofill nativo del navegador ya llenó los campos.
+      // Opción B: si no hay credenciales en la extensión, se usa el autofill del navegador.
       if (inputUsuario.value && inputPassword.value && !botonEntrar.disabled) {
         loginIntentado = true;
         reportar('login-autofill-detectado');

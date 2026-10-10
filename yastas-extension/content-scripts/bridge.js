@@ -8,11 +8,11 @@
   console.log('[Yastás Bridge] Conectado en el dashboard de Caja Registradora');
 
   // Marcar en el DOM que la extensión está activa
-  document.documentElement.dataset.yastasExtension = '0.2.0';
+  document.documentElement.dataset.yastasExtension = '0.2.1';
 
   // Anunciar a la ventana
   function anunciarPresencia() {
-    window.postMessage({ tipo: 'YASTAS_EXTENSION_LISTA', version: '0.2.0' }, '*');
+    window.postMessage({ tipo: 'YASTAS_EXTENSION_LISTA', version: '0.2.1' }, '*');
   }
   anunciarPresencia();
 

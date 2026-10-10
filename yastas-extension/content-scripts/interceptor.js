@@ -93,17 +93,19 @@
         // Evita el DOMException "The object's state must be HEADERS_RECEIVED or LOADING or DONE"
         if (!xhr || xhr.readyState !== 4 || xhr.status !== 200) return;
 
-        let ct = '';
-        let cd = '';
-        try { ct = (xhr.getResponseHeader('content-type') || '').toLowerCase(); } catch (e) {}
-        try { cd = (xhr.getResponseHeader('content-disposition') || '').toLowerCase(); } catch (e) {}
+        let allHeaders = '';
+        try { allHeaders = (xhr.getAllResponseHeaders() || '').toLowerCase(); } catch (e) {}
+        const url = (xhr._url || '').toLowerCase();
 
         if (
-          cd.includes('.xls') ||
-          cd.includes('.xlsx') ||
-          ct.includes('spreadsheet') ||
-          ct.includes('excel') ||
-          ct.includes('octet-stream')
+          allHeaders.includes('.xls') ||
+          allHeaders.includes('.xlsx') ||
+          allHeaders.includes('spreadsheet') ||
+          allHeaders.includes('excel') ||
+          allHeaders.includes('octet-stream') ||
+          url.includes('.xls') ||
+          url.includes('.xlsx') ||
+          url.includes('reporte')
         ) {
           try {
             if (xhr.response instanceof Blob) {
