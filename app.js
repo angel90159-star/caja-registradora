@@ -2485,9 +2485,11 @@
         tabIngreso.innerHTML = srv === 'tconecta'
           ? `<i data-lucide="plus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Recarga Telefónica (+)`
           : `<i data-lucide="plus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Ingreso (+)`;
-        tabSalida.innerHTML = srv === 'tconecta' 
-          ? `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Retiro de Efectivo (-)` 
-          : `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Salida (-)`;
+        tabSalida.innerHTML = srv === 'tconecta'
+          ? `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Retiro de Efectivo (-)`
+          : srv === 'meli'
+            ? `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Retiro (-)`
+            : `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Salida (-)`;
         
         // Forzar a ingreso si estaba en redeposito o recarga
         if (currentOpType === 'redeposito' || currentOpType === 'recarga') {
