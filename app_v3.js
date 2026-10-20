@@ -1781,6 +1781,10 @@
       const activeSrv = (document.getElementById('op-service') && document.getElementById('op-service').value) || 'yastas';
       const config = SERVICE_BAR_CONFIGS[activeSrv] || SERVICE_BAR_CONFIGS['yastas'];
 
+      // El Encuadre Yastás es una herramienta exclusiva de Yastás
+      const btnEncuadre = document.getElementById('btn-encuadre-yastas');
+      if (btnEncuadre) btnEncuadre.classList.toggle('hidden', activeSrv !== 'yastas');
+
       // Reset defaults for operator, equals, and label3 / operativo text classes
       const barOpEl = document.getElementById('dash-total-bar-operator');
       const barEqEl = document.getElementById('dash-total-bar-equals');
@@ -2485,9 +2489,11 @@
         tabIngreso.innerHTML = srv === 'tconecta'
           ? `<i data-lucide="plus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Recarga Telefónica (+)`
           : `<i data-lucide="plus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Ingreso (+)`;
-        tabSalida.innerHTML = srv === 'tconecta' 
-          ? `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Retiro de Efectivo (-)` 
-          : `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Salida (-)`;
+        tabSalida.innerHTML = srv === 'tconecta'
+          ? `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Retiro de Efectivo (-)`
+          : srv === 'meli'
+            ? `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Retiro (-)`
+            : `<i data-lucide="minus-circle" class="w-4.5 h-4.5 inline mr-1 mb-0.5"></i> Salida (-)`;
         
         // Forzar a ingreso si estaba en redeposito o recarga
         if (currentOpType === 'redeposito' || currentOpType === 'recarga') {
@@ -3685,6 +3691,7 @@
         }
       }
       if (srv === 'banorte') balances.banorte = (balances.banorte || 0) + (finalAmount * multiplier);
+      const meliSaldoAntes = balances.meli || 0;
       if (srv === 'meli') {
         const meliModo = document.getElementById('op-modo-meli-val').value;
         if (meliModo === 'tienda') { // Tienda Express (Efectivo)
@@ -3699,6 +3706,7 @@
           balances.meli = (balances.meli || 0) + (finalAmount * multiplier);
         }
       }
+      const meliSaldoDespues = balances.meli || 0;
       if (srv === 'tconecta') {
         const isRecargaTConectaTerminal = (currentOpType === 'ingreso' && document.getElementById('op-metodo-recarga-val') && document.getElementById('op-metodo-recarga-val').value === 'terminal');
         
@@ -4007,6 +4015,13 @@
         calcularDiferenciaRedeposito();
       }
       
+      // Historial de saldo Meli (antes / después de cada operación)
+      if (srv === 'meli' && !redepExtraData) {
+        const meliModoHist = document.getElementById('op-modo-meli-val').value;
+        const meliMotivoHist = (meliModoHist === 'tienda') ? (isIngreso ? 'Depósito (Tienda)' : 'Retiro (Tienda)') : 'Venta Negocio';
+        redepExtraData = { meliHistorial: { antes: meliSaldoAntes, despues: meliSaldoDespues, base: balances.meliBase || 0, motivo: meliMotivoHist } };
+      }
+
       registrarMovimientoBitacora(opName, logCategory, logAmount, logDetails, piecesObj, redepExtraData);
 
       mostrarToast("Transacción registrada y autorizada con éxito.", "success");
@@ -4040,16 +4055,16 @@
         }
       }
 
-      const transferContainer = document.getElementById('edicion-transfer-container');
-      const transferInput = document.getElementById('edicion-transfer-input');
-      if (transferContainer && transferInput) {
-        transferInput.value = '';
-        if (account === 'meli') {
-          transferContainer.classList.remove('hidden');
-        } else {
-          transferContainer.classList.add('hidden');
-        }
-      }
+      // Motivo del ajuste (solo Meli): Corrección / Retiro / Depósito. Siempre abre en Corrección.
+      const motivoContainer = document.getElementById('edicion-meli-motivo-container');
+      const motivoSelect = document.getElementById('edicion-meli-motivo');
+      const motivoMontoContainer = document.getElementById('edicion-meli-monto-container');
+      const motivoMontoInput = document.getElementById('edicion-meli-monto-input');
+      if (motivoSelect) motivoSelect.value = 'correccion';
+      if (motivoMontoInput) motivoMontoInput.value = '';
+      if (motivoMontoContainer) motivoMontoContainer.classList.add('hidden');
+      if (motivoContainer) motivoContainer.classList.toggle('hidden', account !== 'meli');
+      document.getElementById('edicion-monto-input').readOnly = false;
       
       document.getElementById('modal-edicion').classList.remove('hidden');
     }
@@ -4058,16 +4073,40 @@
       document.getElementById('modal-edicion').classList.add('hidden');
     }
 
-    function actualizarMontoDesdeTransferencia() {
+    function cambiarMotivoEdicionMeli() {
+      const motivo = document.getElementById('edicion-meli-motivo').value;
+      const esMovimiento = motivo !== 'correccion';
+      const montoInput = document.getElementById('edicion-monto-input');
+      document.getElementById('edicion-meli-monto-container').classList.toggle('hidden', !esMovimiento);
+      document.getElementById('edicion-meli-monto-input').value = '';
+      montoInput.readOnly = esMovimiento;
+      montoInput.value = window.edicionBaseMonto || 0;
+    }
+
+    function actualizarSaldoDesdeMotivoMeli() {
       const base = window.edicionBaseMonto || 0;
-      const transferInput = document.getElementById('edicion-transfer-input');
-      const transferVal = parseFloat(transferInput.value) || 0;
-      document.getElementById('edicion-monto-input').value = (base + transferVal).toFixed(2);
+      const motivo = document.getElementById('edicion-meli-motivo').value;
+      const monto = parseFloat(document.getElementById('edicion-meli-monto-input').value) || 0;
+      const nuevo = motivo === 'retiro' ? base - monto : base + monto;
+      document.getElementById('edicion-monto-input').value = (Math.round(nuevo * 100) / 100).toFixed(2);
     }
 
     function guardarEdicionMonto() {
       const account = document.getElementById('edicion-cuenta-nombre').value;
       const newVal = parseFloat(document.getElementById('edicion-monto-input').value);
+      const motivo = (account === 'meli') ? document.getElementById('edicion-meli-motivo').value : 'correccion';
+      const montoMov = (account === 'meli') ? (parseFloat(document.getElementById('edicion-meli-monto-input').value) || 0) : 0;
+
+      if (account === 'meli' && motivo !== 'correccion') {
+        if (!(montoMov > 0)) {
+          mostrarToast("Ingrese el monto del movimiento.", "error");
+          return;
+        }
+        if (motivo === 'retiro' && montoMov > (window.edicionBaseMonto || 0)) {
+          mostrarToast("El retiro no puede ser mayor al saldo actual de Meli.", "error");
+          return;
+        }
+      }
 
       if (isNaN(newVal) || newVal < 0) {
         mostrarToast("Ingrese un monto numérico válido.", "error");
@@ -4088,26 +4127,35 @@
       abrirPINModal(`Ajuste de Saldo: ${account.toUpperCase()}`, (opName) => {
         const balances = DB.get('balances', {});
         const oldVal = balances[account] || 0;
-        balances[account] = newVal;
+        let finalVal = newVal;
+        if (account === 'meli' && motivo !== 'correccion') {
+          // Retiro / Depósito: se aplica sobre el saldo vigente al momento de firmar (100% digital, sin efectivo)
+          finalVal = Math.round((motivo === 'retiro' ? oldVal - montoMov : oldVal + montoMov) * 100) / 100;
+          if (finalVal < 0) {
+            mostrarToast("El retiro no puede ser mayor al saldo actual de Meli.", "error");
+            return;
+          }
+        }
+        balances[account] = finalVal;
         if (account === 'meli') {
           balances.meliBase = newBaseVal;
         }
         DB.set('balances', balances);
 
-        const transferVal = (account === 'meli') ? (parseFloat(document.getElementById('edicion-transfer-input').value) || 0) : 0;
-        
-        let category = `AJUSTE_${account.toUpperCase()}`;
-        let detMsg = `Ajuste manual. Anterior: ${fmt.format(oldVal)} -> Nuevo: ${fmt.format(newVal)}`;
-        
+        const category = `AJUSTE_${account.toUpperCase()}`;
+        let detMsg = `Ajuste manual. Anterior: ${fmt.format(oldVal)} -> Nuevo: ${fmt.format(finalVal)}`;
+        let extra = null;
+
         if (account === 'meli') {
-          if (transferVal > 0) {
-            category = `FONDEO_${account.toUpperCase()}`;
-            detMsg = `Reposición por transferencia. Monto transferido: ${fmt.format(transferVal)} | Saldo anterior: ${fmt.format(oldVal)} -> Nuevo: ${fmt.format(newVal)}`;
-          }
+          const etiqueta = { correccion: 'Corrección', retiro: 'Retiro', deposito: 'Depósito' }[motivo];
+          detMsg = (motivo === 'correccion')
+            ? `Corrección de saldo. Anterior: ${fmt.format(oldVal)} -> Nuevo: ${fmt.format(finalVal)}`
+            : `${etiqueta} digital de ${fmt.format(montoMov)}. Anterior: ${fmt.format(oldVal)} -> Nuevo: ${fmt.format(finalVal)}`;
           detMsg += ` | Base: ${fmt.format(newBaseVal)}`;
+          extra = { meliHistorial: { antes: oldVal, despues: finalVal, base: newBaseVal, motivo: etiqueta } };
         }
 
-        registrarMovimientoBitacora(opName, category, newVal - oldVal, detMsg);
+        registrarMovimientoBitacora(opName, category, Math.round((finalVal - oldVal) * 100) / 100, detMsg, null, extra);
 
         mostrarToast("Saldo modificado con éxito.", "success");
         cargarSaldosDigitales();
@@ -5055,10 +5103,12 @@
       const tabSaldos = document.getElementById('tab-bitacora-saldos');
       const tabPiezas = document.getElementById('tab-bitacora-piezas');
       const tabCorte = document.getElementById('tab-bitacora-corte');
+      const tabMeli = document.getElementById('tab-bitacora-meli');
       
       const containerSaldos = document.getElementById('container-bitacora-saldos');
       const containerPiezas = document.getElementById('container-bitacora-piezas');
       const containerCorte = document.getElementById('container-bitacora-corte');
+      const containerMeli = document.getElementById('container-bitacora-meli');
       
       // Reset classes
       const activeClass = "flex-1 py-4 text-center font-bold text-xs tracking-wider uppercase transition border-b-2 border-indigo-500 text-indigo-700 bg-indigo-50/20 cursor-pointer";
@@ -5067,10 +5117,12 @@
       if (tabSaldos) tabSaldos.className = inactiveClass;
       if (tabPiezas) tabPiezas.className = inactiveClass;
       if (tabCorte) tabCorte.className = inactiveClass;
+      if (tabMeli) tabMeli.className = inactiveClass;
       
       if (containerSaldos) containerSaldos.classList.add('hidden');
       if (containerPiezas) containerPiezas.classList.add('hidden');
       if (containerCorte) containerCorte.classList.add('hidden');
+      if (containerMeli) containerMeli.classList.add('hidden');
       
       const pagBar = document.getElementById('bitacora-pagination-bar');
       if (tab === 'saldos') {
@@ -5085,9 +5137,79 @@
         if (tabCorte) tabCorte.className = activeClass;
         if (containerCorte) containerCorte.classList.remove('hidden');
         if (pagBar) pagBar.classList.add('hidden');
+      } else if (tab === 'meli') {
+        if (tabMeli) tabMeli.className = activeClass;
+        if (containerMeli) containerMeli.classList.remove('hidden');
+        if (pagBar) pagBar.classList.add('hidden');
       }
       
       cargarBitacora();
+    }
+
+    // Historial del saldo de la terminal Meli (antes / después), de todas las fechas
+    function renderizarHistorialMeli() {
+      const tbody = document.getElementById('bitacora-meli-tbody');
+      if (!tbody) return;
+      const vacia = document.getElementById('bitacora-vacia');
+      if (vacia) vacia.classList.add('hidden');
+
+      const escHtml = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const logMs = (l) => {
+        const t = new Date(String(l.timestamp || '').replace(' ', 'T')).getTime();
+        if (!isNaN(t)) return t;
+        return (typeof l.id === 'number') ? l.id : 0;
+      };
+
+      const filas = [];
+      const vistos = new Set();
+      const agregar = (l) => {
+        if (!l) return;
+        const extra = l.extraData || l.redepExtraData;
+        const h = extra && extra.meliHistorial;
+        if (!h) return;
+        const idSig = l.id ? `id_${l.id}` : null;
+        const contentSig = `${l.timestamp || l.date}_${h.antes}_${h.despues}_${h.motivo}`;
+        if ((idSig && vistos.has(idSig)) || vistos.has(contentSig)) return;
+        if (idSig) vistos.add(idSig);
+        vistos.add(contentSig);
+        filas.push({ log: l, h });
+      };
+
+      const historical = DB.get('historical_logs_by_date', {}) || {};
+      Object.keys(historical).forEach(d => (historical[d] || []).forEach(agregar));
+      (DB.get('logs', []) || []).forEach(agregar);
+
+      filas.sort((a, b) => {
+        const diff = logMs(b.log) - logMs(a.log);
+        return diff !== 0 ? diff : (b.log.id || 0) - (a.log.id || 0);
+      });
+
+      if (filas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="py-10 text-center text-slate-400 font-semibold">Aún no hay movimientos de saldo Meli registrados. Se irán guardando con cada operación y cada ajuste.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filas.map(({ log, h }) => {
+        const antes = parseFloat(h.antes) || 0;
+        const despues = parseFloat(h.despues) || 0;
+        const base = parseFloat(h.base) || 0;
+        const mov = Math.round((despues - antes) * 100) / 100;
+        const dif = Math.round((despues - base) * 100) / 100;
+        const movClass = mov > 0 ? 'text-emerald-600' : (mov < 0 ? 'text-rose-500' : 'text-slate-400');
+        const difClass = dif > 0 ? 'text-emerald-600' : (dif < 0 ? 'text-rose-500' : 'text-slate-500');
+        const signo = (n) => (n > 0 ? '+' : '') + fmt.format(n);
+        return `<tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+          <td class="py-2.5 px-3 font-mono">${escHtml(log.date || '')}</td>
+          <td class="py-2.5 px-3 font-mono">${escHtml(log.time || '')}</td>
+          <td class="py-2.5 px-3">${escHtml(log.operator || '')}</td>
+          <td class="py-2.5 px-3">${escHtml(h.motivo || '')}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${fmt.format(antes)}</td>
+          <td class="py-2.5 px-3 text-right font-mono font-bold ${movClass}">${signo(mov)}</td>
+          <td class="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white">${fmt.format(despues)}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${fmt.format(base)}</td>
+          <td class="py-2.5 px-3 text-right font-mono font-bold ${difClass}">${signo(dif)}</td>
+        </tr>`;
+      }).join('');
     }
 
     function cargarBitacora() {
@@ -5102,6 +5224,11 @@
       
       if (bitacoraActiveTab === 'corte') {
         renderizarReporteVisual(selectedDate);
+        return;
+      }
+
+      if (bitacoraActiveTab === 'meli') {
+        renderizarHistorialMeli();
         return;
       }
       

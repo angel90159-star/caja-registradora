@@ -1053,6 +1053,9 @@
         <button id="tab-bitacora-corte" onclick="setBitacoraTab('corte')" class="flex-1 py-4 text-center font-bold text-xs tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-650 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 cursor-pointer">
           <i data-lucide="award" class="inline w-3.5 h-3.5 mr-1 align-middle"></i> Resumen de Caja (Corte)
         </button>
+        <button id="tab-bitacora-meli" onclick="setBitacoraTab('meli')" class="flex-1 py-4 text-center font-bold text-xs tracking-wider uppercase transition border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-650 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 cursor-pointer">
+          <i data-lucide="history" class="inline w-3.5 h-3.5 mr-1 align-middle"></i> Saldo Meli
+        </button>
       </div>
 
       <!-- Contenedor Principal de Tablas a Ancho Completo -->
@@ -1099,6 +1102,29 @@
               </tr>
             </thead>
             <tbody id="bitacora-tbody" class="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+              <!-- Cargado dinámicamente -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- D: HISTORIAL DE SALDO MELI (antes / después) -->
+        <div id="container-bitacora-meli" class="overflow-x-auto hidden">
+          <p class="px-4 py-3 text-[11px] font-semibold text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">Historial completo del saldo de la terminal Meli (no depende de la fecha de consulta). Cada renglón muestra el saldo antes y después del movimiento.</p>
+          <table class="w-full text-left border-collapse min-w-[900px]">
+            <thead>
+              <tr class="bg-slate-50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                <th class="py-3 px-3 w-24">Fecha</th>
+                <th class="py-3 px-3 w-20">Hora</th>
+                <th class="py-3 px-3 w-28">Operador</th>
+                <th class="py-3 px-3">Motivo</th>
+                <th class="py-3 px-3 text-right">Saldo antes</th>
+                <th class="py-3 px-3 text-right">Movimiento</th>
+                <th class="py-3 px-3 text-right">Saldo después</th>
+                <th class="py-3 px-3 text-right">Base</th>
+                <th class="py-3 px-3 text-right">Dif. vs base</th>
+              </tr>
+            </thead>
+            <tbody id="bitacora-meli-tbody" class="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300">
               <!-- Cargado dinámicamente -->
             </tbody>
           </table>
@@ -1916,14 +1942,24 @@
         </div>
       </div>
 
-      <!-- Campo opcional para Fondeo por Transferencia en Meli, ocultable -->
-      <div id="edicion-transfer-container" class="hidden">
-        <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Reposición por Transferencia / Fondeo (+)</label>
-        <div class="relative">
-          <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 dark:text-slate-500 font-semibold text-sm">$</span>
-          <input type="number" id="edicion-transfer-input" oninput="actualizarMontoDesdeTransferencia()" placeholder="Monto transferido a sumar" step="0.01" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white">
+      <!-- Motivo del ajuste de Meli (solo Meli): Corrección / Retiro / Depósito. Es 100% digital, no mueve efectivo -->
+      <div id="edicion-meli-motivo-container" class="hidden space-y-3">
+        <div>
+          <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Motivo del ajuste</label>
+          <select id="edicion-meli-motivo" onchange="cambiarMotivoEdicionMeli()" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400">
+            <option value="correccion">Corrección (saldo real de la terminal)</option>
+            <option value="retiro">Retiro (baja el saldo)</option>
+            <option value="deposito">Depósito (sube el saldo)</option>
+          </select>
         </div>
-        <p class="text-[8px] text-slate-400 dark:text-slate-500 mt-1">Este monto se sumará al saldo actual de la terminal. No resta del efectivo físico de caja.</p>
+        <div id="edicion-meli-monto-container" class="hidden">
+          <label class="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Monto del movimiento ($)</label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 dark:text-slate-500 font-semibold text-sm">$</span>
+            <input type="number" id="edicion-meli-monto-input" oninput="actualizarSaldoDesdeMotivoMeli()" placeholder="0.00" step="0.01" min="0" autocomplete="off" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white">
+          </div>
+          <p class="text-[8px] text-slate-400 dark:text-slate-500 mt-1">Es un movimiento digital: no resta ni suma al efectivo físico de caja.</p>
+        </div>
       </div>
 
       <!-- Campo opcional para Meli Base, ocultable -->
@@ -2680,6 +2716,6 @@
        ========================================== -->
   <!-- SheetJS (lector de Excel) solo se usa al subir el Reporte de Movimientos: defer para no retrasar el arranque -->
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20261012_MELI_RETIRO"></script>
+  <script src="app.js?v=20261020_MELI_HISTORIAL"></script>
 </body>
 </html>
