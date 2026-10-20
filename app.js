@@ -5488,6 +5488,12 @@
             ? `<button onclick="solicitarBorradoOperacionYastas('${String(log.id).replace(/[^\w-]/g, '')}')" class="w-7 h-7 inline-flex items-center justify-center rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-400 hover:text-rose-600 transition cursor-pointer" title="Borrar operación (solo administrador)"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`
             : '';
 
+          // Meli: mostrar saldo antes → después debajo del detalle (solo movimientos que lo guardaron)
+          const meliHist = (log.extraData || log.redepExtraData || {}).meliHistorial;
+          const meliSaldoHtml = meliHist
+            ? `<span class="block mt-1 font-mono font-bold text-indigo-600 dark:text-indigo-300">Saldo Meli: ${fmt.format(parseFloat(meliHist.antes) || 0)} → ${fmt.format(parseFloat(meliHist.despues) || 0)}</span>`
+            : '';
+
           tr.innerHTML = `
             <td class="py-3 px-4 font-mono text-slate-500 dark:text-slate-300 text-xs font-semibold">${logDate}${syncPendingIcon}</td>
             <td class="py-3 px-4 font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
@@ -5496,7 +5502,7 @@
             <td class="py-3 px-4 text-xs">${typeBadge}</td>
             <td class="py-3 px-4 text-right ${typeClass} font-mono text-xs">${fmt.format(log.amount)}</td>
             <td class="py-3 px-4 text-center">${piecesBtn}</td>
-            <td class="py-3 px-6 text-xs text-slate-500 dark:text-slate-300 font-medium">${log.details}</td>
+            <td class="py-3 px-6 text-xs text-slate-500 dark:text-slate-300 font-medium">${log.details}${meliSaldoHtml}</td>
             <td class="py-3 px-3 text-center">${borrarYastasBtn}</td>
           `;
           if (tbodySaldos) tbodySaldos.appendChild(tr);
