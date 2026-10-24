@@ -8345,7 +8345,7 @@
       const yastasGetnetVal = balances.yastasGetnet || 0;
       const totalEfectivoConGetnet = totalContado + yastasGetnetVal;
       const totalDigital = yastasTermVal;
-      const granTotal = totalEfectivoConGetnet + expectedBoveda + totalDigital;
+      const granTotal = expectedCajon + yastasGetnetVal + expectedBoveda + totalDigital;
 
       // Actualizar KPIs superiores
       const kpiEfectivoVal = document.getElementById('cierre-kpi-efectivo');
@@ -8750,7 +8750,7 @@
       const yastasGetnetVal = balances.yastasGetnet || 0;
       const totalEfectivoConGetnet = totalContado + yastasGetnetVal;
       const totalDigital = yastasTermVal;
-      const granTotal = totalEfectivoConGetnet + (report.expectedBoveda || 0) + totalDigital;
+      const granTotal = (report.expectedCajon || 0) + yastasGetnetVal + (report.expectedBoveda || 0) + totalDigital;
 
       const kpiEfectivoVal = document.getElementById('cierre-kpi-efectivo');
       if (kpiEfectivoVal) kpiEfectivoVal.innerText = fmt.format(totalEfectivoConGetnet);
@@ -9088,7 +9088,7 @@
         kpiCorteDigSub.innerText = 'Terminal Yastás + Canales';
       }
       
-      const totalGlobal = totalEfectivoConGetnet + (report.expectedBoveda || 0) + totalDigital;
+      const totalGlobal = report.expectedCajon + yastasGetnetVal + (report.expectedBoveda || 0) + totalDigital;
       document.getElementById('kpi-corte-total').innerText = fmt.format(totalGlobal);
       
       document.getElementById('kpi-corte-firma').innerText = report.operator || 'Miguel Angel';
