@@ -324,34 +324,20 @@
     async function fetchInitialFromSupabase() {
       if (!supabaseClient) return;
       try {
-        // Cargar estado remoto de caja
-        const { data: stData } = await supabaseClient.from('caja_state').select('*').eq('id', 'main').maybeSingle();
-        if (stData) {
-          const remoteActive = !!stData.session_active;
-          const remoteState = {
-            session_active: remoteActive,
-            opened_date: stData.opened_date,
-            opened_time: stData.opened_time,
-            operator: stData.operator,
-            precarga_completada: !!stData.precarga_completada,
-            precarga_data: stData.precarga_data || null
-          };
-          dbCache['state'] = remoteState;
-          localStorage.setItem('lc5_state', JSON.stringify(remoteState));
-          sessionActive = remoteActive;
-          activeOperator = remoteState.operator;
-          if (typeof refrescarPantallas === 'function') {
-            refrescarPantallas();
-          }
-          if (typeof evaluarGatekeeper === 'function') {
-            evaluarGatekeeper();
-          }
-          if (!sessionActive && typeof mostrarVista === 'function') {
-            mostrarVista('apertura');
-          }
-        }
-        // Cargar balances desde Supabase
-        const { data: balData } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
+        // Descargar estado, saldos e inventarios en paralelo para nunca pintar localStorage obsoleto en pantalla
+        const [
+          { data: stData },
+          { data: balData },
+          { data: invData },
+          { data: bovedaData }
+        ] = await Promise.all([
+          supabaseClient.from('caja_state').select('*').eq('id', 'main').maybeSingle(),
+          supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle(),
+          supabaseClient.from('caja_inventory').select('*'),
+          supabaseClient.from('caja_inventory_boveda').select('*')
+        ]);
+
+        // 1. Actualizar balances en caché antes de refrescar la interfaz
         if (balData) {
           const currentBal = DB.get('balances', {});
           const remoteData = balData.data || {};
@@ -377,11 +363,9 @@
           };
           dbCache['balances'] = updatedBal;
           localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
-          if (typeof cargarSaldosDigitales === 'function') cargarSaldosDigitales();
         }
 
-        // Cargar inventario de piezas en charola desde Supabase
-        const { data: invData } = await supabaseClient.from('caja_inventory').select('*');
+        // 2. Actualizar inventario de piezas en charola
         if (invData && invData.length > 0) {
           const currentInv = DB.get('inventory', {});
           invData.forEach(row => {
@@ -391,8 +375,7 @@
           localStorage.setItem('lc5_inventory', JSON.stringify(currentInv));
         }
 
-        // Cargar inventario de piezas en bóveda desde Supabase
-        const { data: bovedaData } = await supabaseClient.from('caja_inventory_boveda').select('*');
+        // 3. Actualizar inventario de piezas en bóveda
         if (bovedaData && bovedaData.length > 0) {
           const currentBoveda = DB.get('inventoryBoveda', {});
           bovedaData.forEach(row => {
@@ -400,6 +383,34 @@
           });
           dbCache['inventoryBoveda'] = currentBoveda;
           localStorage.setItem('lc5_inventoryBoveda', JSON.stringify(currentBoveda));
+        }
+
+        // 4. Actualizar estado remoto de caja y pintar pantallas ya con los saldos reales listos
+        if (stData) {
+          const remoteActive = !!stData.session_active;
+          const remoteState = {
+            session_active: remoteActive,
+            opened_date: stData.opened_date,
+            opened_time: stData.opened_time,
+            operator: stData.operator,
+            precarga_completada: !!stData.precarga_completada,
+            precarga_data: stData.precarga_data || null
+          };
+          dbCache['state'] = remoteState;
+          localStorage.setItem('lc5_state', JSON.stringify(remoteState));
+          sessionActive = remoteActive;
+          activeOperator = remoteState.operator;
+          if (typeof refrescarPantallas === 'function') {
+            refrescarPantallas();
+          }
+          if (typeof evaluarGatekeeper === 'function') {
+            evaluarGatekeeper();
+          }
+          if (!sessionActive && typeof mostrarVista === 'function') {
+            mostrarVista('apertura');
+          }
+        } else if (balData && typeof cargarSaldosDigitales === 'function') {
+          cargarSaldosDigitales();
         }
 
         // Cargar reportes de cierre desde Supabase
@@ -865,8 +876,21 @@
       }
     });
 
+    let dbInitPromise = null;
+
     window.onload = async function() {
-      await DB.init();
+      const passInput = document.getElementById('global-lock-password');
+      if (passInput) {
+        passInput.focus();
+        passInput.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') {
+            desbloquearPlataforma();
+          }
+        });
+      }
+
+      dbInitPromise = DB.init();
+      await dbInitPromise;
       actualizarBadgeSincronizacion();
       
       const unlocked = sessionStorage.getItem('caja_app_unlocked') === 'true';
@@ -876,17 +900,6 @@
         if (lockScreen) lockScreen.classList.add('hidden');
         if (appWrapper) appWrapper.classList.remove('hidden');
         inicializarSistemaDespuesDeDesbloqueo();
-      } else {
-        // Enlazar Enter al input de contraseña
-        const passInput = document.getElementById('global-lock-password');
-        if (passInput) {
-          passInput.focus();
-          passInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-              desbloquearPlataforma();
-            }
-          });
-        }
       }
     };
 
@@ -4659,8 +4672,7 @@
 
       const nuevoSentidoOp = calc.eraIngreso ? 'SALIDA' : 'INGRESO';
       const etiquetaCambio = calc.eraIngreso ? 'Ingreso -> Egreso' : 'Egreso -> Ingreso';
-      const baseDetails = `Op: ${nuevoSentidoOp}. Tienda Express. Monto: ${fmt.format(calc.montoAbs)}`;
-      const nuevosDetalles = `${baseDetails} (Corregido por Admin: ${etiquetaCambio})`;
+      const nuevosDetalles = `Op: ${nuevoSentidoOp}. Tienda Express. Monto: ${fmt.format(calc.montoAbs)}`;
 
       const prevExtra = log.extraData || log.redepExtraData || {};
       const prevHist = prevExtra.meliHistorial || {};
@@ -4737,10 +4749,6 @@
       balances.yastasEfectivo = (balances.yastasEfectivo || 0) + calc.deltaSaldos.yastasEfectivo;
       balances.meli = (balances.meli || 0) + calc.deltaSaldos.meli;
       DB.set('balances', balances);
-
-      // Huella de auditoría con monto 0
-      registrarMovimientoBitacora('Administrador', 'AJUSTE_MELI', 0,
-        `Corrección administrativa: Op Meli Tienda Express (${fmt.format(calc.montoAbs)}) de ${log.operator} invertida (${etiquetaCambio}). Saldos y billetes ajustados.`);
 
       mostrarToast(`Operación cambiada a ${calc.eraIngreso ? 'Egreso' : 'Ingreso'} correctamente.`, 'success');
       cargarSaldosDigitales();
@@ -5568,6 +5576,10 @@
       const filterOperador = document.getElementById('filtro-operador') ? document.getElementById('filtro-operador').value : 'todos';
 
       const filteredLogs = dateLogs.filter(log => {
+        // Omitir la fila auxiliar de auditoría de inversión Meli (ya se muestra el indicador CORREGIDO en la propia operación)
+        const extra = log.extraData || log.redepExtraData || {};
+        if (extra.tipo_ajuste === 'inversion_op_meli') return false;
+
         // Garantizar estrictamente que el registro sea de la fecha seleccionada
         const logDate = log.date || selectedDate;
         if (logDate !== selectedDate) return false;
@@ -5740,6 +5752,8 @@
             ? `<span class="block mt-1 font-mono font-bold text-indigo-600 dark:text-indigo-300">Saldo Meli: ${fmt.format(parseFloat(meliHist.antes) || 0)} → ${fmt.format(parseFloat(meliHist.despues) || 0)}</span>`
             : '';
 
+          const cleanDetails = String(log.details || '').replace(/\s*[\(\[]Corregido por Admin:.*?[\)\]]/g, '');
+
           tr.innerHTML = `
             <td class="py-3 px-4 font-mono text-slate-500 dark:text-slate-300 text-xs font-semibold">${logDate}${syncPendingIcon}</td>
             <td class="py-3 px-4 font-mono text-slate-400 dark:text-slate-400 text-xs">${log.time}</td>
@@ -5748,7 +5762,7 @@
             <td class="py-3 px-4 text-xs">${typeBadge}</td>
             <td class="py-3 px-4 text-right ${typeClass} font-mono text-xs">${fmt.format(log.amount)}</td>
             <td class="py-3 px-4 text-center">${piecesBtn}</td>
-            <td class="py-3 px-6 text-xs text-slate-500 dark:text-slate-300 font-medium">${log.details}${meliSaldoHtml}</td>
+            <td class="py-3 px-6 text-xs text-slate-500 dark:text-slate-300 font-medium">${cleanDetails}${meliSaldoHtml}</td>
             <td class="py-3 px-3 text-center">${borrarYastasBtn}</td>
           `;
           if (tbodySaldos) tbodySaldos.appendChild(tr);
@@ -8327,7 +8341,9 @@
       const expectedTotal = expectedCajon + expectedBoveda;
       const diffTotal = totalContado - expectedTotal;
 
-      const totalDigital = balances.yastasTerminal || 0;
+      const yastasTermVal = balances.yastasTerminal || 0;
+      const yastasGetnetVal = balances.yastasGetnet || 0;
+      const totalDigital = yastasTermVal + yastasGetnetVal;
       const granTotal = expectedCajon + expectedBoveda + totalDigital;
 
       // Actualizar KPIs superiores
@@ -8350,6 +8366,13 @@
 
       const kpiDigitalVal = document.getElementById('cierre-kpi-digital');
       if (kpiDigitalVal) kpiDigitalVal.innerText = fmt.format(totalDigital);
+
+      const kpiDigitalSub = document.getElementById('cierre-kpi-digital-sub');
+      if (kpiDigitalSub) {
+        kpiDigitalSub.innerText = yastasGetnetVal > 0
+          ? `Terminal: ${fmt.format(yastasTermVal)} · Getnet (Pendiente): ${fmt.format(yastasGetnetVal)}`
+          : 'Terminal Yastás';
+      }
 
       const kpiTotalVal = document.getElementById('cierre-kpi-total');
       if (kpiTotalVal) kpiTotalVal.innerText = fmt.format(granTotal);
@@ -8412,6 +8435,7 @@
         } else {
           const channels = [
             { name: 'Yastas', val: balances.yastasTerminal || 0, color: '#a855f7' },
+            { name: 'Getnet (Pendiente)', val: balances.yastasGetnet || 0, color: '#8b5cf6' },
             { name: 'Mercado Libre', val: balances.capitalTerminal || 0, color: '#eab308' },
             { name: 'T-Conecta', val: balances.tconecta || 0, color: '#06b6d4' },
             { name: 'Banamex', val: balances.banamex || 0, color: '#1e40af' }
@@ -8710,7 +8734,9 @@
       const diffTotal = report.diffTotal || 0;
 
       const balances = report.balances || {};
-      const totalDigital = balances.yastasTerminal || 0;
+      const yastasTermVal = balances.yastasTerminal || 0;
+      const yastasGetnetVal = balances.yastasGetnet || 0;
+      const totalDigital = yastasTermVal + yastasGetnetVal;
       const granTotal = (report.expectedCajon || 0) + (report.expectedBoveda || 0) + totalDigital;
 
       const kpiEfectivoVal = document.getElementById('cierre-kpi-efectivo');
@@ -8732,6 +8758,13 @@
 
       const kpiDigitalVal = document.getElementById('cierre-kpi-digital');
       if (kpiDigitalVal) kpiDigitalVal.innerText = fmt.format(totalDigital);
+
+      const kpiDigitalSub = document.getElementById('cierre-kpi-digital-sub');
+      if (kpiDigitalSub) {
+        kpiDigitalSub.innerText = yastasGetnetVal > 0
+          ? `Terminal: ${fmt.format(yastasTermVal)} · Getnet (Pendiente): ${fmt.format(yastasGetnetVal)}`
+          : 'Terminal Yastás';
+      }
 
       const kpiTotalVal = document.getElementById('cierre-kpi-total');
       if (kpiTotalVal) kpiTotalVal.innerText = fmt.format(granTotal);
@@ -8824,7 +8857,8 @@
           `;
         } else {
           const channels = [
-            { name: 'Yestas', val: balances.yastasTerminal || 0, color: '#a855f7' },
+            { name: 'Yastas', val: balances.yastasTerminal || 0, color: '#a855f7' },
+            { name: 'Getnet (Pendiente)', val: balances.yastasGetnet || 0, color: '#8b5cf6' },
             { name: 'Mercado Libre', val: balances.capitalTerminal || 0, color: '#eab308' },
             { name: 'T-Conecta', val: balances.tconecta || 0, color: '#06b6d4' },
             { name: 'Banamex', val: balances.banamex || 0, color: '#1e40af' }
@@ -9008,10 +9042,19 @@
         }
       }
 
-      const totalDigital = (report.balances.yastasTerminal || 0) + (report.balances.capitalTerminal || 0) + (report.balances.tconecta || 0) + (report.balances.banamex || 0);
+      const yastasTermVal = report.balances.yastasTerminal || 0;
+      const yastasGetnetVal = report.balances.yastasGetnet || 0;
+      const totalDigital = yastasTermVal + yastasGetnetVal + (report.balances.capitalTerminal || 0) + (report.balances.tconecta || 0) + (report.balances.banamex || 0);
       document.getElementById('kpi-corte-digital').innerText = fmt.format(totalDigital);
+
+      const kpiCorteDigSub = document.getElementById('kpi-corte-digital-sub');
+      if (kpiCorteDigSub) {
+        kpiCorteDigSub.innerText = yastasGetnetVal > 0
+          ? `Terminal: ${fmt.format(yastasTermVal)} · Getnet (Pendiente): ${fmt.format(yastasGetnetVal)}`
+          : 'Terminal Yastás + Canales';
+      }
       
-      const totalGlobal = report.expectedCajon + totalDigital;
+      const totalGlobal = report.expectedCajon + (report.expectedBoveda || 0) + totalDigital;
       document.getElementById('kpi-corte-total').innerText = fmt.format(totalGlobal);
       
       document.getElementById('kpi-corte-firma').innerText = report.operator || 'Miguel Angel';
@@ -9090,10 +9133,11 @@
 
       // Sección 4: Gráfica Donut y Leyendas
       const yastas = report.balances.yastasTerminal || 0;
+      const getnet = report.balances.yastasGetnet || 0;
       const meli = report.balances.capitalTerminal || 0;
       const tconecta = report.balances.tconecta || 0;
       const banamex = report.balances.banamex || 0;
-      const totalSaldos = yastas + meli + tconecta + banamex;
+      const totalSaldos = yastas + getnet + meli + tconecta + banamex;
 
       document.getElementById('corte-donut-total-label').innerText = fmt.format(totalSaldos);
 
@@ -9118,6 +9162,7 @@
         } else {
           const channels = [
             { name: 'Yastas', val: yastas, color: '#a855f7', stroke: '#a855f7' },
+            { name: 'Getnet (Pendiente)', val: getnet, color: '#8b5cf6', stroke: '#8b5cf6' },
             { name: 'Mercado Libre', val: meli, color: '#eab308', stroke: '#eab308' },
             { name: 'T-Conecta', val: tconecta, color: '#06b6d4', stroke: '#06b6d4' },
             { name: 'Banamex', val: banamex, color: '#1e40af', stroke: '#1e40af' }
@@ -9280,6 +9325,7 @@
         { key: 'caja', name: 'Efectivo Contado (Caja)', val: totalContado },
         { key: 'boveda', name: 'Efectivo Bóveda (Esperado)', val: expectedBoveda },
         { key: 'yastas', name: 'Yastas Terminal', val: balances.yastasTerminal || 0 },
+        { key: 'getnet', name: 'Getnet (Pendiente)', val: balances.yastasGetnet || 0 },
         { key: 'meli', name: 'Mercado Libre (Terminal)', val: balances.capitalTerminal || 0 },
         { key: 'tconecta', name: 'T-Conecta (Efectivo)', val: balances.tconecta || 0 },
         { key: 'bbva', name: 'BBVA (Fondeo)', val: balances.bbva || 0 },
@@ -9347,7 +9393,7 @@
       }
     }
 
-    function desbloquearPlataforma() {
+    async function desbloquearPlataforma() {
       const passwordInput = document.getElementById('global-lock-password');
       if (!passwordInput) return;
       const pass = passwordInput.value.trim();
@@ -9363,6 +9409,9 @@
 
       if (pass === "1234" || pass === storedMasterPass) {
         sessionStorage.setItem('caja_app_unlocked', 'true');
+        if (dbInitPromise) {
+          try { await dbInitPromise; } catch (e) {}
+        }
         document.getElementById('pantalla-bloqueo-global').classList.add('hidden');
         document.getElementById('app-wrapper').classList.remove('hidden');
         inicializarSistemaDespuesDeDesbloqueo();
