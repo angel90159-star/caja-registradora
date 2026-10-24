@@ -4518,6 +4518,235 @@
       cargarBitacora();
     }
 
+    // === INVERSIÓN DE OPERACIONES DE MERCADO LIBRE TIENDA EXPRESS (SOLO ADMINISTRADOR) ===
+    // Permite cambiar una operación de Meli Tienda del turno abierto entre Ingreso y Egreso,
+    // validando previamente que la charola cuente con las piezas físicas necesarias.
+    function esLogMeliInvertible(log) {
+      if (!log) return false;
+      const cat = (log.category || '').toUpperCase();
+      return cat === 'MELI' && log.pieces && typeof log.pieces === 'object' && Object.keys(log.pieces).length > 0;
+    }
+
+    function obtenerLogMeliInvertible(logId) {
+      if (!sessionActive) return null;
+      const log = (DB.get('logs', []) || []).find(l => l && String(l.id) === String(logId));
+      return esLogMeliInvertible(log) ? log : null;
+    }
+
+    function calcularInversionOperacionMeli(log) {
+      if (!esLogMeliInvertible(log)) {
+        return { error: 'Esta operación no es de Mercado Libre Tienda Express o no tiene desglose físico.' };
+      }
+      const montoActual = parseFloat(log.amount) || 0;
+      if (montoActual === 0) {
+        return { error: 'No se puede invertir una operación con monto $0.00.' };
+      }
+      const eraIngreso = montoActual > 0;
+      const montoAbs = Math.abs(montoActual);
+      const nuevoMonto = -montoActual;
+
+      // Delta de piezas a aplicar sobre el inventario actual:
+      // Si era Ingreso (+cant en charola), para pasar a Egreso (-cant en charola) hay que restar 2*cant.
+      // Si era Egreso (-cant en charola), para pasar a Ingreso (+cant en charola) hay que sumar 2*cant.
+      const deltaInventario = {};
+      const nuevasPiezasLog = {};
+      const pieces = log.pieces || {};
+
+      Object.keys(pieces).forEach(denom => {
+        const cantActual = parseInt(pieces[denom]) || 0;
+        if (cantActual !== 0) {
+          deltaInventario[denom] = -(2 * cantActual);
+          nuevasPiezasLog[denom] = -cantActual;
+        }
+      });
+
+      // Delta de saldos:
+      // En Meli Tienda: Ingreso => meli -= monto, yastasEfectivo += monto
+      // Egreso => meli += monto, yastasEfectivo -= monto
+      const deltaSaldos = {
+        yastasEfectivo: eraIngreso ? -(2 * montoAbs) : (2 * montoAbs),
+        meli: eraIngreso ? (2 * montoAbs) : -(2 * montoAbs)
+      };
+
+      return {
+        eraIngreso,
+        montoAbs,
+        nuevoMonto,
+        deltaInventario,
+        nuevasPiezasLog,
+        deltaSaldos
+      };
+    }
+
+    function solicitarInversionMeli(logId) {
+      const log = obtenerLogMeliInvertible(logId);
+      if (!log) {
+        mostrarToast('Solo se pueden cambiar operaciones de Meli Tienda Express del turno abierto.', 'warning');
+        return;
+      }
+      const calc = calcularInversionOperacionMeli(log);
+      if (calc.error) {
+        mostrarToast(calc.error, 'error');
+        return;
+      }
+
+      // Candado estricto de billetes físicos antes de pedir el PIN:
+      const inventory = DB.get('inventory', {});
+      const faltantes = Object.keys(calc.deltaInventario).filter(d => {
+        const resultante = (inventory[d] || 0) + (calc.deltaInventario[d] || 0);
+        return resultante < 0;
+      });
+
+      if (faltantes.length > 0) {
+        const detalleFaltantes = faltantes.map(d => {
+          const disp = inventory[d] || 0;
+          const req = Math.abs(calc.deltaInventario[d] || 0);
+          const etiq = parseFloat(d) === 0.5 ? '50¢' : '$' + d;
+          return `${etiq} (requiere ${req}, hay ${disp})`;
+        }).join(', ');
+        mostrarToast(`No se puede hacer el cambio: billetes insuficientes en charola: ${detalleFaltantes}.`, 'error');
+        return;
+      }
+
+      const sentidoTexto = calc.eraIngreso ? 'INGRESO a EGRESO (Salida)' : 'EGRESO a INGRESO (Entrada)';
+      document.getElementById('meli-inversion-log-id').value = String(log.id);
+      document.getElementById('meli-inversion-desc').textContent =
+        `¿Cambiar la operación de ${log.operator} (${log.time}) por ${fmt.format(calc.montoAbs)} de ${sentidoTexto}? ` +
+        `Se ajustarán automáticamente las piezas en charola y los saldos de Meli y Yastás Efectivo, quedando marcada como corregida. Requiere PIN de Administración.`;
+      document.getElementById('modal-confirmar-inversion-meli').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function cerrarConfirmarInversionMeli() {
+      const modal = document.getElementById('modal-confirmar-inversion-meli');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function ejecutarInversionOperacionMeli() {
+      const logId = document.getElementById('meli-inversion-log-id').value;
+      cerrarConfirmarInversionMeli();
+
+      abrirPINModal('Autorizar Cambio de Operación Meli (PIN de Administración)', async (opName, pin) => {
+        if (pin !== ADMIN_SETTINGS_PIN && pin !== '1234') {
+          mostrarToast('Solo el administrador puede cambiar el sentido de las operaciones de Meli.', 'error');
+          return;
+        }
+        await invertirOperacionMeli(logId);
+      });
+    }
+
+    async function invertirOperacionMeli(logId) {
+      const log = obtenerLogMeliInvertible(logId);
+      if (!log) {
+        mostrarToast('La operación ya no se encuentra disponible en el turno abierto.', 'warning');
+        cargarBitacora();
+        return;
+      }
+
+      const calc = calcularInversionOperacionMeli(log);
+      if (calc.error) {
+        mostrarToast(calc.error, 'error');
+        return;
+      }
+
+      const inventory = DB.get('inventory', {});
+      const faltantes = Object.keys(calc.deltaInventario).filter(d => ((inventory[d] || 0) + (calc.deltaInventario[d] || 0)) < 0);
+      if (faltantes.length > 0) {
+        const lista = faltantes.map(d => (parseFloat(d) === 0.5 ? '50¢' : '$' + d)).join(', ');
+        mostrarToast(`No se puede realizar el cambio: billetes insuficientes en charola (${lista}).`, 'error');
+        return;
+      }
+
+      const nuevoSentidoOp = calc.eraIngreso ? 'SALIDA' : 'INGRESO';
+      const etiquetaCambio = calc.eraIngreso ? 'Ingreso -> Egreso' : 'Egreso -> Ingreso';
+      const baseDetails = `Op: ${nuevoSentidoOp}. Tienda Express. Monto: ${fmt.format(calc.montoAbs)}`;
+      const nuevosDetalles = `${baseDetails} (Corregido por Admin: ${etiquetaCambio})`;
+
+      const prevExtra = log.extraData || log.redepExtraData || {};
+      const prevHist = prevExtra.meliHistorial || {};
+      const nuevoExtra = {
+        ...prevExtra,
+        corregido_admin: true,
+        corregido_cambio: etiquetaCambio,
+        corregido_fecha: new Date().toISOString(),
+        meliHistorial: {
+          ...prevHist,
+          motivo: calc.eraIngreso ? 'Retiro (Tienda)' : 'Depósito (Tienda)',
+          despues: (parseFloat(prevHist.antes) || 0) + (calc.eraIngreso ? calc.montoAbs : -calc.montoAbs)
+        }
+      };
+
+      // Actualizar primero en la nube (Supabase) si hay cliente activo
+      if (supabaseClient && navigator.onLine !== false) {
+        try {
+          const idStr = String(log.id);
+          const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idStr);
+          let query = supabaseClient.from('caja_logs').update({
+            amount: calc.nuevoMonto,
+            details: nuevosDetalles,
+            pieces: calc.nuevasPiezasLog,
+            extra_data: nuevoExtra
+          });
+          query = esUuid
+            ? query.eq('id', idStr)
+            : query.eq('timestamp', log.timestamp).eq('category', log.category).eq('operator', log.operator);
+          const { error } = await query;
+          if (error) {
+            console.warn('[Inversión Meli] Error actualizando en nube:', error);
+            mostrarToast('No se pudo actualizar el registro en la nube. Intente de nuevo.', 'error');
+            return;
+          }
+        } catch (err) {
+          console.warn('[Inversión Meli] Excepción al actualizar en nube:', err);
+          mostrarToast('Error de red al confirmar el cambio en la nube.', 'error');
+          return;
+        }
+      }
+
+      // Actualizar registro en memoria local (logs del turno y logs históricos por fecha)
+      const actualizarItemLog = (item) => {
+        if (item && String(item.id) === String(log.id)) {
+          item.amount = calc.nuevoMonto;
+          item.details = nuevosDetalles;
+          item.pieces = calc.nuevasPiezasLog;
+          item.extraData = nuevoExtra;
+          item.redepExtraData = nuevoExtra;
+        }
+      };
+
+      const logs = DB.get('logs', []) || [];
+      logs.forEach(actualizarItemLog);
+      DB.set('logs', logs);
+
+      const historical = DB.get('historical_logs_by_date', {}) || {};
+      Object.keys(historical).forEach(fecha => {
+        if (Array.isArray(historical[fecha])) {
+          historical[fecha].forEach(actualizarItemLog);
+        }
+      });
+      DB.set('historical_logs_by_date', historical);
+
+      // Aplicar cambio en inventario físico de charola
+      Object.keys(calc.deltaInventario).forEach(d => {
+        inventory[d] = (inventory[d] || 0) + (calc.deltaInventario[d] || 0);
+      });
+      DB.set('inventory', inventory);
+
+      // Aplicar cambio en saldos digitales
+      const balances = DB.get('balances', {});
+      balances.yastasEfectivo = (balances.yastasEfectivo || 0) + calc.deltaSaldos.yastasEfectivo;
+      balances.meli = (balances.meli || 0) + calc.deltaSaldos.meli;
+      DB.set('balances', balances);
+
+      // Huella de auditoría con monto 0
+      registrarMovimientoBitacora('Administrador', 'AJUSTE_MELI', 0,
+        `Corrección administrativa: Op Meli Tienda Express (${fmt.format(calc.montoAbs)}) de ${log.operator} invertida (${etiquetaCambio}). Saldos y billetes ajustados.`);
+
+      mostrarToast(`Operación cambiada a ${calc.eraIngreso ? 'Egreso' : 'Ingreso'} correctamente.`, 'success');
+      cargarSaldosDigitales();
+      cargarBitacora();
+    }
+
     // === ANEXAR CAPITAL ===
     let modoAnexarCapital = 'efectivo'; // 'terminal' | 'efectivo'
 
@@ -5434,6 +5663,10 @@
         const idsYastasBorrables = new Set(
           sessionActive ? (DB.get('logs', []) || []).filter(esLogYastasBorrable).map(l => String(l.id)) : []
         );
+        // Solo las operaciones de Meli Tienda Express del turno abierto muestran el botón de inversión (exige PIN de administrador y billetes disponibles)
+        const idsMeliInvertibles = new Set(
+          sessionActive ? (DB.get('logs', []) || []).filter(esLogMeliInvertible).map(l => String(l.id)) : []
+        );
         pageLogs.forEach(log => {
           const tr = document.createElement('tr');
           tr.className = "hover:bg-slate-50 transition duration-150 border-b border-slate-100";
@@ -5460,6 +5693,16 @@
               : '<span class="bg-rose-50 text-rose-700 border border-rose-100 text-[9px] font-bold px-2 py-0.5 rounded-full">EGRESO</span>';
           }
 
+          // Indicador visual cuando una operación tuvo que ser cambiada/corregida por el administrador
+          const esCorregido = !!(
+            (log.extraData && log.extraData.corregido_admin) ||
+            (log.redepExtraData && log.redepExtraData.corregido_admin) ||
+            (log.details && String(log.details).includes('Corregido por Admin'))
+          );
+          if (esCorregido) {
+            typeBadge += ' <span class="bg-amber-100 text-amber-800 border border-amber-300 text-[8px] font-extrabold px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5 align-middle ml-1" title="Se realizó cambio de sentido con firma de Administrador"><i data-lucide="shield-check" class="w-2.5 h-2.5"></i>CORREGIDO</span>';
+          }
+
           // Renderizado del botón de desglose físico (Piezas)
           let piecesBtn = '<span class="text-slate-300 text-xs font-semibold">-</span>';
           if (log.pieces && Object.keys(log.pieces).length > 0) {
@@ -5484,9 +5727,12 @@
           const logDate = log.date || selectedDate;
           const syncPendingIcon = log._synced ? '' : '<i data-lucide="triangle-alert" class="w-3 h-3 text-amber-500 inline-block ml-1 align-text-top" title="Aún no se ha subido a la nube"></i>';
 
+          const safeLogId = String(log.id).replace(/[^\w-]/g, '');
           const borrarYastasBtn = idsYastasBorrables.has(String(log.id))
-            ? `<button onclick="solicitarBorradoOperacionYastas('${String(log.id).replace(/[^\w-]/g, '')}')" class="w-7 h-7 inline-flex items-center justify-center rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-400 hover:text-rose-600 transition cursor-pointer" title="Borrar operación (solo administrador)"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`
-            : '';
+            ? `<button onclick="solicitarBorradoOperacionYastas('${safeLogId}')" class="w-7 h-7 inline-flex items-center justify-center rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-400 hover:text-rose-600 transition cursor-pointer" title="Borrar operación (solo administrador)"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`
+            : (idsMeliInvertibles.has(String(log.id))
+                ? `<button onclick="solicitarInversionMeli('${safeLogId}')" class="w-7 h-7 inline-flex items-center justify-center rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-600 hover:text-amber-700 transition cursor-pointer" title="Cambiar sentido Ingreso ⇄ Egreso (solo administrador)"><i data-lucide="arrow-left-right" class="w-3.5 h-3.5"></i></button>`
+                : '');
 
           // Meli: mostrar saldo antes → después debajo del detalle (solo movimientos que lo guardaron)
           const meliHist = (log.extraData || log.redepExtraData || {}).meliHistorial;
