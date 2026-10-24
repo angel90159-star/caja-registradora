@@ -8343,12 +8343,13 @@
 
       const yastasTermVal = balances.yastasTerminal || 0;
       const yastasGetnetVal = balances.yastasGetnet || 0;
-      const totalDigital = yastasTermVal + yastasGetnetVal;
-      const granTotal = expectedCajon + expectedBoveda + totalDigital;
+      const totalEfectivoConGetnet = totalContado + yastasGetnetVal;
+      const totalDigital = yastasTermVal;
+      const granTotal = totalEfectivoConGetnet + expectedBoveda + totalDigital;
 
       // Actualizar KPIs superiores
       const kpiEfectivoVal = document.getElementById('cierre-kpi-efectivo');
-      if (kpiEfectivoVal) kpiEfectivoVal.innerText = fmt.format(totalContado);
+      if (kpiEfectivoVal) kpiEfectivoVal.innerText = fmt.format(totalEfectivoConGetnet);
 
       const kpiDiffVal = document.getElementById('cierre-kpi-efectivo-diff');
       if (kpiDiffVal) {
@@ -8364,14 +8365,23 @@
         }
       }
 
+      const kpiEfectivoSub = document.getElementById('cierre-kpi-efectivo-sub');
+      if (kpiEfectivoSub) {
+        if (yastasGetnetVal > 0) {
+          kpiEfectivoSub.innerText = `Billetes: ${fmt.format(totalContado)} · Getnet (Pend.): ${fmt.format(yastasGetnetVal)}`;
+          kpiEfectivoSub.classList.remove('hidden');
+        } else {
+          kpiEfectivoSub.innerText = '';
+          kpiEfectivoSub.classList.add('hidden');
+        }
+      }
+
       const kpiDigitalVal = document.getElementById('cierre-kpi-digital');
       if (kpiDigitalVal) kpiDigitalVal.innerText = fmt.format(totalDigital);
 
       const kpiDigitalSub = document.getElementById('cierre-kpi-digital-sub');
       if (kpiDigitalSub) {
-        kpiDigitalSub.innerText = yastasGetnetVal > 0
-          ? `Terminal: ${fmt.format(yastasTermVal)} · Getnet (Pendiente): ${fmt.format(yastasGetnetVal)}`
-          : 'Terminal Yastás';
+        kpiDigitalSub.innerText = 'Terminal Yastás';
       }
 
       const kpiTotalVal = document.getElementById('cierre-kpi-total');
@@ -8392,6 +8402,9 @@
 
       const resReal = document.getElementById('cierre-resumen-real-val');
       if (resReal) resReal.innerText = fmt.format(totalContado);
+
+      const resGetnet = document.getElementById('cierre-resumen-getnet-val');
+      if (resGetnet) resGetnet.innerText = fmt.format(yastasGetnetVal);
 
       const resDiff = document.getElementById('cierre-resumen-diff-val');
       if (resDiff) {
@@ -8435,7 +8448,6 @@
         } else {
           const channels = [
             { name: 'Yastas', val: balances.yastasTerminal || 0, color: '#a855f7' },
-            { name: 'Getnet (Pendiente)', val: balances.yastasGetnet || 0, color: '#8b5cf6' },
             { name: 'Mercado Libre', val: balances.capitalTerminal || 0, color: '#eab308' },
             { name: 'T-Conecta', val: balances.tconecta || 0, color: '#06b6d4' },
             { name: 'Banamex', val: balances.banamex || 0, color: '#1e40af' }
@@ -8736,11 +8748,12 @@
       const balances = report.balances || {};
       const yastasTermVal = balances.yastasTerminal || 0;
       const yastasGetnetVal = balances.yastasGetnet || 0;
-      const totalDigital = yastasTermVal + yastasGetnetVal;
-      const granTotal = (report.expectedCajon || 0) + (report.expectedBoveda || 0) + totalDigital;
+      const totalEfectivoConGetnet = totalContado + yastasGetnetVal;
+      const totalDigital = yastasTermVal;
+      const granTotal = totalEfectivoConGetnet + (report.expectedBoveda || 0) + totalDigital;
 
       const kpiEfectivoVal = document.getElementById('cierre-kpi-efectivo');
-      if (kpiEfectivoVal) kpiEfectivoVal.innerText = fmt.format(totalContado);
+      if (kpiEfectivoVal) kpiEfectivoVal.innerText = fmt.format(totalEfectivoConGetnet);
 
       const kpiDiffVal = document.getElementById('cierre-kpi-efectivo-diff');
       if (kpiDiffVal) {
@@ -8756,14 +8769,23 @@
         }
       }
 
+      const kpiEfectivoSub = document.getElementById('cierre-kpi-efectivo-sub');
+      if (kpiEfectivoSub) {
+        if (yastasGetnetVal > 0) {
+          kpiEfectivoSub.innerText = `Billetes: ${fmt.format(totalContado)} · Getnet (Pend.): ${fmt.format(yastasGetnetVal)}`;
+          kpiEfectivoSub.classList.remove('hidden');
+        } else {
+          kpiEfectivoSub.innerText = '';
+          kpiEfectivoSub.classList.add('hidden');
+        }
+      }
+
       const kpiDigitalVal = document.getElementById('cierre-kpi-digital');
       if (kpiDigitalVal) kpiDigitalVal.innerText = fmt.format(totalDigital);
 
       const kpiDigitalSub = document.getElementById('cierre-kpi-digital-sub');
       if (kpiDigitalSub) {
-        kpiDigitalSub.innerText = yastasGetnetVal > 0
-          ? `Terminal: ${fmt.format(yastasTermVal)} · Getnet (Pendiente): ${fmt.format(yastasGetnetVal)}`
-          : 'Terminal Yastás';
+        kpiDigitalSub.innerText = 'Terminal Yastás';
       }
 
       const kpiTotalVal = document.getElementById('cierre-kpi-total');
@@ -8820,6 +8842,9 @@
       const resReal = document.getElementById('cierre-resumen-real-val');
       if (resReal) resReal.innerText = fmt.format(totalContado);
 
+      const resGetnet = document.getElementById('cierre-resumen-getnet-val');
+      if (resGetnet) resGetnet.innerText = fmt.format(yastasGetnetVal);
+
       const resDiff = document.getElementById('cierre-resumen-diff-val');
       if (resDiff) {
         if (diffTotal === 0) {
@@ -8858,7 +8883,6 @@
         } else {
           const channels = [
             { name: 'Yastas', val: balances.yastasTerminal || 0, color: '#a855f7' },
-            { name: 'Getnet (Pendiente)', val: balances.yastasGetnet || 0, color: '#8b5cf6' },
             { name: 'Mercado Libre', val: balances.capitalTerminal || 0, color: '#eab308' },
             { name: 'T-Conecta', val: balances.tconecta || 0, color: '#06b6d4' },
             { name: 'Banamex', val: balances.banamex || 0, color: '#1e40af' }
@@ -9026,7 +9050,10 @@
       }
 
       // KPIs
-      document.getElementById('kpi-corte-efectivo').innerText = fmt.format(report.totalContado);
+      const yastasTermVal = report.balances.yastasTerminal || 0;
+      const yastasGetnetVal = report.balances.yastasGetnet || 0;
+      const totalEfectivoConGetnet = (report.totalContado || 0) + yastasGetnetVal;
+      document.getElementById('kpi-corte-efectivo').innerText = fmt.format(totalEfectivoConGetnet);
       
       const diffEl = document.getElementById('kpi-corte-efectivo-diff');
       if (diffEl) {
@@ -9042,19 +9069,26 @@
         }
       }
 
-      const yastasTermVal = report.balances.yastasTerminal || 0;
-      const yastasGetnetVal = report.balances.yastasGetnet || 0;
-      const totalDigital = yastasTermVal + yastasGetnetVal + (report.balances.capitalTerminal || 0) + (report.balances.tconecta || 0) + (report.balances.banamex || 0);
+      const kpiCorteEfecSub = document.getElementById('kpi-corte-efectivo-sub');
+      if (kpiCorteEfecSub) {
+        if (yastasGetnetVal > 0) {
+          kpiCorteEfecSub.innerText = `Billetes: ${fmt.format(report.totalContado || 0)} · Getnet (Pend.): ${fmt.format(yastasGetnetVal)}`;
+          kpiCorteEfecSub.classList.remove('hidden');
+        } else {
+          kpiCorteEfecSub.innerText = '';
+          kpiCorteEfecSub.classList.add('hidden');
+        }
+      }
+
+      const totalDigital = yastasTermVal + (report.balances.capitalTerminal || 0) + (report.balances.tconecta || 0) + (report.balances.banamex || 0);
       document.getElementById('kpi-corte-digital').innerText = fmt.format(totalDigital);
 
       const kpiCorteDigSub = document.getElementById('kpi-corte-digital-sub');
       if (kpiCorteDigSub) {
-        kpiCorteDigSub.innerText = yastasGetnetVal > 0
-          ? `Terminal: ${fmt.format(yastasTermVal)} · Getnet (Pendiente): ${fmt.format(yastasGetnetVal)}`
-          : 'Terminal Yastás + Canales';
+        kpiCorteDigSub.innerText = 'Terminal Yastás + Canales';
       }
       
-      const totalGlobal = report.expectedCajon + (report.expectedBoveda || 0) + totalDigital;
+      const totalGlobal = totalEfectivoConGetnet + (report.expectedBoveda || 0) + totalDigital;
       document.getElementById('kpi-corte-total').innerText = fmt.format(totalGlobal);
       
       document.getElementById('kpi-corte-firma').innerText = report.operator || 'Miguel Angel';
@@ -9111,6 +9145,8 @@
       const expectedTotal = report.expectedCajon + report.expectedBoveda;
       document.getElementById('corte-resumen-total-esperado').innerText = fmt.format(expectedTotal);
       document.getElementById('corte-resumen-total-contado').innerText = fmt.format(report.totalContado);
+      const corteGetnetEl = document.getElementById('corte-resumen-getnet-val');
+      if (corteGetnetEl) corteGetnetEl.innerText = fmt.format(yastasGetnetVal);
       
       const diffRes = document.getElementById('corte-resumen-diferencia');
       if (diffRes) {
@@ -9133,11 +9169,10 @@
 
       // Sección 4: Gráfica Donut y Leyendas
       const yastas = report.balances.yastasTerminal || 0;
-      const getnet = report.balances.yastasGetnet || 0;
       const meli = report.balances.capitalTerminal || 0;
       const tconecta = report.balances.tconecta || 0;
       const banamex = report.balances.banamex || 0;
-      const totalSaldos = yastas + getnet + meli + tconecta + banamex;
+      const totalSaldos = yastas + meli + tconecta + banamex;
 
       document.getElementById('corte-donut-total-label').innerText = fmt.format(totalSaldos);
 
@@ -9162,7 +9197,6 @@
         } else {
           const channels = [
             { name: 'Yastas', val: yastas, color: '#a855f7', stroke: '#a855f7' },
-            { name: 'Getnet (Pendiente)', val: getnet, color: '#8b5cf6', stroke: '#8b5cf6' },
             { name: 'Mercado Libre', val: meli, color: '#eab308', stroke: '#eab308' },
             { name: 'T-Conecta', val: tconecta, color: '#06b6d4', stroke: '#06b6d4' },
             { name: 'Banamex', val: banamex, color: '#1e40af', stroke: '#1e40af' }

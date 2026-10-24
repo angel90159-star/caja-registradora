@@ -1191,6 +1191,7 @@
                 <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Efectivo en Cajón</span>
                 <span id="kpi-corte-efectivo" class="text-2xl font-black font-mono text-emerald-600 dark:text-teal-400">$0.00</span>
                 <p id="kpi-corte-efectivo-diff" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">Caja cuadrada</p>
+                <p id="kpi-corte-efectivo-sub" class="text-[9px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 hidden"></p>
                 <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
                   <i data-lucide="banknote" class="w-8 h-8"></i>
                 </div>
@@ -1200,7 +1201,7 @@
               <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
                 <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Saldos Operativos</span>
                 <span id="kpi-corte-digital" class="text-2xl font-black font-mono text-indigo-600 dark:text-indigo-400">$0.00</span>
-                <p id="kpi-corte-digital-sub" class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Terminal Yastás + Getnet (Pendiente)</p>
+                <p id="kpi-corte-digital-sub" class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Terminal Yastás + Canales</p>
                 <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
                   <i data-lucide="smartphone" class="w-8 h-8"></i>
                 </div>
@@ -1210,7 +1211,7 @@
               <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
                 <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Valor del Negocio</span>
                 <span id="kpi-corte-total" class="text-2xl font-black font-mono text-amber-600 dark:text-amber-400">$0.00</span>
-                <p id="kpi-corte-total-sub" class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Efectivo + Terminal + Getnet (Pend.)</p>
+                <p id="kpi-corte-total-sub" class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Efectivo + Getnet (Pend.) + Terminal</p>
                 <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
                   <i data-lucide="landmark" class="w-8 h-8"></i>
                 </div>
@@ -1267,6 +1268,10 @@
                     <div class="flex justify-between items-center text-emerald-600 dark:text-teal-400 font-extrabold text-sm">
                       <span>TOTAL FÍSICO CONTADO (REAL):</span>
                       <span id="corte-resumen-total-contado" class="font-black font-mono">$0.00</span>
+                    </div>
+                    <div class="flex justify-between items-center text-violet-600 dark:text-violet-400 font-bold text-xs">
+                      <span>Retiros Getnet (Pendiente dispersión):</span>
+                      <span id="corte-resumen-getnet-val" class="font-black font-mono">$0.00</span>
                     </div>
                     <div class="border-t border-slate-200 dark:border-slate-800 pt-1.5 flex justify-between items-center font-bold text-xs">
                       <span class="text-slate-500 dark:text-slate-400">Diferencia en Efectivo:</span>
@@ -1408,6 +1413,7 @@
           <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Efectivo Real Contado</span>
           <span id="cierre-kpi-efectivo" class="text-2xl font-black font-mono text-emerald-600 dark:text-teal-400">$0.00</span>
           <p id="cierre-kpi-efectivo-diff" class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">Caja cuadrada</p>
+          <p id="cierre-kpi-efectivo-sub" class="text-[9px] font-bold text-slate-500 dark:text-slate-400 mt-0.5 hidden"></p>
           <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
             <i data-lucide="banknote" class="w-8 h-8"></i>
           </div>
@@ -1417,7 +1423,7 @@
         <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
           <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Saldos Operativos</span>
           <span id="cierre-kpi-digital" class="text-2xl font-black font-mono text-indigo-600 dark:text-indigo-400">$0.00</span>
-          <p id="cierre-kpi-digital-sub" class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Terminal Yastás + Getnet (Pendiente)</p>
+          <p id="cierre-kpi-digital-sub" class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Terminal Yastás</p>
           <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
             <i data-lucide="smartphone" class="w-8 h-8"></i>
           </div>
@@ -1427,7 +1433,7 @@
         <div class="bg-slate-50 dark:bg-slate-900 rounded-2xl p-5 border border-slate-150 dark:border-slate-800 relative overflow-hidden">
           <span class="text-[10px] uppercase font-black tracking-wider text-slate-400 dark:text-slate-500 block mb-1">Valor Total del Negocio</span>
           <span id="cierre-kpi-total" class="text-2xl font-black font-mono text-amber-600 dark:text-amber-400">$0.00</span>
-          <p id="cierre-kpi-total-sub" class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Efectivo + Terminal + Getnet (Pend.)</p>
+          <p id="cierre-kpi-total-sub" class="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1">Efectivo + Getnet (Pend.) + Terminal</p>
           <div class="absolute right-4 top-4 text-slate-300 dark:text-slate-700 opacity-60">
             <i data-lucide="landmark" class="w-8 h-8"></i>
           </div>
@@ -1567,6 +1573,10 @@
               <div class="flex justify-between items-center text-emerald-600 dark:text-teal-400 font-black text-sm">
                 <span>TOTAL FÍSICO CONTADO (REAL):</span>
                 <span id="cierre-resumen-real-val" class="font-black font-mono">$0.00</span>
+              </div>
+              <div class="flex justify-between items-center text-violet-600 dark:text-violet-400 font-bold text-xs">
+                <span>Retiros Getnet (Pendiente dispersión):</span>
+                <span id="cierre-resumen-getnet-val" class="font-black font-mono">$0.00</span>
               </div>
               <div class="border-t border-slate-200 dark:border-slate-800 pt-2 flex justify-between items-center font-bold text-xs">
                 <span class="text-slate-500 dark:text-slate-400">Diferencia en Efectivo:</span>
@@ -2733,6 +2743,6 @@
        ========================================== -->
   <!-- SheetJS (lector de Excel) solo se usa al subir el Reporte de Movimientos: defer para no retrasar el arranque -->
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20261024_CIERRE_GETNET"></script>
+  <script src="app.js?v=20261024_CIERRE_GETNET_CAJA"></script>
 </body>
 </html>
