@@ -1,0 +1,7 @@
+# Solo se publica lo que la caja necesita. Todo lo demás (Excel, notas, extensión de Yastás,
+# credenciales locales, migraciones, configuración de agentes) queda fuera del sitio público.
+/*
+!/index.html
+!/app.js
+!/styles.css
+!/api
