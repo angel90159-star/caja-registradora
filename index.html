@@ -343,6 +343,9 @@
         <button id="btn-encuadre-yastas" onclick="abrirModalEncuadreYastas()" class="flex items-center gap-2 bg-white/15 hover:bg-white/30 border-2 border-white/40 text-white font-black text-xs px-3 py-2 rounded-xl transition" title="Comparar los movimientos de la caja contra el Reporte de Movimientos del portal Yastás">
           <i data-lucide="scale" class="w-4 h-4"></i> Encuadre Yastás
         </button>
+        <button id="btn-encuadre-meli" onclick="abrirModalEncuadreMeli()" class="hidden flex items-center gap-2 bg-white/15 hover:bg-white/30 border-2 border-white/40 text-white font-black text-xs px-3 py-2 rounded-xl transition" title="Comparar las transferencias que detecta Mercado Pago contra lo registrado en la caja">
+          <i data-lucide="scale" class="w-4 h-4"></i> Encuadre Meli
+        </button>
       </div>
 
       <!-- Area de Trabajo Principal -->
@@ -440,7 +443,7 @@
             <div class="p-6 space-y-5" id="op-formulario-contenedor">
               <div class="hidden">
                 <label class="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Cuenta de Destino / Servicio</label>
-                <select id="op-service" onchange="actualizarFormularioOperacion()" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white dark:focus:bg-slate-900 transition duration-150">
+                <select id="op-service" onchange="actualizarFormularioOperacion(); if (this.value === 'meli' && typeof consultarGananciasMeliApi === 'function') consultarGananciasMeliApi(true);" class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 focus:bg-white dark:focus:bg-slate-900 transition duration-150">
                   <option value="yastas" selected>Yastas (Morado)</option>
                   <option value="meli">Mercado Libre (Amarillo)</option>
                   <option value="bbva">BBVA N6 (Azul Marino)</option>
@@ -2533,75 +2536,75 @@
        ========================================== -->
   <style>
     /* Tema local de alto contraste (WCAG AAA) y tamaño de letra, independientes del tema global de la app. */
-    #enc-panel {
+    :is(#enc-panel, #encm-panel) {
       --enc-font: 15px;
       --enc-bg: #0B1020; --enc-surface: #151C31; --enc-surface2: #1E2740; --enc-ink: #FFFFFF; --enc-ink2: #E2E8F0;
       --enc-line: #3B4663; --enc-accent: #A5B4FC; --enc-yastas: #C4B5FD;
       --enc-good: #6EE7B7; --enc-good-soft: #0F3A2C; --enc-warn: #FCD34D; --enc-warn-soft: #3D2E08; --enc-bad: #FDA4AF; --enc-bad-soft: #451422;
       font-size: var(--enc-font); background: var(--enc-bg); color: var(--enc-ink); font-family: 'Montserrat', system-ui, sans-serif;
     }
-    #enc-panel[data-enc-theme="light"] {
+    :is(#enc-panel, #encm-panel)[data-enc-theme="light"] {
       --enc-bg: #F8FAFC; --enc-surface: #FFFFFF; --enc-surface2: #EEF2FF; --enc-ink: #0F172A; --enc-ink2: #1E293B;
       --enc-line: #CBD5E1; --enc-accent: #3730A3; --enc-yastas: #5B21B6;
       --enc-good: #047857; --enc-good-soft: #D1FAE5; --enc-warn: #92400E; --enc-warn-soft: #FEF3C7; --enc-bad: #9F1239; --enc-bad-soft: #FFE4E6;
     }
-    #enc-panel .enc-mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
-    #enc-panel .enc-card { background: var(--enc-surface); border: 2px solid var(--enc-line); border-radius: 14px; }
-    #enc-panel .enc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 10px; border: 2px solid var(--enc-line); background: var(--enc-surface2); color: var(--enc-ink); font: inherit; font-weight: 800; font-size: 0.9em; cursor: pointer; }
-    #enc-panel .enc-btn.primary { background: var(--enc-accent); color: #0B1020; border-color: transparent; }
-    #enc-panel[data-enc-theme="light"] .enc-btn.primary { color: #FFFFFF; }
-    #enc-panel .enc-btn:disabled { opacity: .55; cursor: not-allowed; }
-    #enc-panel .enc-btn:focus-visible { outline: 3px solid var(--enc-accent); outline-offset: 2px; }
-    #enc-panel .enc-hero { border: 2px solid var(--enc-warn); background: var(--enc-warn-soft); border-radius: 14px; padding: 14px 18px; display: flex; gap: 14px; align-items: center; }
-    #enc-panel .enc-hero.good { border-color: var(--enc-good); background: var(--enc-good-soft); }
-    #enc-panel .enc-hero.bad { border-color: var(--enc-bad); background: var(--enc-bad-soft); }
-    #enc-panel .enc-hero .ico { font-size: 2em; flex: none; }
-    #enc-panel .enc-hero h4 { margin: 0 0 3px; font-size: 1.15em; font-weight: 800; color: var(--enc-ink); }
-    #enc-panel .enc-hero p { margin: 0; font-weight: 600; color: var(--enc-ink2); line-height: 1.45; }
-    #enc-panel .enc-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
-    @media (max-width: 1100px) { #enc-panel .enc-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-    @media (max-width: 640px)  { #enc-panel .enc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    #enc-panel .enc-kpi { text-align: left; background: var(--enc-surface); border: 2px solid var(--enc-line); border-radius: 12px; padding: 12px 14px; cursor: pointer; font: inherit; color: var(--enc-ink); display: grid; gap: 4px; }
-    #enc-panel .enc-kpi.active { border-color: var(--enc-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--enc-accent) 35%, transparent); }
-    #enc-panel .enc-kpi .lbl { font-size: 0.78em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--enc-ink2); }
-    #enc-panel .enc-kpi .n { font-size: 2em; font-weight: 900; line-height: 1; }
-    #enc-panel .enc-kpi .sub { font-size: 0.8em; font-weight: 700; color: var(--enc-ink2); }
-    #enc-panel .enc-kpi.accent .n { color: var(--enc-accent); } #enc-panel .enc-kpi.warn .n { color: var(--enc-warn); }
-    #enc-panel .enc-kpi.bad .n { color: var(--enc-bad); } #enc-panel .enc-kpi.good .n { color: var(--enc-good); } #enc-panel .enc-kpi.yastas .n { color: var(--enc-yastas); }
-    #enc-panel table { width: 100%; border-collapse: collapse; min-width: 900px; }
-    #enc-panel th { text-align: left; font-size: 0.78em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--enc-ink2); padding: 10px 12px; border-bottom: 2px solid var(--enc-line); background: var(--enc-surface2); white-space: nowrap; }
-    #enc-panel td { padding: 12px; border-bottom: 1px solid var(--enc-line); vertical-align: middle; }
-    #enc-panel tr.enc-warn td { background: color-mix(in srgb, var(--enc-warn-soft) 55%, var(--enc-surface)); }
-    #enc-panel tr.enc-warn td:first-child { box-shadow: inset 4px 0 0 var(--enc-warn); }
-    #enc-panel tr.enc-bad td { background: color-mix(in srgb, var(--enc-bad-soft) 55%, var(--enc-surface)); }
-    #enc-panel tr.enc-bad td:first-child { box-shadow: inset 4px 0 0 var(--enc-bad); }
-    #enc-panel .enc-who { display: flex; align-items: center; gap: 8px; font-weight: 800; white-space: nowrap; }
-    #enc-panel .enc-av { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--enc-accent); color: var(--enc-accent); display: grid; place-items: center; font-size: 0.8em; font-weight: 900; flex: none; }
-    #enc-panel .enc-amt { text-align: right; font-weight: 900; white-space: nowrap; font-size: 1.05em; }
-    #enc-panel .enc-amt.in { color: var(--enc-good); } #enc-panel .enc-amt.out { color: var(--enc-ink); }
-    #enc-panel .enc-op { font-weight: 800; } #enc-panel .enc-op small { display: block; font-weight: 600; color: var(--enc-ink2); font-size: 0.85em; margin-top: 2px; }
-    #enc-panel .enc-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 0.8em; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; border: 2px solid transparent; }
-    #enc-panel .enc-pill.good { color: var(--enc-good); background: var(--enc-good-soft); border-color: var(--enc-good); }
-    #enc-panel .enc-pill.warn { color: var(--enc-warn); background: var(--enc-warn-soft); border-color: var(--enc-warn); }
-    #enc-panel .enc-pill.bad { color: var(--enc-bad); background: var(--enc-bad-soft); border-color: var(--enc-bad); }
-    #enc-panel .enc-note { font-size: 0.8em; font-weight: 700; margin-top: 4px; max-width: 280px; white-space: normal; color: var(--enc-ink2); }
-    #enc-panel .enc-note.warn { color: var(--enc-warn); } #enc-panel .enc-note.good { color: var(--enc-good); } #enc-panel .enc-note.bad { color: var(--enc-bad); }
-    #enc-panel .enc-tile { background: var(--enc-surface2); border: 2px solid var(--enc-line); border-radius: 10px; padding: 10px 12px; }
-    #enc-panel .enc-tile .lbl { font-size: 0.78em; font-weight: 800; color: var(--enc-ink2); text-transform: uppercase; }
-    #enc-panel .enc-tile .n { font-size: 1.45em; font-weight: 900; }
-    #enc-panel .enc-callout { padding: 12px; border-radius: 10px; border: 2px solid var(--enc-line); background: var(--enc-surface2); font-weight: 700; margin-bottom: 8px; color: var(--enc-ink); }
-    #enc-panel .enc-callout.good { border-color: var(--enc-good); background: var(--enc-good-soft); color: var(--enc-good); }
-    #enc-panel .enc-callout.warn { border-color: var(--enc-warn); background: var(--enc-warn-soft); color: var(--enc-warn); }
-    #enc-panel .enc-callout.bad { border-color: var(--enc-bad); background: var(--enc-bad-soft); color: var(--enc-bad); }
-    #enc-panel input[type="date"], #enc-panel input[type="search"] { background: var(--enc-surface2); color: var(--enc-ink); border: 2px solid var(--enc-line); border-radius: 10px; padding: 8px 12px; font: inherit; font-weight: 700; }
-    #enc-panel .enc-scroll { overflow-x: auto; }
-    #enc-panel .enc-empty { text-align: center; padding: 40px 20px; font-weight: 700; color: var(--enc-ink2); }
-    #enc-reglas { border: 0; border-radius: 16px; padding: 0; max-width: 820px; width: 94vw; background: var(--enc-surface, #151C31); color: var(--enc-ink, #fff); }
-    #enc-reglas::backdrop { background: rgba(2, 6, 23, .7); }
-    #enc-reglas table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    #enc-reglas th, #enc-reglas td { padding: 10px 12px; border-bottom: 1px solid #3B4663; vertical-align: top; text-align: left; }
-    #enc-reglas th { font-weight: 800; text-transform: uppercase; font-size: 11px; }
-    #enc-reglas code { background: rgba(148, 163, 184, .18); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+    :is(#enc-panel, #encm-panel) .enc-mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+    :is(#enc-panel, #encm-panel) .enc-card { background: var(--enc-surface); border: 2px solid var(--enc-line); border-radius: 14px; }
+    :is(#enc-panel, #encm-panel) .enc-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 10px; border: 2px solid var(--enc-line); background: var(--enc-surface2); color: var(--enc-ink); font: inherit; font-weight: 800; font-size: 0.9em; cursor: pointer; }
+    :is(#enc-panel, #encm-panel) .enc-btn.primary { background: var(--enc-accent); color: #0B1020; border-color: transparent; }
+    :is(#enc-panel, #encm-panel)[data-enc-theme="light"] .enc-btn.primary { color: #FFFFFF; }
+    :is(#enc-panel, #encm-panel) .enc-btn:disabled { opacity: .55; cursor: not-allowed; }
+    :is(#enc-panel, #encm-panel) .enc-btn:focus-visible { outline: 3px solid var(--enc-accent); outline-offset: 2px; }
+    :is(#enc-panel, #encm-panel) .enc-hero { border: 2px solid var(--enc-warn); background: var(--enc-warn-soft); border-radius: 14px; padding: 14px 18px; display: flex; gap: 14px; align-items: center; }
+    :is(#enc-panel, #encm-panel) .enc-hero.good { border-color: var(--enc-good); background: var(--enc-good-soft); }
+    :is(#enc-panel, #encm-panel) .enc-hero.bad { border-color: var(--enc-bad); background: var(--enc-bad-soft); }
+    :is(#enc-panel, #encm-panel) .enc-hero .ico { font-size: 2em; flex: none; }
+    :is(#enc-panel, #encm-panel) .enc-hero h4 { margin: 0 0 3px; font-size: 1.15em; font-weight: 800; color: var(--enc-ink); }
+    :is(#enc-panel, #encm-panel) .enc-hero p { margin: 0; font-weight: 600; color: var(--enc-ink2); line-height: 1.45; }
+    :is(#enc-panel, #encm-panel) .enc-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    @media (max-width: 1100px) { :is(#enc-panel, #encm-panel) .enc-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 640px)  { :is(#enc-panel, #encm-panel) .enc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    :is(#enc-panel, #encm-panel) .enc-kpi { text-align: left; background: var(--enc-surface); border: 2px solid var(--enc-line); border-radius: 12px; padding: 12px 14px; cursor: pointer; font: inherit; color: var(--enc-ink); display: grid; gap: 4px; }
+    :is(#enc-panel, #encm-panel) .enc-kpi.active { border-color: var(--enc-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--enc-accent) 35%, transparent); }
+    :is(#enc-panel, #encm-panel) .enc-kpi .lbl { font-size: 0.78em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--enc-ink2); }
+    :is(#enc-panel, #encm-panel) .enc-kpi .n { font-size: 2em; font-weight: 900; line-height: 1; }
+    :is(#enc-panel, #encm-panel) .enc-kpi .sub { font-size: 0.8em; font-weight: 700; color: var(--enc-ink2); }
+    :is(#enc-panel, #encm-panel) .enc-kpi.accent .n { color: var(--enc-accent); } :is(#enc-panel, #encm-panel) .enc-kpi.warn .n { color: var(--enc-warn); }
+    :is(#enc-panel, #encm-panel) .enc-kpi.bad .n { color: var(--enc-bad); } :is(#enc-panel, #encm-panel) .enc-kpi.good .n { color: var(--enc-good); } :is(#enc-panel, #encm-panel) .enc-kpi.yastas .n { color: var(--enc-yastas); }
+    :is(#enc-panel, #encm-panel) table { width: 100%; border-collapse: collapse; min-width: 900px; }
+    :is(#enc-panel, #encm-panel) th { text-align: left; font-size: 0.78em; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--enc-ink2); padding: 10px 12px; border-bottom: 2px solid var(--enc-line); background: var(--enc-surface2); white-space: nowrap; }
+    :is(#enc-panel, #encm-panel) td { padding: 12px; border-bottom: 1px solid var(--enc-line); vertical-align: middle; }
+    :is(#enc-panel, #encm-panel) tr.enc-warn td { background: color-mix(in srgb, var(--enc-warn-soft) 55%, var(--enc-surface)); }
+    :is(#enc-panel, #encm-panel) tr.enc-warn td:first-child { box-shadow: inset 4px 0 0 var(--enc-warn); }
+    :is(#enc-panel, #encm-panel) tr.enc-bad td { background: color-mix(in srgb, var(--enc-bad-soft) 55%, var(--enc-surface)); }
+    :is(#enc-panel, #encm-panel) tr.enc-bad td:first-child { box-shadow: inset 4px 0 0 var(--enc-bad); }
+    :is(#enc-panel, #encm-panel) .enc-who { display: flex; align-items: center; gap: 8px; font-weight: 800; white-space: nowrap; }
+    :is(#enc-panel, #encm-panel) .enc-av { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--enc-accent); color: var(--enc-accent); display: grid; place-items: center; font-size: 0.8em; font-weight: 900; flex: none; }
+    :is(#enc-panel, #encm-panel) .enc-amt { text-align: right; font-weight: 900; white-space: nowrap; font-size: 1.05em; }
+    :is(#enc-panel, #encm-panel) .enc-amt.in { color: var(--enc-good); } :is(#enc-panel, #encm-panel) .enc-amt.out { color: var(--enc-ink); }
+    :is(#enc-panel, #encm-panel) .enc-op { font-weight: 800; } :is(#enc-panel, #encm-panel) .enc-op small { display: block; font-weight: 600; color: var(--enc-ink2); font-size: 0.85em; margin-top: 2px; }
+    :is(#enc-panel, #encm-panel) .enc-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 0.8em; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; border: 2px solid transparent; }
+    :is(#enc-panel, #encm-panel) .enc-pill.good { color: var(--enc-good); background: var(--enc-good-soft); border-color: var(--enc-good); }
+    :is(#enc-panel, #encm-panel) .enc-pill.warn { color: var(--enc-warn); background: var(--enc-warn-soft); border-color: var(--enc-warn); }
+    :is(#enc-panel, #encm-panel) .enc-pill.bad { color: var(--enc-bad); background: var(--enc-bad-soft); border-color: var(--enc-bad); }
+    :is(#enc-panel, #encm-panel) .enc-note { font-size: 0.8em; font-weight: 700; margin-top: 4px; max-width: 280px; white-space: normal; color: var(--enc-ink2); }
+    :is(#enc-panel, #encm-panel) .enc-note.warn { color: var(--enc-warn); } :is(#enc-panel, #encm-panel) .enc-note.good { color: var(--enc-good); } :is(#enc-panel, #encm-panel) .enc-note.bad { color: var(--enc-bad); }
+    :is(#enc-panel, #encm-panel) .enc-tile { background: var(--enc-surface2); border: 2px solid var(--enc-line); border-radius: 10px; padding: 10px 12px; }
+    :is(#enc-panel, #encm-panel) .enc-tile .lbl { font-size: 0.78em; font-weight: 800; color: var(--enc-ink2); text-transform: uppercase; }
+    :is(#enc-panel, #encm-panel) .enc-tile .n { font-size: 1.45em; font-weight: 900; }
+    :is(#enc-panel, #encm-panel) .enc-callout { padding: 12px; border-radius: 10px; border: 2px solid var(--enc-line); background: var(--enc-surface2); font-weight: 700; margin-bottom: 8px; color: var(--enc-ink); }
+    :is(#enc-panel, #encm-panel) .enc-callout.good { border-color: var(--enc-good); background: var(--enc-good-soft); color: var(--enc-good); }
+    :is(#enc-panel, #encm-panel) .enc-callout.warn { border-color: var(--enc-warn); background: var(--enc-warn-soft); color: var(--enc-warn); }
+    :is(#enc-panel, #encm-panel) .enc-callout.bad { border-color: var(--enc-bad); background: var(--enc-bad-soft); color: var(--enc-bad); }
+    :is(#enc-panel, #encm-panel) input[type="date"], :is(#enc-panel, #encm-panel) input[type="search"] { background: var(--enc-surface2); color: var(--enc-ink); border: 2px solid var(--enc-line); border-radius: 10px; padding: 8px 12px; font: inherit; font-weight: 700; }
+    :is(#enc-panel, #encm-panel) .enc-scroll { overflow-x: auto; }
+    :is(#enc-panel, #encm-panel) .enc-empty { text-align: center; padding: 40px 20px; font-weight: 700; color: var(--enc-ink2); }
+    #enc-reglas, #encm-reglas { border: 0; border-radius: 16px; padding: 0; max-width: 820px; width: 94vw; background: var(--enc-surface, #151C31); color: var(--enc-ink, #fff); }
+    #enc-reglas::backdrop, #encm-reglas::backdrop { background: rgba(2, 6, 23, .7); }
+    #enc-reglas table, #encm-reglas table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    #enc-reglas th, #enc-reglas td, #encm-reglas th, #encm-reglas td { padding: 10px 12px; border-bottom: 1px solid #3B4663; vertical-align: top; text-align: left; }
+    #enc-reglas th, #encm-reglas th { font-weight: 800; text-transform: uppercase; font-size: 11px; }
+    #enc-reglas code, #encm-reglas code { background: rgba(148, 163, 184, .18); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
   </style>
 
   <div id="modal-encuadre-yastas" class="fixed inset-0 z-40 bg-slate-950 flex flex-col hidden">
@@ -2737,6 +2740,154 @@
     </div>
   </dialog>
 
+  <!-- ==========================================
+       ENCUADRE MELI vs CAJA (transferencias que detecta Mercado Pago vs. bitácora). Solo lectura.
+       Lógica: app.js → sección "ENCUADRE MELI". Reutiliza el tema/estilos del encuadre Yastás (.enc-*).
+       ========================================== -->
+  <div id="modal-encuadre-meli" class="fixed inset-0 z-40 bg-slate-950 flex flex-col hidden">
+    <div id="encm-panel" data-enc-theme="dark" class="w-full h-full flex flex-col overflow-hidden">
+
+      <div class="bg-gradient-to-r from-amber-600 to-orange-600 px-5 py-3.5 text-white flex flex-wrap items-center gap-3 flex-none shadow-md z-10">
+        <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-none">
+          <i data-lucide="scale" class="w-5 h-5 text-white"></i>
+        </div>
+        <div class="mr-auto">
+          <h3 class="text-base font-black text-white leading-tight uppercase tracking-wider">Encuadre de Caja vs. Mercado Pago</h3>
+          <p class="text-[11px] text-amber-50 font-semibold">Fecha: <span id="encm-fecha-texto" class="font-black text-white">—</span> <span id="encm-sinc-texto" class="ml-2 font-bold text-yellow-100"></span></p>
+        </div>
+        <label class="flex items-center gap-2 text-[11px] font-bold text-amber-50">
+          Día
+          <input type="date" id="encm-fecha" class="!text-slate-900 !bg-white !border-0 rounded-lg px-2 py-1.5 text-sm font-bold" onchange="cambiarFechaEncuadreMeli(this.value)">
+        </label>
+        <button type="button" class="enc-btn primary" id="encm-btn-actualizar" onclick="encmRecargar()" title="Vuelve a consultar Mercado Pago y la bitácora">
+          <i data-lucide="refresh-cw" class="w-4 h-4"></i> Actualizar
+        </button>
+        <button type="button" class="enc-btn" id="encm-btn-tema" onclick="alternarTemaEncuadreMeli()" title="Cambiar a fondo claro u oscuro">☀️ Modo Claro</button>
+        <button type="button" class="enc-btn" onclick="document.getElementById('encm-reglas').showModal()" title="Ver cómo se calcula el cruce">ℹ️ Ayuda</button>
+        <button type="button" onclick="cerrarModalEncuadreMeli()" class="px-3.5 py-1.5 flex items-center justify-center rounded-xl bg-white text-amber-900 shadow-sm hover:bg-amber-50 font-black text-xs transition flex-none gap-1.5 cursor-pointer" title="Volver al punto de venta (o presiona Escape)">
+          <i data-lucide="x" class="w-4 h-4"></i> Salir (ESC)
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 w-full">
+        <div id="encm-cuadre" class="enc-card p-4 hidden">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h4 class="font-black uppercase tracking-wide">💰 Cuadre de saldo de la terminal</h4>
+              <p class="text-[0.82em] font-semibold" style="color:var(--enc-ink2)">Escribe el saldo disponible que muestra <b>ahora</b> la app de Mercado Pago. El sistema explica la diferencia con los movimientos de hoy.</p>
+            </div>
+            <label class="flex items-center gap-2 font-black text-[0.9em]">Saldo en la app
+              <input type="number" id="encm-saldo-app" inputmode="decimal" step="0.01" min="0" placeholder="$0.00" class="enc-mono" style="width:170px; background:var(--enc-surface2); color:var(--enc-ink); border:2px solid var(--enc-line); border-radius:10px; padding:8px 12px; font:inherit; font-weight:800" oninput="encmRenderCuadre()">
+            </label>
+          </div>
+          <div id="encm-cuadre-res" class="mt-3"></div>
+        </div>
+
+        <div id="encm-sin-datos" class="enc-card enc-empty hidden"></div>
+
+        <div id="encm-contenido" class="space-y-4 hidden">
+          <div class="enc-hero" id="encm-hero">
+            <div class="ico" id="encm-hero-ico">⚠️</div>
+            <div><h4 id="encm-hero-titulo"></h4><p id="encm-hero-desc"></p></div>
+          </div>
+          <div id="encm-aviso-caja" class="enc-callout warn hidden"></div>
+
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <span class="text-[0.8em] font-black uppercase tracking-wider" style="color:var(--enc-ink2)">Filtros rápidos (un clic para ver solo ese grupo)</span>
+            <span id="encm-filtro-activo" class="text-[0.85em] font-black" style="color:var(--enc-accent)">Mostrando: Todas las operaciones</span>
+          </div>
+          <div class="enc-kpis" id="encm-kpis"></div>
+
+          <div class="enc-card">
+            <div class="flex items-center justify-between flex-wrap gap-3 p-4 border-b-2" style="border-color:var(--enc-line)">
+              <div>
+                <h4 class="font-black uppercase tracking-wide">Movimientos de Mercado Pago vs. caja</h4>
+                <span id="encm-conteo" class="text-[0.85em] font-bold" style="color:var(--enc-ink2)"></span>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+                <select id="encm-filtro-cajero" class="!text-slate-900 !bg-white !border rounded-lg px-3 py-1.5 text-xs font-bold shadow-sm" onchange="filtrarEncuadreMeliPorCajero(this.value)">
+                  <option value="">👤 Todos</option>
+                </select>
+                <input type="search" id="encm-buscar" placeholder="🔍 Buscar por monto, cajero o ID de pago…" class="w-full sm:w-80" oninput="filtrarEncuadreMeliPorTexto(this.value)">
+              </div>
+            </div>
+            <div class="enc-scroll">
+              <table>
+                <thead><tr><th>Cajero</th><th>Concepto de la operación</th><th style="text-align:right">Mercado Pago (terminal)</th><th style="text-align:right">Caja registradora</th><th style="text-align:center">Resultado del cruce</th></tr></thead>
+                <tbody id="encm-tabla"></tbody>
+              </table>
+              <div id="encm-tabla-vacia" class="enc-empty hidden">No hay operaciones en este grupo.</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <details class="enc-card p-4 group cursor-pointer" id="encm-man-details">
+              <summary class="flex items-center justify-between font-black uppercase tracking-wide list-none select-none">
+                <span class="flex items-center gap-2">📤 Retiros digitales y correcciones manuales <span class="text-[0.8em] font-normal opacity-70 normal-case">(sin contraparte en la API)</span></span>
+                <div class="flex items-center gap-2"><span id="encm-man-conteo" class="text-[0.85em] font-bold" style="color:var(--enc-ink2)"></span><span class="text-xs transition-transform group-open:rotate-180">▼</span></div>
+              </summary>
+              <div class="mt-3 pt-3 border-t cursor-default" style="border-color:var(--enc-line)">
+                <p class="text-[0.82em] font-semibold mb-2" style="color:var(--enc-ink2)">Los retiros digitales (de la cuenta a un banco) y las correcciones de saldo hechas a mano no tienen contraparte en la API; revísalos con el estado de cuenta. Una corrección manual suele indicar que algo no se registró antes.</p>
+                <p id="encm-man-resumen" class="text-[0.9em] font-bold mb-2"></p>
+                <div id="encm-man-lista" class="max-h-48 overflow-y-auto space-y-1"></div>
+              </div>
+            </details>
+            <details class="enc-card p-4 group cursor-pointer" id="encm-inf-details">
+              <summary class="flex items-center justify-between font-black uppercase tracking-wide list-none select-none">
+                <span class="flex items-center gap-2">✨ Ganancias y otros movimientos de MP <span class="text-[0.8em] font-normal opacity-70 normal-case">(no se cruzan)</span></span>
+                <div class="flex items-center gap-2"><span id="encm-inf-conteo" class="text-[0.85em] font-bold" style="color:var(--enc-ink2)"></span><span class="text-xs transition-transform group-open:rotate-180">▼</span></div>
+              </summary>
+              <div class="mt-3 pt-3 border-t cursor-default" style="border-color:var(--enc-line)">
+                <p id="encm-inf-resumen" class="text-[0.9em] font-bold mb-2"></p>
+                <div id="encm-inf-lista" class="max-h-48 overflow-y-auto space-y-1"></div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-4 border-t-2 flex flex-wrap items-center gap-3" style="border-color:var(--enc-line); background:var(--enc-surface)">
+        <div class="mr-auto text-[0.85em] font-semibold" style="color:var(--enc-ink2)">🔒 El cruce es de solo lectura. Lo único que modifica el saldo es el botón del cuadre de saldo, con PIN y registro en bitácora.</div>
+      </div>
+    </div>
+  </div>
+
+  <dialog id="encm-reglas">
+    <div class="p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-base font-black">ℹ️ ¿Cómo se cruzan las transferencias?</h3>
+        <button type="button" class="px-3 py-1 rounded-lg font-black bg-white/10 hover:bg-white/20" onclick="document.getElementById('encm-reglas').close()">✕</button>
+      </div>
+      <p class="text-sm font-semibold mb-3" style="color:#E2E8F0">Cada movimiento que detectó la cuenta de Mercado Pago busca su pareja en la bitácora Meli del mismo día. La primera regla que aplica gana.</p>
+      <div class="overflow-x-auto">
+        <table>
+          <thead><tr><th>Mercado Pago</th><th>Debe estar en la caja como</th></tr></thead>
+          <tbody>
+            <tr><td><b>Ingreso Express</b> (envío desde la cuenta)</td><td><code>MELI</code> · Tienda Express · Ingreso</td></tr>
+            <tr><td><b>Retiro Express</b> (el cliente retira efectivo)</td><td><code>MELI</code> · Tienda Express · Salida</td></tr>
+            <tr><td><b>Venta presencial</b> (Point)</td><td><code>MELI</code> · Venta Negocio (Terminal)</td></tr>
+            <tr><td><b>Fondeo a la cuenta</b> (CLABE / banco)</td><td><code>AJUSTE_MELI</code> · motivo Depósito</td></tr>
+            <tr><td><b>Otra transferencia</b></td><td>Cualquiera de las anteriores (por monto y hora)</td></tr>
+            <tr><td>Ganancias / cashbacks</td><td>No se cruzan (se suman solas a la terminal)</td></tr>
+          </tbody>
+        </table>
+        <table style="margin-top:12px">
+          <thead><tr><th>Paso</th><th>Regla</th><th>Resultado</th></tr></thead>
+          <tbody>
+            <tr><td>1 Exacto</td><td>Mismo tipo y monto, a ±15 min.</td><td>✅ Cuadra</td></tr>
+            <tr><td>2 Tipo distinto</td><td>Mismo monto a ±15 min y mismo sentido (ingreso o retiro), pero registrado como otra operación.</td><td>⚠️ Tipo distinto</td></tr>
+            <tr><td>3 Error cercano</td><td>A ≤10 min: faltó/sobró un dígito, un cero o dos dígitos al revés, o se capturó como ingreso siendo retiro (o al revés).</td><td>❌ Posible error de captura</td></tr>
+            <tr><td>4 Otra hora</td><td>Mismo monto el mismo día, a más de 15 min.</td><td>🕒 Otra hora</td></tr>
+            <tr><td>5 Error lejano</td><td>Igual que 3, hasta 2 h; además un movimiento capturado en dos partes (o dos en uno) y capturada dos veces.</td><td>❌ Posible error de captura</td></tr>
+            <tr><td>6 Sin pareja</td><td>Lo que quedó suelto.</td><td>❌ No registrado en caja / no existe en Mercado Pago</td></tr>
+          </tbody>
+        </table>
+        <p class="text-sm font-semibold mt-3" style="color:#E2E8F0">Los retiros digitales a banco y las correcciones manuales no tienen contraparte en la API: se listan aparte para revisión.</p>
+      </div>
+    </div>
+  </dialog>
+
+
   <!-- NOTIFICACIÓN TIPO TOAST -->
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
@@ -2745,6 +2896,6 @@
        ========================================== -->
   <!-- SheetJS (lector de Excel) solo se usa al subir el Reporte de Movimientos: defer para no retrasar el arranque -->
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20261024_AUTOFILL_YASTAS"></script>
+  <script src="app.js?v=20261026_MELI_PROXY"></script>
 </body>
 </html>

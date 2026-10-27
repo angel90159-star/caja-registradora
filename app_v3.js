@@ -1797,6 +1797,9 @@
       // El Encuadre Yastás es una herramienta exclusiva de Yastás
       const btnEncuadre = document.getElementById('btn-encuadre-yastas');
       if (btnEncuadre) btnEncuadre.classList.toggle('hidden', activeSrv !== 'yastas');
+      // El Encuadre Meli es exclusivo de Mercado Libre
+      const btnEncuadreMeli = document.getElementById('btn-encuadre-meli');
+      if (btnEncuadreMeli) btnEncuadreMeli.classList.toggle('hidden', activeSrv !== 'meli');
 
       // Reset defaults for operator, equals, and label3 / operativo text classes
       const barOpEl = document.getElementById('dash-total-bar-operator');
@@ -1822,6 +1825,17 @@
         const tconTermVal = fmt.format(balances.tconectaTerminal || 0);
         const banamexVal = fmt.format(balances.banamex || 0);
         document.getElementById('dash-total-bar-desc').innerText = `Disponible Terminal: ${tconTermVal}  |  Saldo Banamex: ${banamexVal}`;
+      } else if (activeSrv === 'meli') {
+        const nowMeli = new Date();
+        const todayMeliStr = `${nowMeli.getFullYear()}-${String(nowMeli.getMonth() + 1).padStart(2, '0')}-${String(nowMeli.getDate()).padStart(2, '0')}`;
+        const gananciaDiaVal = (balances.meliGananciaFecha && balances.meliGananciaFecha !== todayMeliStr)
+          ? 0
+          : (balances.meliGananciaDia || 0);
+        document.getElementById('dash-total-bar-desc').innerHTML = `<span onclick="consultarGananciasMeliApi(false)" title="Clic para actualizar ganancia en vivo desde Mercado Pago" class="inline-flex items-center gap-1.5 mt-1 px-2.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs border border-amber-700/30 dark:border-amber-400/50 shadow-sm cursor-pointer hover:bg-amber-50 dark:hover:bg-slate-800 transition">✨ Ganancia del día: <strong class="text-emerald-700 dark:text-emerald-400 font-black">+${fmt.format(gananciaDiaVal)}</strong></span>`;
+        if (!window._meliFirstApiFetched && typeof consultarGananciasMeliApi === 'function') {
+          window._meliFirstApiFetched = true;
+          setTimeout(() => consultarGananciasMeliApi(true), 200);
+        }
       } else {
         document.getElementById('dash-total-bar-desc').innerText = config.desc;
       }
@@ -2278,6 +2292,7 @@
       balances.capitalEfectivo = 0;
       balances.vales = 0;
       balances.yastasGetnet = 0;
+      balances.meliGananciaDia = 0;
 
       DB.set('balances', balances);
 
@@ -2998,6 +3013,9 @@
       select.value = srv;
       actualizarFormularioOperacion();
       cargarSaldosDigitales();
+      if (srv === 'meli' && typeof consultarGananciasMeliApi === 'function') {
+        consultarGananciasMeliApi(true);
+      }
     }
 
 
@@ -4174,6 +4192,169 @@
         cargarSaldosDigitales();
         cargarBitacora();
       });
+    }
+
+    // === CONSULTA EN TIEMPO REAL DE GANANCIAS DEL DÍA (API MERCADO PAGO) ===
+    // Mercado Pago se consulta a través de /api/mp (función de Vercel): el token vive en el servidor, no aquí.
+    // Cada equipo captura una sola vez la clave del proxy (variable MP_PROXY_KEY en Vercel).
+    async function meliApiFetch(tipo, params = {}) {
+      const leerClave = () => { try { return localStorage.getItem('caja_mp_proxy_key') || ''; } catch (e) { return ''; } };
+      const pedir = () => fetch(`/api/mp?${new URLSearchParams({ tipo, ...params })}`, { headers: { 'x-caja-key': leerClave() } });
+      let res = await pedir();
+      // La clave se pide una sola vez por carga de página para no interrumpir con cada consulta automática.
+      if (res.status === 401 && !window._meliClavePedida) {
+        window._meliClavePedida = true;
+        const clave = prompt('Clave de acceso a Mercado Pago para este equipo (se pide una sola vez):');
+        if (clave && clave.trim()) {
+          try { localStorage.setItem('caja_mp_proxy_key', clave.trim()); } catch (e) {}
+          res = await pedir();
+        }
+      }
+      return res;
+    }
+    let meliApiPollingIniciado = false;
+
+    async function consultarGananciasMeliApi(silencioso = true) {
+      if (!navigator.onLine) return;
+      try {
+        const res = await meliApiFetch('pagos', { sort: 'date_created', criteria: 'desc', limit: '50' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const results = Array.isArray(data.results) ? data.results : [];
+
+        const now = new Date();
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+        const balances = DB.get('balances', {});
+        let huboCambio = false;
+
+        // Calibración inicial única al estado real proyectado (Terminal: $12,129.00 | Fondo Base: $12,179.00 -> Estado: -$50.00)
+        if (!balances.meliCalibracion20261026) {
+          if (Math.round(balances.meli || 0) === 12106 && Math.round(balances.meliBase || 0) === 12130) {
+            balances.meli = 12129;
+            balances.meliBase = 12179;
+          }
+          const initialIds = Array.isArray(balances.meliProcessedIds) ? [...balances.meliProcessedIds] : [];
+          results.forEach(p => {
+            if (!p || !p.id) return;
+            const isGan = (p.accounts_info && p.accounts_info.type === 'cashbacks') ||
+                          (p.point_of_interaction && p.point_of_interaction.type === 'CASHBACKS') ||
+                          (p.description && /ganancia|cashback|recompensa/i.test(p.description));
+            if (isGan && !initialIds.includes(String(p.id))) {
+              initialIds.push(String(p.id));
+            }
+          });
+          balances.meliProcessedIds = initialIds.slice(-200);
+          balances.meliCalibracion20261026 = true;
+          huboCambio = true;
+        }
+
+        const processedIds = Array.isArray(balances.meliProcessedIds) ? [...balances.meliProcessedIds] : [];
+        let sumaGananciaHoy = 0;
+
+        // Recorrer de más antiguo a más reciente para aplicar nuevas ganancias en orden cronológico
+        const chronological = [...results].reverse();
+        chronological.forEach(p => {
+          if (!p || p.status !== 'approved' || !p.date_created) return;
+          const d = new Date(p.date_created);
+          if (isNaN(d.getTime())) return;
+          const pDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+          const isGanancia = (p.accounts_info && p.accounts_info.type === 'cashbacks') ||
+                             (p.point_of_interaction && p.point_of_interaction.type === 'CASHBACKS') ||
+                             (p.description && /ganancia|cashback|recompensa/i.test(p.description));
+          if (!isGanancia) return;
+
+          const monto = Math.round((parseFloat(p.transaction_amount) || 0) * 100) / 100;
+          if (pDateStr === todayStr) {
+            sumaGananciaHoy += monto;
+          }
+
+          const pid = String(p.id);
+          if (monto > 0 && pDateStr >= '2026-10-26' && !processedIds.includes(pid)) {
+            balances.meli = Math.round(((balances.meli || 0) + monto) * 100) / 100;
+            balances.meliBase = Math.round(((balances.meliBase || 0) + monto) * 100) / 100;
+            processedIds.push(pid);
+            huboCambio = true;
+          }
+        });
+
+        // Comisión real de las ventas con Point: a la cuenta llega el neto, pero la venta se registró por el bruto.
+        // Solo con el cobro que reporta Mercado Pago (nunca un porcentaje estimado) y solo si la venta está en la bitácora.
+        const r2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
+        const comisionIds = Array.isArray(balances.meliComisionIds) ? balances.meliComisionIds.map(String) : [];
+        const comisionLogs = Array.isArray(balances.meliComisionLogs) ? balances.meliComisionLogs.map(String) : [];
+        const comisiones = [];
+        chronological.forEach(p => {
+          if (!p || p.status !== 'approved' || p.operation_type !== 'pos_payment' || !p.date_created) return;
+          const pid = String(p.id);
+          if (comisionIds.includes(pid) || r2(p.transaction_amount_refunded) > 0) return;
+          const d = new Date(p.date_created);
+          if (isNaN(d.getTime())) return;
+          const pDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          if (pDateStr < '2026-10-26') return;
+          const bruto = r2(p.transaction_amount), neto = r2((p.transaction_details || {}).net_received_amount);
+          if (!neto || neto >= bruto) return; // el cobro todavía no aparece
+          const venta = encCargarCajaDelDia(pDateStr).find(l => (l.category || '').toUpperCase() === 'MELI' && /venta negocio/i.test(l.details || '')
+            && r2(l.amount) === bruto && !comisionLogs.includes(String(l.id)) && Math.abs(new Date(l.timestamp).getTime() - d.getTime()) <= 60 * 60000);
+          if (!venta) return;
+          comisionIds.push(pid); comisionLogs.push(String(venta.id));
+          comisiones.push({ idPago: pid, bruto, neto, comision: r2(bruto - neto), logVenta: String(venta.id) });
+        });
+        let logComision = null;
+        if (comisiones.length) {
+          const total = r2(comisiones.reduce((t, c) => t + c.comision, 0));
+          const antes = r2(balances.meli);
+          balances.meli = r2(antes - total);
+          balances.meliComisionIds = comisionIds.slice(-200);
+          balances.meliComisionLogs = comisionLogs.slice(-200);
+          huboCambio = true;
+          logComision = {
+            amount: -total,
+            details: `Comisión Mercado Pago (ventas con Point): ${comisiones.map(c => `venta ${fmt.format(c.bruto)}, llegó ${fmt.format(c.neto)}, cobro −${fmt.format(c.comision)} (pago ${c.idPago})`).join('; ')}. Anterior: ${fmt.format(antes)} -> Nuevo: ${fmt.format(balances.meli)} | Base: ${fmt.format(balances.meliBase || 0)}`,
+            extra: { meliHistorial: { antes, despues: balances.meli, base: balances.meliBase || 0, motivo: 'Comisión' }, meliComision: comisiones },
+          };
+        }
+
+        sumaGananciaHoy = Math.round(sumaGananciaHoy * 100) / 100;
+        const prevVal = balances.meliGananciaDia || 0;
+        const prevFecha = balances.meliGananciaFecha || '';
+
+        if (huboCambio || prevVal !== sumaGananciaHoy || prevFecha !== todayStr) {
+          balances.meliGananciaDia = sumaGananciaHoy;
+          balances.meliGananciaFecha = todayStr;
+          balances.meliProcessedIds = processedIds.slice(-200);
+          DB.set('balances', balances);
+          if (logComision) {
+            registrarMovimientoBitacora('Sistema', 'AJUSTE_MELI', logComision.amount, logComision.details, null, logComision.extra);
+            if (typeof cargarBitacora === 'function') cargarBitacora();
+          }
+          if (typeof cargarSaldosDigitales === 'function') {
+            cargarSaldosDigitales();
+          } else if (typeof actualizarTotalizadorBar === 'function') {
+            actualizarTotalizadorBar();
+          }
+        }
+
+        if (!silencioso) {
+          mostrarToast(`Meli sincronizado: Ganancia hoy +${fmt.format(sumaGananciaHoy)} | Terminal ${fmt.format(balances.meli || 0)}`, "success");
+        }
+      } catch (err) {
+        console.warn("[Meli API] Error al consultar ganancias del día:", err);
+      }
+    }
+
+    // Ganancias: consulta inmediata al seleccionar Meli (seleccionarServicioCard) y cada 3 minutos SOLO mientras Meli
+    // siga seleccionado con turno abierto. El Encuadre Meli también consulta antes de comparar saldos.
+    if (!meliApiPollingIniciado) {
+      meliApiPollingIniciado = true;
+      setInterval(() => {
+        const st = DB.get('state', {});
+        const srv = document.getElementById('op-service');
+        if (st && st.session_active && srv && srv.value === 'meli') {
+          consultarGananciasMeliApi(true);
+        }
+      }, 180000); // Cada 3 minutos en segundo plano sin recargar página
     }
 
     // === RETIROS BBVA DEL DÍA ===
@@ -9609,6 +9790,7 @@
       balances.boveda = 0;
       balances.vales = 0;
       balances.yastasGetnet = 0;
+      balances.meliGananciaDia = 0;
 
       // SALDOS PERSISTENTES — Protección explícita: NO se deben borrar jamás
       // banorte: total acumulado se hereda como inicial del siguiente turno
@@ -10568,4 +10750,558 @@
         mostrarToast(`El saldo se ajustó localmente pero no se pudo registrar el acumulado en Supabase: ${err.message || err}`, 'error');
         if (btn) btn.disabled = false;
       }
+    }
+
+    // === ENCUADRE MELI (conciliación diaria: transferencias que detecta Mercado Pago vs. lo que registra la caja) ===
+    // El cruce es de solo lectura. La única escritura es el cuadre de saldo (al final), con PIN y AJUSTE_MELI en bitácora.
+    // Fuentes (API de Mercado Pago) y su equivalencia en la bitácora:
+    //   - payments/search: "Ingreso Express" (envío desde la cuenta) ↔ caja: MELI "Tienda Express" ingreso
+    //   - payments/search: venta presencial con el Point             ↔ caja: MELI "Venta Negocio (Terminal)"
+    //   - payments/search: fondeo a la cuenta por CLABE / banco      ↔ caja: AJUSTE_MELI con motivo "Depósito"
+    //   - merchant_orders: payout "cashout" (Retiro Express)         ↔ caja: MELI "Tienda Express" salida
+    // Los retiros digitales (a banco) y las correcciones manuales no tienen contraparte en la API: se listan aparte.
+    // Los cashbacks (~$6) son ganancia y las compras con tarjeta no se cruzan.
+    const ENCM_VENTANA_MIN = 15, ENCM_VENTANA_ERR = 120, ENCM_TOPE_GANANCIA = 20;
+    const ENCM_ETIQ = { INGRESO_EXPRESS: 'Ingreso Express', RETIRO_EXPRESS: 'Retiro Express', VENTA_NEGOCIO: 'Venta Negocio (Point)', FONDEO: 'Fondeo a la cuenta', TRANSFERENCIA: 'Transferencia' };
+    const encmState = { fecha: null, mp: [], infoMP: [], caja: [], salidasCaja: [], ajustesCaja: [], pares: [], errorApi: null, filtro: 'all', busqueda: '', filtroCajero: '', cargando: false, timer: null };
+    const encmEl = (id) => document.getElementById(id);
+    const encmP2 = (x) => String(x).padStart(2, '0');
+    function encmFechaLocal(d) { return `${d.getFullYear()}-${encmP2(d.getMonth() + 1)}-${encmP2(d.getDate())}`; }
+    function encmHoraLocal(d) { return `${encmP2(d.getHours())}:${encmP2(d.getMinutes())}:${encmP2(d.getSeconds())}`; }
+    // Sentido del efectivo en caja: un retiro saca billetes, lo demás los mete. Una "Transferencia" sin concepto puede ser cualquiera.
+    function encmSentido(tipo) { return tipo === 'RETIRO_EXPRESS' ? 'retiro' : (tipo === 'TRANSFERENCIA' ? null : 'ingreso'); }
+    function encmMismoSentido(a, b) { const x = encmSentido(a.tipo), y = encmSentido(b.tipo); return !x || !y || x === y; }
+    function encmFirmado(op) { return encmSentido(op.tipo) === 'retiro' ? -op.monto : op.monto; }
+
+    // ---------- Datos: Mercado Pago ----------
+    async function encmCargarPagosMP(fecha) {
+      // Día local completo (el navegador está en hora de México; la API entiende ISO con Z).
+      const ini = new Date(`${fecha}T00:00:00`), fin = new Date(`${fecha}T23:59:59.999`);
+      const out = []; let offset = 0, total = Infinity;
+      while (offset < total && offset < 500) {
+        const res = await meliApiFetch('pagos', { range: 'date_created', begin_date: ini.toISOString(), end_date: fin.toISOString(), sort: 'date_created', criteria: 'asc', limit: '100', offset: String(offset) });
+        if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+        const data = await res.json();
+        total = (data.paging && data.paging.total) || 0;
+        const lote = Array.isArray(data.results) ? data.results : [];
+        out.push(...lote);
+        if (!lote.length) break;
+        offset += lote.length;
+      }
+      return out;
+    }
+
+    // Retiros de Tienda Express: payouts "cashout" dentro de merchant_orders. Ese endpoint ignora los filtros de fecha
+    // y su orden cambia entre páginas, así que se leen todas las órdenes (máx. 50 por página) y el día se filtra aquí.
+    async function encmCargarRetirosMP(fecha) {
+      const ordenes = new Map(); let offset = 0, total = Infinity;
+      while (offset < total && offset < 1000) {
+        const res = await meliApiFetch('ordenes', { limit: '50', offset: String(offset) });
+        if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+        const data = await res.json();
+        total = data.total || 0;
+        const lote = Array.isArray(data.elements) ? data.elements : [];
+        lote.forEach((o) => ordenes.set(o.id, o));
+        if (!lote.length) break;
+        offset += lote.length;
+      }
+      const out = [];
+      ordenes.forEach((o) => (o.payouts || []).forEach((p) => {
+        if (p.type !== 'cashout' || !p.date_created) return;
+        const d = new Date(p.date_created);
+        if (!isNaN(d.getTime()) && encmFechaLocal(d) === fecha) out.push(p);
+      }));
+      return out;
+    }
+
+    // ---------- Normalización: Mercado Pago ----------
+    function encmOpsMP(pagos, retiros = []) {
+      const ops = [], info = [];
+      pagos.forEach((p) => {
+        if (!p || !p.id || !p.date_created) return;
+        const d = new Date(p.date_created); if (isNaN(d.getTime())) return;
+        const hora = encmHoraLocal(d);
+        const monto = Math.round((parseFloat(p.transaction_amount) || 0) * 100) / 100;
+        const neto = Math.round((parseFloat((p.transaction_details || {}).net_received_amount) || monto) * 100) / 100;
+        const desc = String(p.description || '');
+        const poi = (p.point_of_interaction && p.point_of_interaction.type) || '';
+        const base = { id: 'm' + p.id, idPago: String(p.id), fuente: 'mp', hora, t: encSeg(hora), monto, neto, descripcion: desc, op: p.operation_type, sale: !p.collector_id };
+        if (p.status !== 'approved') { info.push({ ...base, tipo: 'OTRO', why: `Pago ${p.status}${p.status_detail ? ` (${p.status_detail})` : ''} — no movió dinero` }); return; }
+        if (!['money_transfer', 'pos_payment', 'account_fund'].includes(p.operation_type)) { info.push({ ...base, tipo: 'OTRO', why: `Pago de tipo "${p.operation_type}" (compra o cobro ajeno a Tienda Express): no se cruza` }); return; }
+        const esGanancia = poi === 'CASHBACKS' || /ganancia|cashback|recompensa/i.test(desc)
+          || ((p.accounts_info && p.accounts_info.type === 'cashbacks') && monto <= ENCM_TOPE_GANANCIA);
+        if (esGanancia) { info.push({ ...base, tipo: 'GANANCIA', why: 'Ganancia / cashback acreditado por Mercado Pago' }); return; }
+        let tipo;
+        if (p.operation_type === 'account_fund') tipo = 'FONDEO';
+        else if (p.operation_type === 'pos_payment' || poi === 'POINT') tipo = 'VENTA_NEGOCIO';
+        else if (/ingreso express/i.test(desc) || /^mlm_incoming/i.test(p.external_reference || '')) tipo = 'INGRESO_EXPRESS';
+        else tipo = 'TRANSFERENCIA';
+        ops.push({ ...base, tipo });
+      });
+      retiros.forEach((r) => {
+        const d = new Date(r.date_created); if (isNaN(d.getTime())) return;
+        const hora = encmHoraLocal(d);
+        const monto = Math.round((parseFloat(r.total_amount ?? r.amount) || 0) * 100) / 100;
+        const base = { id: 'r' + r.id, idPago: String(r.id), fuente: 'mp', hora, t: encSeg(hora), monto, neto: monto, descripcion: 'Retiro Express', op: 'cashout' };
+        if (r.status !== 'approved') { info.push({ ...base, tipo: 'OTRO', why: `Retiro ${r.status}${r.status_detail ? ` (${r.status_detail})` : ''} — no movió dinero` }); return; }
+        ops.push({ ...base, tipo: 'RETIRO_EXPRESS' });
+      });
+      return { ops, info };
+    }
+
+    // ---------- Normalización: caja ----------
+    function encmOpsCaja(logs) {
+      const ops = [], salidas = [], ajustes = [];
+      logs.forEach((l) => {
+        const cat = (l.category || '').toUpperCase();
+        if ((cat !== 'MELI' && cat !== 'AJUSTE_MELI') || !l.amount) return;
+        const base = { fuente: 'caja', id: 'c' + l.id, hora: l.hora, t: encSeg(l.hora), operator: l.operator, details: l.details, category: l.category, logId: l.id, monto: Math.abs(l.amount), signed: l.amount, corregido: !!(l.extraData && l.extraData.corregido_admin) };
+        if (cat === 'MELI') {
+          if (l.amount > 0) ops.push({ ...base, tipo: /venta negocio/i.test(l.details) ? 'VENTA_NEGOCIO' : 'INGRESO_EXPRESS' });
+          else ops.push({ ...base, tipo: 'RETIRO_EXPRESS' });
+          return;
+        }
+        const hist = (l.extraData && l.extraData.meliHistorial) || {};
+        const motivo = hist.motivo || (/dep[oó]sito/i.test(l.details) ? 'Depósito' : /retiro/i.test(l.details) ? 'Retiro' : 'Corrección');
+        if (motivo === 'Depósito' && l.amount > 0) ops.push({ ...base, tipo: 'FONDEO' });
+        else if (motivo === 'Retiro') salidas.push({ ...base, motivo: 'Retiro digital' });
+        else ajustes.push({ ...base, motivo: motivo === 'Comisión' ? 'Comisión Point (automática)' : motivo });
+      });
+      return { ops, salidas, ajustes };
+    }
+
+    // ---------- Motor de cruce ----------
+    function encuadrarMeli(mp, caja) {
+      const libresP = new Set(mp.map((p) => p.id)), libresC = new Set(caja.map((c) => c.id));
+      const pares = [];
+      const orfP = () => mp.filter((p) => libresP.has(p.id));
+      const orfC = () => caja.filter((c) => libresC.has(c.id));
+      const correrPaso = (paso, estado, label, cond, ventana) => {
+        const cands = [];
+        orfP().forEach((p) => orfC().forEach((c) => {
+          const dt = Math.abs(c.t - p.t) / 60;
+          if (dt <= ventana && cond(p, c)) cands.push({ p, c, dt });
+        }));
+        cands.sort((a, b) => a.dt - b.dt);
+        cands.forEach(({ p, c, dt }) => {
+          if (!libresP.has(p.id) || !libresC.has(c.id)) return;
+          libresP.delete(p.id); libresC.delete(c.id);
+          pares.push({ p, c, paso, estado, label, dt });
+        });
+      };
+      const marcarError = (p, c, h) => { if (p) libresP.delete(p.id); if (c) libresC.delete(c.id); pares.push({ p, c, paso: 'error', estado: 'bad', label: 'Posible error de captura', hipotesis: h }); };
+      const erroresMonto = (ventana) => {
+        const cand = [];
+        orfP().forEach((p) => orfC().forEach((c) => {
+          const dt = Math.abs(c.t - p.t) / 60; if (dt > ventana) return;
+          if (encmMismoSentido(p, c)) { const hm = encHipotesisMonto(p.monto, c.monto); if (hm) cand.push({ p, c, dt, prio: 1, h: hm }); }
+          else if (p.monto === c.monto) cand.push({ p, c, dt, prio: 2, h: { tipo: 'sentido', texto: `en caja se capturó como ${ENCM_ETIQ[c.tipo].toLowerCase()} y en Mercado Pago fue ${ENCM_ETIQ[p.tipo].toLowerCase()}`, correcto: p.monto } });
+        }));
+        cand.sort((a, b) => a.prio - b.prio || a.dt - b.dt);
+        cand.forEach(({ p, c, h }) => { if (libresP.has(p.id) && libresC.has(c.id)) marcarError(p, c, h); });
+      };
+
+      // Orden: exacto → tipo distinto → error cercano (≤10 min) → otra hora → error lejano.
+      correrPaso('exacto', 'good', 'Cuadra exacto', (p, c) => p.tipo === c.tipo && p.monto === c.monto, ENCM_VENTANA_MIN);
+      correrPaso('tipo', 'warn', 'Tipo distinto', (p, c) => p.tipo !== c.tipo && p.monto === c.monto && encmMismoSentido(p, c), ENCM_VENTANA_MIN);
+      erroresMonto(10);
+      correrPaso('hora', 'warn', 'Otra hora', (p, c) => p.monto === c.monto && encmMismoSentido(p, c), 24 * 60);
+      erroresMonto(ENCM_VENTANA_ERR);
+
+      // Dos en una: un huérfano de un lado = suma de dos del otro lado, cerca en hora.
+      const buscarSuma = (uno, lista) => {
+        const cerca = lista.filter((x) => encmMismoSentido(x, uno) && Math.abs(x.t - uno.t) / 60 <= ENCM_VENTANA_ERR);
+        for (let i = 0; i < cerca.length; i++) for (let j = i + 1; j < cerca.length; j++) {
+          if (+(cerca[i].monto + cerca[j].monto).toFixed(2) === uno.monto) return [cerca[i], cerca[j]];
+        }
+        return null;
+      };
+      orfP().forEach((p) => {
+        const par = buscarSuma(p, orfC()); if (!par) return;
+        const [c1, c2] = par;
+        marcarError(p, { ...c1, monto: +(c1.monto + c2.monto).toFixed(2), details: `Capturada en dos partes: ${fmt.format(c1.monto)} (${c1.hora.slice(0, 5)}) + ${fmt.format(c2.monto)} (${c2.hora.slice(0, 5)})` },
+          { tipo: 'suma', texto: 'en caja se capturó en dos partes lo que en Mercado Pago fue un solo movimiento', correcto: p.monto });
+        libresC.delete(c2.id);
+      });
+      orfC().forEach((c) => {
+        const par = buscarSuma(c, orfP()); if (!par) return;
+        const [p1, p2] = par;
+        marcarError({ ...p1, monto: +(p1.monto + p2.monto).toFixed(2), neto: +(p1.neto + p2.neto).toFixed(2), descripcion: `2 movimientos: ${fmt.format(p1.monto)} (${p1.hora.slice(0, 5)}) + ${fmt.format(p2.monto)} (${p2.hora.slice(0, 5)})` }, c,
+          { tipo: 'suma', texto: 'en caja se capturó como una sola operación lo que en Mercado Pago fueron dos movimientos', separar: [p1.monto, p2.monto] });
+        libresP.delete(p2.id);
+      });
+      // Capturado dos veces en caja
+      orfC().forEach((c) => {
+        const gemela = pares.find((x) => x.c && x.p && x.c.id !== c.id && x.c.tipo === c.tipo && x.c.monto === c.monto && Math.abs(x.c.t - c.t) / 60 <= 30);
+        if (gemela) marcarError(null, c, { tipo: 'duplicado', texto: `ya está registrada a las ${gemela.c.hora.slice(0, 5)} (${gemela.c.operator}); parece capturada dos veces`, correcto: 0 });
+      });
+
+      mp.forEach((p) => { if (libresP.has(p.id)) pares.push({ p, c: null, paso: 'solo-mp', estado: 'bad', label: 'No registrado en caja' }); });
+      caja.forEach((c) => { if (libresC.has(c.id)) pares.push({ p: null, c, paso: 'solo-caja', estado: 'bad', label: 'No existe en Mercado Pago' }); });
+      pares.sort((a, b) => ((a.p || a.c).t) - ((b.p || b.c).t));
+      return pares;
+    }
+
+    // ---------- Abrir / cerrar / recargar ----------
+    async function abrirModalEncuadreMeli(fecha) {
+      encmState.fecha = fecha || encHoy();
+      encmState.filtro = 'all'; encmState.busqueda = ''; encmState.filtroCajero = '';
+      const modal = encmEl('modal-encuadre-meli'); if (!modal) return;
+      const panel = encmEl('encm-panel');
+      if (panel && !panel.dataset.temaFijado) panel.setAttribute('data-enc-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+      const btnTema = encmEl('encm-btn-tema');
+      if (btnTema && panel) btnTema.textContent = panel.getAttribute('data-enc-theme') === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Oscuro';
+      const inp = encmEl('encm-fecha'); if (inp) { inp.value = encmState.fecha; inp.max = encHoy(); }
+      const buscar = encmEl('encm-buscar'); if (buscar) buscar.value = '';
+      modal.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+      // Mientras la pantalla esté abierta y se vea el día de hoy, se refresca sola cada 2 minutos.
+      if (encmState.timer) clearInterval(encmState.timer);
+      encmState.timer = setInterval(() => { if (encmState.fecha === encHoy()) encmRecargar(true); }, 120000);
+      await encmRecargar();
+    }
+    function cerrarModalEncuadreMeli() {
+      const modal = encmEl('modal-encuadre-meli'); if (modal) modal.classList.add('hidden');
+      if (encmState.timer) { clearInterval(encmState.timer); encmState.timer = null; }
+    }
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const modal = encmEl('modal-encuadre-meli');
+      if (!modal || modal.classList.contains('hidden')) return;
+      const reglas = encmEl('encm-reglas');
+      if (reglas && reglas.open) reglas.close(); else cerrarModalEncuadreMeli();
+    });
+    async function cambiarFechaEncuadreMeli(fecha) {
+      if (!fecha) return;
+      encmState.fecha = fecha; encmState.filtro = 'all'; encmState.filtroCajero = '';
+      await encmRecargar();
+    }
+    function alternarTemaEncuadreMeli() {
+      const panel = encmEl('encm-panel'); if (!panel) return;
+      const nuevo = panel.getAttribute('data-enc-theme') === 'dark' ? 'light' : 'dark';
+      panel.setAttribute('data-enc-theme', nuevo); panel.dataset.temaFijado = '1';
+      const btn = encmEl('encm-btn-tema'); if (btn) btn.textContent = nuevo === 'dark' ? '☀️ Modo Claro' : '🌙 Modo Oscuro';
+    }
+    function filtrarEncuadreMeliPorTexto(q) { encmState.busqueda = q || ''; encmRenderTabla(); }
+    function filtrarEncuadreMeliPorCajero(nombre) {
+      encmState.filtroCajero = encmState.filtroCajero === nombre ? '' : (nombre || '');
+      const sel = encmEl('encm-filtro-cajero'); if (sel) sel.value = encmState.filtroCajero;
+      encmRenderTabla();
+    }
+    function filtrarEncuadreMeli(clave) {
+      encmState.filtro = clave;
+      document.querySelectorAll('#encm-kpis .enc-kpi[data-filtro]').forEach((b) => b.classList.toggle('active', b.dataset.filtro === clave));
+      const lbl = encmEl('encm-filtro-activo'); if (lbl) lbl.textContent = `Mostrando: ${ENCM_FILTROS[clave] || 'Todo'}`;
+      encmRenderTabla();
+    }
+    const ENCM_FILTROS = { all: 'Todas las operaciones', warn: 'Por revisar', error: 'Errores de captura', huerfano: 'Sin pareja', good: 'Cuadran exacto' };
+
+    async function encmRecargar(silencioso = false) {
+      if (encmState.cargando) return;
+      encmState.cargando = true;
+      const btn = encmEl('encm-btn-actualizar');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Consultando Mercado Pago…'; if (window.lucide) lucide.createIcons(); }
+      const fecha = encmState.fecha;
+      const txt = encmEl('encm-fecha-texto');
+      if (txt) { const f = new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); txt.textContent = f.charAt(0).toUpperCase() + f.slice(1); }
+      try {
+        // Antes de comparar, que el sistema sume las ganancias nuevas (mismo proceso que corre cada 3 minutos).
+        if (fecha === encHoy() && typeof consultarGananciasMeliApi === 'function') await consultarGananciasMeliApi(true);
+        let pagos = [], retiros = [];
+        encmState.errorApi = null;
+        try { [pagos, retiros] = await Promise.all([encmCargarPagosMP(fecha), encmCargarRetirosMP(fecha)]); }
+        catch (err) {
+          console.error('[Encuadre Meli] API Mercado Pago:', err);
+          encmState.errorApi = !navigator.onLine ? 'Sin conexión a internet.'
+            : err.status === 401 ? 'La clave de acceso a Mercado Pago de este equipo no es válida. Recarga la página y vuelve a escribirla.'
+            : err.status === 500 ? 'El acceso a Mercado Pago no está configurado en el servidor (faltan MP_ACCESS_TOKEN / MP_PROXY_KEY en Vercel).'
+            : err.status === 502 ? 'Mercado Pago rechazó la consulta del servidor (token vencido o sin permisos).'
+            : err.status === 404 ? 'No se encontró el servicio /api/mp (en local se necesita "vercel dev").'
+            : err.status ? `Mercado Pago respondió con error ${err.status}.` : 'No se pudo conectar con Mercado Pago.';
+        }
+        const cajaLogs = encCargarCajaDelDia(fecha);
+        const { ops, info } = encmOpsMP(pagos, retiros);
+        const cj = encmOpsCaja(cajaLogs);
+        Object.assign(encmState, { mp: ops, infoMP: info, caja: cj.ops, salidasCaja: cj.salidas, ajustesCaja: cj.ajustes, hayCajaDelDia: cajaLogs.length > 0 });
+        encmState.pares = encuadrarMeli(ops, cj.ops);
+        const sinc = encmEl('encm-sinc-texto');
+        if (sinc) { const a = new Date(); sinc.textContent = `· Sincronizado ${String(a.getHours()).padStart(2, '0')}:${String(a.getMinutes()).padStart(2, '0')} hrs`; }
+        encmRender();
+      } finally {
+        encmState.cargando = false;
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="refresh-cw" class="w-4 h-4"></i> Actualizar'; if (window.lucide) lucide.createIcons(); }
+      }
+    }
+
+    // ---------- Render ----------
+    function encmDurar(min) { const m = Math.round(min); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; }
+
+    function encmRender() {
+      encmRenderCuadre();
+      const { pares, mp, caja, infoMP, salidasCaja, ajustesCaja, fecha, errorApi } = encmState;
+      const sinDatos = encmEl('encm-sin-datos'), contenido = encmEl('encm-contenido');
+      if (errorApi) {
+        sinDatos.classList.remove('hidden'); contenido.classList.add('hidden');
+        sinDatos.innerHTML = `<div style="font-size:2.2em">🔌</div><div class="mt-2"><b>No se pudo leer Mercado Pago</b></div><div class="mt-1 text-[0.9em]" style="color:var(--enc-ink2)">${encEsc(errorApi)}</div>`;
+        return;
+      }
+      if (!mp.length && !caja.length && !infoMP.length && !salidasCaja.length && !ajustesCaja.length) {
+        sinDatos.classList.remove('hidden'); contenido.classList.add('hidden');
+        sinDatos.innerHTML = `<div style="font-size:2.2em">📭</div><div class="mt-2">No hay movimientos en Mercado Pago ni registros Meli en la caja el <b>${encEsc(fecha)}</b>.</div>`;
+        return;
+      }
+      sinDatos.classList.add('hidden'); contenido.classList.remove('hidden');
+
+      const cuenta = (paso) => pares.filter((x) => x.paso === paso).length;
+      const nCuadra = cuenta('exacto'), nHora = cuenta('hora'), nTipo = cuenta('tipo'), nError = cuenta('error'), nSoloMP = cuenta('solo-mp'), nSoloCaja = cuenta('solo-caja');
+      const suma = (arr) => Math.round(arr.reduce((s, x) => s + x, 0) * 100) / 100;
+      const sumSoloMP = suma(pares.filter((x) => x.paso === 'solo-mp').map((x) => x.p.monto));
+      const sumSoloCaja = suma(pares.filter((x) => x.paso === 'solo-caja').map((x) => x.c.monto));
+      const totMP = suma(mp.map(encmFirmado)), totCaja = suma(caja.map(encmFirmado));
+      const nWarn = nHora + nTipo, problemas = nError + nSoloMP + nSoloCaja;
+
+      const hero = encmEl('encm-hero'), ico = encmEl('encm-hero-ico'), tit = encmEl('encm-hero-titulo'), desc = encmEl('encm-hero-desc');
+      if (problemas === 0 && nWarn === 0) {
+        hero.className = 'enc-hero good'; ico.textContent = '✅';
+        if (!pares.length) { tit.textContent = 'Sin transferencias por cruzar'; desc.textContent = 'No hubo ingresos, retiros, ventas ni fondeos en Mercado Pago, y la caja no registró ninguno.'; }
+        else { tit.textContent = '¡Todo cuadra con Mercado Pago!'; desc.textContent = `Los ${pares.length} movimientos que detectó Mercado Pago (${fmt.format(totMP)}) coinciden con lo registrado en la caja.`; }
+      } else if (problemas === 0) {
+        hero.className = 'enc-hero'; ico.textContent = '🕒'; tit.textContent = `Todo está registrado, con ${nWarn} ${nWarn === 1 ? 'detalle' : 'detalles'} por revisar`;
+        desc.textContent = `${nCuadra} cuadran exacto${nHora ? `; ${nHora} se capturaron a otra hora` : ''}${nTipo ? `; ${nTipo} con tipo de operación distinto` : ''}. Los montos sí coinciden.`;
+      } else {
+        hero.className = 'enc-hero bad'; ico.textContent = '⚠️';
+        tit.textContent = `Inconsistencia: ${problemas} ${problemas === 1 ? 'operación necesita' : 'operaciones necesitan'} revisión`;
+        const partes = [];
+        if (nSoloMP) partes.push(`<b>${nSoloMP}</b> movimiento${nSoloMP === 1 ? '' : 's'} que detectó Mercado Pago y <b>nadie registró en la caja</b> (${fmt.format(sumSoloMP)})`);
+        if (nSoloCaja) partes.push(`<b>${nSoloCaja}</b> registro${nSoloCaja === 1 ? '' : 's'} de la caja que <b>no existe${nSoloCaja === 1 ? '' : 'n'} en Mercado Pago</b> (${fmt.format(sumSoloCaja)})`);
+        if (nError) partes.push(`<b>${nError}</b> con posible error de captura`);
+        desc.innerHTML = `${partes.join('; ')}. ${nCuadra} sí cuadran.`;
+      }
+
+      const kpis = [
+        { key: 'all', cls: 'accent', label: 'Ver todo', n: pares.length, sub: 'Todas las operaciones' },
+        { key: 'warn', cls: 'warn', label: 'Por revisar', n: nWarn, sub: `${nHora} otra hora · ${nTipo} tipo distinto` },
+        { key: 'error', cls: 'bad', label: 'Errores de captura', n: nError, sub: nError ? 'Con corrección sugerida' : 'Ninguno detectado' },
+        { key: 'huerfano', cls: 'bad', label: 'Sin pareja', n: nSoloMP + nSoloCaja, sub: `${nSoloMP} Mercado Pago · ${nSoloCaja} caja` },
+        { key: 'good', cls: 'good', label: 'Cuadran exacto', n: nCuadra, sub: 'Monto y hora OK' },
+      ];
+      const dif = Math.round((totCaja - totMP) * 100) / 100;
+      encmEl('encm-kpis').innerHTML = kpis.map((k) => `
+        <button type="button" class="enc-kpi ${k.cls} ${encmState.filtro === k.key ? 'active' : ''}" data-filtro="${k.key}" onclick="filtrarEncuadreMeli('${k.key}')">
+          <span class="lbl">${k.label}</span><span class="n enc-mono">${k.n}</span><span class="sub">${encEsc(k.sub)}</span>
+        </button>`).join('') + `
+        <div class="enc-kpi ${dif === 0 ? 'good' : 'bad'}" style="cursor:default">
+          <span class="lbl">Diferencia neta</span><span class="n enc-mono" style="font-size:1.5em">${dif > 0 ? '+' : ''}${fmt.format(dif)}</span><span class="sub">Caja ${fmt.format(totCaja)} · MP ${fmt.format(totMP)}</span>
+        </div>`;
+      const lbl = encmEl('encm-filtro-activo'); if (lbl) lbl.textContent = `Mostrando: ${ENCM_FILTROS[encmState.filtro] || 'Todo'}`;
+
+      const avisoCaja = encmEl('encm-aviso-caja');
+      if (avisoCaja) {
+        avisoCaja.classList.toggle('hidden', encmState.hayCajaDelDia);
+        avisoCaja.textContent = '⚠️ No hay bitácora de caja de este día guardada en este equipo; el cruce puede salir incompleto (todo aparecería como "No registrado en caja").';
+      }
+
+      // Retiros digitales y correcciones manuales: no tienen contraparte en la API, se listan para revisión humana.
+      const manuales = [...salidasCaja, ...ajustesCaja].sort((a, b) => a.t - b.t);
+      const sumSal = suma(salidasCaja.map((x) => x.monto)), sumCorr = suma(ajustesCaja.map((x) => x.signed));
+      encmEl('encm-man-conteo').textContent = `${manuales.length} registros`;
+      encmEl('encm-man-resumen').innerHTML = manuales.length
+        ? `Retiros digitales: <b>${fmt.format(sumSal)}</b> · Correcciones manuales netas: <b>${sumCorr > 0 ? '+' : ''}${fmt.format(sumCorr)}</b>`
+        : 'Hoy no hubo retiros digitales ni correcciones manuales en Meli.';
+      encmEl('encm-man-lista').innerHTML = manuales.length ? manuales.map((x) => `
+        <div class="flex items-center gap-3 py-1.5 border-b" style="border-color:var(--enc-line)">
+          <span class="enc-mono text-[0.85em] font-bold" style="color:var(--enc-ink2)">${encEsc(x.hora.slice(0, 5))}</span>
+          <span class="flex-1"><span class="font-bold">${encEsc(x.motivo)}</span><span class="block text-[0.8em] font-semibold" style="color:var(--enc-ink2)">${encEsc(x.operator)} · ${encEsc(String(x.details || '').slice(0, 90))}</span></span>
+          <span class="enc-mono font-bold" style="color:${x.signed < 0 ? 'var(--enc-bad)' : 'var(--enc-good)'}">${x.signed > 0 ? '+' : '−'}${fmt.format(x.monto)}</span>
+        </div>`).join('') : '<div class="enc-empty">Ninguno.</div>';
+
+      // Ganancias (cashbacks) y pagos no aprobados de Mercado Pago.
+      const procesados = new Set(((DB.get('balances', {}) || {}).meliProcessedIds || []).map(String));
+      const ganancias = infoMP.filter((x) => x.tipo === 'GANANCIA');
+      encmEl('encm-inf-conteo').textContent = `${infoMP.length} movimientos`;
+      encmEl('encm-inf-resumen').innerHTML = ganancias.length
+        ? `Ganancias del día en Mercado Pago: <b>${fmt.format(suma(ganancias.map((x) => x.monto)))}</b> (${ganancias.length}). No se cruzan con la caja.`
+        : 'Sin ganancias ni movimientos descartados este día.';
+      encmEl('encm-inf-lista').innerHTML = infoMP.length ? infoMP.map((x) => `
+        <div class="flex items-center gap-3 py-1.5 border-b" style="border-color:var(--enc-line)">
+          <span class="enc-mono text-[0.85em] font-bold" style="color:var(--enc-ink2)">${encEsc(x.hora.slice(0, 5))}</span>
+          <span class="flex-1"><span class="font-bold">${encEsc(x.descripcion || x.why)}</span><span class="block text-[0.8em] font-semibold" style="color:var(--enc-ink2)">${encEsc(x.why)}${x.tipo === 'GANANCIA' ? (procesados.has(x.idPago) ? ' · ✅ ya sumada a la terminal' : ' · ⏳ aún no sumada a la terminal') : ''}</span></span>
+          <span class="enc-mono font-bold">${fmt.format(x.monto)}</span>
+        </div>`).join('') : '<div class="enc-empty">Ninguno.</div>';
+
+      const selCaj = encmEl('encm-filtro-cajero');
+      if (selCaj) {
+        const cajeros = [...new Set(pares.map((x) => x.c ? x.c.operator : 'Mercado Pago').filter(Boolean))].sort();
+        const cur = encmState.filtroCajero || '';
+        selCaj.innerHTML = `<option value="">👤 Todos (${cajeros.length})</option>` + cajeros.map((c) => `<option value="${encEsc(c)}" ${cur === c ? 'selected' : ''}>👤 ${encEsc(c)}</option>`).join('');
+      }
+      encmRenderTabla();
+    }
+
+    function encmRenderTabla() {
+      const { pares, filtro, busqueda, filtroCajero, ajustesCaja } = encmState;
+      const tbody = encmEl('encm-tabla'), vacia = encmEl('encm-tabla-vacia'), conteo = encmEl('encm-conteo');
+      const q = (busqueda || '').trim().toLowerCase();
+      const filtradas = pares.filter((x) => {
+        if (filtro === 'warn' && !['hora', 'tipo'].includes(x.paso)) return false;
+        if (filtro === 'error' && x.paso !== 'error') return false;
+        if (filtro === 'huerfano' && x.paso !== 'solo-mp' && x.paso !== 'solo-caja') return false;
+        if (filtro === 'good' && x.paso !== 'exacto') return false;
+        if (filtroCajero && (x.c ? x.c.operator : 'Mercado Pago') !== filtroCajero) return false;
+        if (q) {
+          const t = [x.p && `${x.p.descripcion} ${ENCM_ETIQ[x.p.tipo]} ${x.p.monto} ${x.p.idPago}`, x.c && `${x.c.details} ${ENCM_ETIQ[x.c.tipo]} ${x.c.operator} ${x.c.monto}`].filter(Boolean).join(' ').toLowerCase();
+          if (!t.includes(q)) return false;
+        }
+        return true;
+      });
+      if (conteo) conteo.textContent = `Mostrando ${filtradas.length} de ${pares.length} operaciones${filtroCajero ? ` [Cajero: ${filtroCajero}]` : ''}`;
+      vacia.classList.toggle('hidden', filtradas.length > 0);
+      tbody.innerHTML = filtradas.map((par) => {
+        const { p, c, paso, hipotesis, dt } = par;
+        const clase = paso === 'exacto' ? '' : (['hora', 'tipo'].includes(paso) ? 'enc-warn' : 'enc-bad');
+        const quien = c ? c.operator : 'Mercado Pago';
+        const col = encEstiloCajero(quien);
+        const concepto = p ? `${ENCM_ETIQ[p.tipo]}${p.descripcion && !['INGRESO_EXPRESS', 'RETIRO_EXPRESS'].includes(p.tipo) ? ' · ' + p.descripcion : ''}` : (c.details || '—');
+        const sub = p ? `ID ${p.idPago}` : `${ENCM_ETIQ[c.tipo]} en caja`;
+        const signo = (op) => encmSentido(op.tipo) === 'retiro' ? '−' : '+';
+        const pMonto = p ? `${signo(p)}${fmt.format(p.monto)}${p.neto !== p.monto ? `<div class="text-[0.75em] font-bold" style="color:var(--enc-ink2)">neto ${fmt.format(p.neto)}</div>` : ''}` : '—';
+        const cMonto = c ? `${signo(c)}${fmt.format(c.monto)}` : '—';
+        let res = '';
+        if (paso === 'exacto') res = '<span class="enc-pill good">✅ Cuadra exacto</span>';
+        else if (paso === 'hora') res = `<span class="enc-pill warn">🕒 Otra hora</span><div class="enc-note">misma cantidad, ${encmDurar(dt)} de diferencia</div>${p.tipo !== c.tipo ? `<div class="enc-note warn">MP: ${encEsc(ENCM_ETIQ[p.tipo])} · Caja: ${encEsc(ENCM_ETIQ[c.tipo])}</div>` : ''}`;
+        else if (paso === 'tipo') res = `<span class="enc-pill warn">⚠️ Tipo distinto</span><div class="enc-note warn">MP: ${encEsc(ENCM_ETIQ[p.tipo])} · Caja: ${encEsc(ENCM_ETIQ[c.tipo])}</div>`;
+        else if (paso === 'error') {
+          const hp = hipotesis || {};
+          res = `<span class="enc-pill bad">❌ Posible error de captura</span><div class="enc-note bad">${encEsc(hp.texto || '')}</div>${hp.correcto ? `<div class="enc-note">Debería ser <b>${fmt.format(hp.correcto)}</b></div>` : ''}${hp.separar ? `<div class="enc-note">Debería ser ${fmt.format(hp.separar[0])} + ${fmt.format(hp.separar[1])}</div>` : ''}`;
+        } else if (paso === 'solo-mp') {
+          const cubre = ajustesCaja.find((a) => a.signed > 0 && a.signed >= p.monto && a.signed - p.monto <= ENCM_TOPE_GANANCIA);
+          res = `<span class="enc-pill bad">❌ Falta en caja</span><div class="enc-note bad">Mercado Pago lo detectó y nadie lo registró</div>${cubre ? `<div class="enc-note warn">Posiblemente cubierta con la corrección manual de +${fmt.format(cubre.signed)} (${encEsc(cubre.operator)}, ${encEsc(cubre.hora.slice(0, 5))}). Verifícalo.</div>` : ''}`;
+        } else if (paso === 'solo-caja') {
+          res = '<span class="enc-pill bad">❌ No está en Mercado Pago</span><div class="enc-note bad">Mercado Pago no tiene este movimiento</div>';
+        }
+        if (c && c.corregido) res += '<div class="enc-note">🔁 Corregida por administrador</div>';
+        if (p && c && p.tipo === 'VENTA_NEGOCIO' && p.neto < p.monto) {
+          const ya = ((DB.get('balances', {}) || {}).meliComisionIds || []).map(String).includes(p.idPago);
+          res += `<div class="enc-note ${ya ? 'good' : 'warn'}">Comisión −${fmt.format(Math.round((p.monto - p.neto) * 100) / 100)} ${ya ? 'ya descontada del saldo' : 'pendiente de descontar'}</div>`;
+        }
+        return `<tr class="${clase}">
+          <td><div onclick="filtrarEncuadreMeliPorCajero('${encEsc(quien)}')" title="Clic para ver solo movimientos de ${encEsc(quien)}" style="display:inline-flex;align-items:center;gap:7px;padding:3px 10px;border-radius:999px;background:${col.bg};border:1.5px solid ${col.border};cursor:pointer;user-select:none;"><span style="width:20px;height:20px;border-radius:50%;background:${col.dot};color:#ffffff;display:grid;place-items:center;font-size:0.75em;font-weight:900;flex:none;">${encEsc(String(quien).charAt(0).toUpperCase())}</span><span style="font-weight:800;font-size:0.9em;color:${col.text};white-space:nowrap;">${encEsc(quien)}</span></div></td>
+          <td class="enc-op">${encEsc(concepto)}<small>${encEsc(sub)}</small></td>
+          <td class="enc-amt ${p && encmSentido(p.tipo) === 'retiro' ? 'out' : 'in'} enc-mono"><div>${pMonto}</div><div class="text-[0.78em] font-bold" style="color:var(--enc-accent); opacity:0.9">🕒 ${encEsc(p ? p.hora : '—')}</div></td>
+          <td class="enc-amt ${c && encmSentido(c.tipo) === 'retiro' ? 'out' : 'in'} enc-mono"><div>${cMonto}</div><div class="text-[0.78em] font-bold" style="color:var(--enc-ink2)">🕒 ${encEsc(c ? c.hora : '—')}</div></td>
+          <td style="text-align:center">${res}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // ---------- Cuadre de saldo: app de Mercado Pago vs. saldo del sistema (balances.meli) ----------
+    // La API no expone el saldo (403), así que lo captura la cajera. La diferencia se explica con los movimientos del día:
+    // efecto de cada uno en la cuenta real menos el efecto que la caja le dio a balances.meli. Lo que no se explica
+    // viene de días anteriores o de operaciones sin rastro en la API (p. ej. retiros digitales).
+    function encmEfectoMP(p) {
+      if (p.tipo === 'RETIRO_EXPRESS') return p.monto;
+      if (p.tipo === 'INGRESO_EXPRESS') return -p.monto;
+      if (p.tipo === 'TRANSFERENCIA') return p.sale ? -p.monto : p.monto;
+      return p.neto; // venta con Point (llega neta de comisión) y fondeo
+    }
+    function encmEfectoCaja(c) { return c.tipo === 'INGRESO_EXPRESS' ? -c.monto : c.monto; }
+    const ENCM_GRUPOS_SALDO = {
+      faltan: 'Movimientos de Mercado Pago sin registrar en caja',
+      sobran: 'Registros de caja que Mercado Pago no tiene',
+      errores: 'Errores de captura (monto o sentido)',
+      parejas: 'Diferencias en operaciones que sí cuadran (comisión Point, tipo distinto)',
+      ganancias: 'Ganancias de Mercado Pago aún no sumadas a la terminal',
+    };
+
+    function encmDesgloseSaldo() {
+      const r2 = (n) => Math.round(n * 100) / 100;
+      const grupos = {};
+      const sumar = (clave, monto) => { if (monto) grupos[clave] = r2((grupos[clave] || 0) + monto); };
+      const comisionAplicada = new Set(((DB.get('balances', {}) || {}).meliComisionIds || []).map(String));
+      encmState.pares.forEach((x) => {
+        // Si la comisión de esa venta Point ya se descontó automáticamente, el sistema ya refleja el neto.
+        const yaDescontada = x.p && x.c && x.p.tipo === 'VENTA_NEGOCIO' && comisionAplicada.has(x.p.idPago) ? r2(x.p.monto - x.p.neto) : 0;
+        const efecto = r2((x.p ? encmEfectoMP(x.p) : 0) - (x.c ? encmEfectoCaja(x.c) : 0) + yaDescontada);
+        sumar(x.paso === 'solo-mp' ? 'faltan' : x.paso === 'solo-caja' ? 'sobran' : x.paso === 'error' ? 'errores' : 'parejas', efecto);
+      });
+      const procesados = new Set(((DB.get('balances', {}) || {}).meliProcessedIds || []).map(String));
+      encmState.infoMP.filter((x) => x.tipo === 'GANANCIA' && !procesados.has(x.idPago)).forEach((x) => sumar('ganancias', x.monto));
+      const items = Object.keys(ENCM_GRUPOS_SALDO).filter((k) => grupos[k]).map((k) => ({ clave: k, label: ENCM_GRUPOS_SALDO[k], monto: grupos[k] }));
+      return { items, explicado: r2(items.reduce((s, x) => s + x.monto, 0)) };
+    }
+
+    function encmRenderCuadre() {
+      const card = encmEl('encm-cuadre'), inp = encmEl('encm-saldo-app'), res = encmEl('encm-cuadre-res');
+      if (!card || !inp || !res) return;
+      card.classList.toggle('hidden', !!encmState.errorApi);
+      const esHoy = encmState.fecha === encHoy();
+      inp.disabled = !esHoy;
+      if (!esHoy) { res.innerHTML = '<div class="enc-callout">El cuadre de saldo solo se hace con el día de hoy: el saldo de la app es el de este momento.</div>'; return; }
+      const r2 = (n) => Math.round(n * 100) / 100;
+      const sg = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt.format(Math.abs(n))}`;
+      const sistema = r2((DB.get('balances', {}) || {}).meli || 0);
+      const { items, explicado } = encmDesgloseSaldo();
+      const esperado = r2(sistema + explicado);
+      const valor = String(inp.value || '').trim(), app = parseFloat(valor);
+      const capturado = valor !== '' && !isNaN(app) && app >= 0;
+      const dif = capturado ? r2(app - sistema) : null, sinExp = capturado ? r2(dif - explicado) : null;
+      const tile = (lbl, n, sub, estilo = '') => `<div class="enc-tile" style="${estilo}"><div class="lbl">${lbl}</div><div class="n enc-mono">${n}</div><div class="text-[0.8em] font-bold" style="color:var(--enc-ink2)">${sub}</div></div>`;
+      const colorDif = dif === 0 ? 'var(--enc-good)' : 'var(--enc-bad)';
+      let html = `<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+        ${tile('Saldo del sistema', fmt.format(sistema), 'Terminal Meli en la caja')}
+        ${tile('Saldo esperado en la app', fmt.format(esperado), explicado ? `sistema ${sg(explicado)} por movimientos de hoy` : 'sin diferencias pendientes hoy')}
+        ${capturado ? tile('Diferencia real', `<span style="color:${colorDif}">${sg(dif)}</span>`, `app ${fmt.format(app)} − sistema`) : tile('Diferencia real', '—', 'escribe el saldo de la app')}
+      </div>`;
+      if (items.length) {
+        html += `<div class="text-[0.8em] font-black uppercase tracking-wider mb-1" style="color:var(--enc-ink2)">Explicado por movimientos de hoy</div>` + items.map((x) => `
+          <div class="flex items-center gap-3 py-1.5 border-b" style="border-color:var(--enc-line)">
+            <span class="flex-1 font-bold">${encEsc(x.label)}</span>
+            <span class="enc-mono font-black" style="color:${x.monto < 0 ? 'var(--enc-bad)' : 'var(--enc-good)'}">${sg(x.monto)}</span>
+          </div>`).join('');
+      }
+      if (capturado) {
+        if (dif === 0) html += '<div class="enc-callout good mt-3">✅ El saldo del sistema coincide con la app de Mercado Pago. No hay nada que corregir.</div>';
+        else {
+          html += sinExp === 0
+            ? `<div class="enc-callout good mt-3">✅ Toda la diferencia (${sg(dif)}) se explica con los movimientos de hoy. Revisa las filas en rojo antes de corregir.</div>`
+            : `<div class="enc-callout ${Math.abs(sinExp) >= 1 ? 'bad' : 'warn'} mt-3">⚠️ Sin explicar: <b>${sg(sinExp)}</b>. Viene de días anteriores o de operaciones que la API no muestra (retiros digitales, movimientos fuera de la tienda). Investígalo antes de corregir.</div>`;
+          html += `<div class="mt-3 flex flex-wrap items-center gap-3"><button type="button" class="enc-btn primary" onclick="encmAplicarCuadre()">🔧 Ajustar saldo del sistema a ${fmt.format(app)} (${sg(dif)})</button><span class="text-[0.8em] font-semibold" style="color:var(--enc-ink2)">Pide PIN y queda en la bitácora como corrección con este desglose.</span></div>`;
+        }
+      }
+      res.innerHTML = html;
+    }
+
+    function encmAplicarCuadre() {
+      const app = Math.round(parseFloat(encmEl('encm-saldo-app').value) * 100) / 100;
+      if (isNaN(app) || app < 0) { mostrarToast('Escribe el saldo que muestra la app de Mercado Pago.', 'error'); return; }
+      if (encmState.fecha !== encHoy()) { mostrarToast('El cuadre de saldo solo se hace con el día de hoy.', 'error'); return; }
+      const sistema = (DB.get('balances', {}) || {}).meli || 0;
+      const delta = Math.round((app - sistema) * 100) / 100;
+      if (!delta) { mostrarToast('El saldo ya coincide; no hay nada que corregir.', 'info'); return; }
+      abrirPINModal(`Cuadre de saldo Meli: ${delta > 0 ? '+' : '−'}${fmt.format(Math.abs(delta))}`, (opName) => {
+        const balances = DB.get('balances', {});
+        const antes = Math.round((balances.meli || 0) * 100) / 100;
+        const cambio = Math.round((app - antes) * 100) / 100;
+        if (!cambio) { mostrarToast('El saldo ya coincide; no hay nada que corregir.', 'info'); return; }
+        const { items, explicado } = encmDesgloseSaldo();
+        const sinExplicar = Math.round((cambio - explicado) * 100) / 100;
+        // Las ganancias que aún no sumaba el sistema ya vienen dentro del saldo de la app: se marcan como aplicadas
+        // (y suben el Fondo Base, igual que en consultarGananciasMeliApi) para que el proceso automático no las sume otra vez.
+        const procesados = (balances.meliProcessedIds || []).map(String);
+        const pendientes = encmState.infoMP.filter((x) => x.tipo === 'GANANCIA' && !procesados.includes(x.idPago));
+        const sumPend = Math.round(pendientes.reduce((t, x) => t + x.monto, 0) * 100) / 100;
+        balances.meliProcessedIds = [...procesados, ...pendientes.map((x) => x.idPago)].slice(-200);
+        balances.meliBase = Math.round(((balances.meliBase || 0) + sumPend) * 100) / 100;
+        const desgloseTxt = items.length ? items.map((x) => `${x.label} ${x.monto > 0 ? '+' : '−'}${fmt.format(Math.abs(x.monto))}`).join('; ') : 'sin movimientos que lo expliquen';
+        balances.meli = app;
+        DB.set('balances', balances);
+        registrarMovimientoBitacora(opName, 'AJUSTE_MELI', cambio,
+          `Corrección de saldo (Cuadre Encuadre Meli). Anterior: ${fmt.format(antes)} -> Nuevo: ${fmt.format(app)} | Base: ${fmt.format(balances.meliBase || 0)} | Explicado: ${desgloseTxt} | Sin explicar: ${fmt.format(sinExplicar)}`,
+          null, { meliHistorial: { antes, despues: app, base: balances.meliBase || 0, motivo: 'Corrección' }, cuadreMeli: { saldoApp: app, sistema: antes, explicado, sinExplicar, desglose: items.map((x) => ({ concepto: x.clave, monto: x.monto })) } });
+        mostrarToast(`Saldo Meli ajustado a ${fmt.format(app)} por ${opName}. Registrado en bitácora.`, 'success');
+        encmEl('encm-saldo-app').value = '';
+        cargarSaldosDigitales();
+        cargarBitacora();
+        encmRecargar(true);
+      });
     }
