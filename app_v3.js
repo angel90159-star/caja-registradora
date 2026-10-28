@@ -4214,8 +4214,12 @@
     }
     let meliApiPollingIniciado = false;
 
-    // Lo que falta sumar de una ganancia de Mercado Pago. Mercado Pago a veces sube el monto de una ganancia después de
-    // reportarla, así que meliGananciaMontos guarda lo ya sumado por pago y solo se suma la diferencia, una sola vez.
+    // Mercado Pago reporta una ganancia y sube su monto alrededor de una hora después: el sistema la suma una sola vez,
+    // cuando ya pasó este tiempo desde que apareció, para no dar por hecho un monto que todavía no es el final.
+    const MELI_GANANCIA_ESPERA_MIN = 120;
+
+    // Lo que falta sumar de una ganancia de Mercado Pago. Si Mercado Pago cambia el monto incluso después de la espera,
+    // meliGananciaMontos guarda lo ya sumado por pago y solo se suma la diferencia, una sola vez.
     // Una ganancia procesada antes de existir ese registro cuenta como sumada completa (el saldo se cuadró a mano el 28 oct).
     function meliGananciaPendiente(balances, pid, monto) {
       const montos = balances.meliGananciaMontos || {};
@@ -4284,6 +4288,7 @@
           const pid = String(p.id);
           if (monto <= 0 || pDateStr < '2026-10-26') return;
           if (!processedIds.includes(pid)) {
+            if (now.getTime() - d.getTime() < MELI_GANANCIA_ESPERA_MIN * 60000) return; // Mercado Pago aún puede subirla
             balances.meli = Math.round(((balances.meli || 0) + monto) * 100) / 100;
             balances.meliBase = Math.round(((balances.meliBase || 0) + monto) * 100) / 100;
             processedIds.push(pid);
@@ -4299,7 +4304,7 @@
           }
         });
 
-        // Ganancias que Mercado Pago subió después de reportarlas: se suma solo la diferencia y queda en la bitácora.
+        // Ganancias que Mercado Pago cambió después de sumarlas: se suma solo la diferencia y queda en la bitácora.
         let logGanancia = null;
         if (gananciasSubidas.length) {
           const total = Math.round(gananciasSubidas.reduce((t, g) => t + g.diferencia, 0) * 100) / 100;
@@ -11156,7 +11161,7 @@
       const procesados = new Set((balGan.meliProcessedIds || []).map(String));
       const ganancias = infoMP.filter((x) => x.tipo === 'GANANCIA');
       const estadoGanancia = (x) => {
-        if (!procesados.has(x.idPago)) return ' · ⏳ aún no sumada a la terminal';
+        if (!procesados.has(x.idPago)) return ` · ⏳ aún no sumada a la terminal (se suma ${MELI_GANANCIA_ESPERA_MIN / 60} h después de aparecer, ya con el monto final)`;
         const pend = meliGananciaPendiente(balGan, x.idPago, x.monto);
         return pend ? ` · ⏳ Mercado Pago la ajustó: falta sumar ${pend > 0 ? '+' : '−'}${fmt.format(Math.abs(pend))}` : ' · ✅ ya sumada a la terminal';
       };
