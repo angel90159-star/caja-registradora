@@ -4214,12 +4214,8 @@
     }
     let meliApiPollingIniciado = false;
 
-    // Mercado Pago reporta una ganancia y sube su monto alrededor de una hora después: el sistema la suma una sola vez,
-    // cuando ya pasó este tiempo desde que apareció, para no dar por hecho un monto que todavía no es el final.
-    const MELI_GANANCIA_ESPERA_MIN = 120;
-
-    // Lo que falta sumar de una ganancia de Mercado Pago. Si Mercado Pago cambia el monto incluso después de la espera,
-    // meliGananciaMontos guarda lo ya sumado por pago y solo se suma la diferencia, una sola vez.
+    // Lo que falta sumar de una ganancia de Mercado Pago. Mercado Pago sube el monto de la ganancia alrededor de una hora
+    // después de reportarla: meliGananciaMontos guarda lo ya sumado por pago y solo se suma la diferencia, una sola vez.
     // Una ganancia procesada antes de existir ese registro cuenta como sumada completa (el saldo se cuadró a mano el 28 oct).
     function meliGananciaPendiente(balances, pid, monto) {
       const montos = balances.meliGananciaMontos || {};
@@ -4264,7 +4260,6 @@
 
         const processedIds = Array.isArray(balances.meliProcessedIds) ? [...balances.meliProcessedIds] : [];
         const gananciaMontos = { ...(balances.meliGananciaMontos || {}) };
-        const gananciasSubidas = [];
         let sumaGananciaHoy = 0;
 
         // Recorrer de más antiguo a más reciente para aplicar nuevas ganancias en orden cronológico
@@ -4288,7 +4283,6 @@
           const pid = String(p.id);
           if (monto <= 0 || pDateStr < '2026-10-26') return;
           if (!processedIds.includes(pid)) {
-            if (now.getTime() - d.getTime() < MELI_GANANCIA_ESPERA_MIN * 60000) return; // Mercado Pago aún puede subirla
             balances.meli = Math.round(((balances.meli || 0) + monto) * 100) / 100;
             balances.meliBase = Math.round(((balances.meliBase || 0) + monto) * 100) / 100;
             processedIds.push(pid);
@@ -4296,27 +4290,18 @@
             huboCambio = true;
             return;
           }
+          // Ya sumada: si Mercado Pago cambió el monto, se corrige sola con la diferencia (sin renglón en la bitácora,
+          // igual que la ganancia original).
           const pendiente = meliGananciaPendiente({ meliGananciaMontos: gananciaMontos, meliProcessedIds: processedIds }, pid, monto);
-          if (pendiente) gananciasSubidas.push({ idPago: pid, antes: Math.round((monto - pendiente) * 100) / 100, ahora: monto, diferencia: pendiente });
+          if (pendiente) {
+            balances.meli = Math.round(((balances.meli || 0) + pendiente) * 100) / 100;
+            balances.meliBase = Math.round(((balances.meliBase || 0) + pendiente) * 100) / 100;
+          }
           if (gananciaMontos[pid] !== monto) {
             gananciaMontos[pid] = monto;
             huboCambio = true;
           }
         });
-
-        // Ganancias que Mercado Pago cambió después de sumarlas: se suma solo la diferencia y queda en la bitácora.
-        let logGanancia = null;
-        if (gananciasSubidas.length) {
-          const total = Math.round(gananciasSubidas.reduce((t, g) => t + g.diferencia, 0) * 100) / 100;
-          const antes = Math.round((balances.meli || 0) * 100) / 100;
-          balances.meli = Math.round((antes + total) * 100) / 100;
-          balances.meliBase = Math.round(((balances.meliBase || 0) + total) * 100) / 100;
-          logGanancia = {
-            amount: total,
-            details: `Ganancia ajustada por Mercado Pago: ${gananciasSubidas.map(g => `de ${fmt.format(g.antes)} a ${fmt.format(g.ahora)} (pago ${g.idPago})`).join('; ')}. Anterior: ${fmt.format(antes)} -> Nuevo: ${fmt.format(balances.meli)} | Base: ${fmt.format(balances.meliBase)}`,
-            extra: { meliHistorial: { antes, despues: balances.meli, base: balances.meliBase, motivo: 'Ganancia' }, meliGananciaAjuste: gananciasSubidas },
-          };
-        }
 
         // Comisión real de las ventas con Point: a la cuenta llega el neto, pero la venta se registró por el bruto.
         // Solo con el cobro que reporta Mercado Pago (nunca un porcentaje estimado) y solo si la venta está en la bitácora.
@@ -4366,10 +4351,10 @@
           balances.meliGananciaMontos = Object.fromEntries(balances.meliProcessedIds.map(String)
             .filter(pid => gananciaMontos[pid] !== undefined).map(pid => [pid, gananciaMontos[pid]]));
           DB.set('balances', balances);
-          [logGanancia, logComision].filter(Boolean).forEach(log => {
-            registrarMovimientoBitacora('Sistema', 'AJUSTE_MELI', log.amount, log.details, null, log.extra);
-          });
-          if ((logGanancia || logComision) && typeof cargarBitacora === 'function') cargarBitacora();
+          if (logComision) {
+            registrarMovimientoBitacora('Sistema', 'AJUSTE_MELI', logComision.amount, logComision.details, null, logComision.extra);
+            if (typeof cargarBitacora === 'function') cargarBitacora();
+          }
           if (typeof cargarSaldosDigitales === 'function') {
             cargarSaldosDigitales();
           } else if (typeof actualizarTotalizadorBar === 'function') {
@@ -11161,7 +11146,7 @@
       const procesados = new Set((balGan.meliProcessedIds || []).map(String));
       const ganancias = infoMP.filter((x) => x.tipo === 'GANANCIA');
       const estadoGanancia = (x) => {
-        if (!procesados.has(x.idPago)) return ` · ⏳ aún no sumada a la terminal (se suma ${MELI_GANANCIA_ESPERA_MIN / 60} h después de aparecer, ya con el monto final)`;
+        if (!procesados.has(x.idPago)) return ' · ⏳ aún no sumada a la terminal';
         const pend = meliGananciaPendiente(balGan, x.idPago, x.monto);
         return pend ? ` · ⏳ Mercado Pago la ajustó: falta sumar ${pend > 0 ? '+' : '−'}${fmt.format(Math.abs(pend))}` : ' · ✅ ya sumada a la terminal';
       };
