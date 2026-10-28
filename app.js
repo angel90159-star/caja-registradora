@@ -4214,6 +4214,15 @@
     }
     let meliApiPollingIniciado = false;
 
+    // Lo que falta sumar de una ganancia de Mercado Pago. Mercado Pago sube el monto de la ganancia alrededor de una hora
+    // después de reportarla: meliGananciaMontos guarda lo ya sumado por pago y solo se suma la diferencia, una sola vez.
+    // Una ganancia procesada antes de existir ese registro cuenta como sumada completa (el saldo se cuadró a mano el 28 oct).
+    function meliGananciaPendiente(balances, pid, monto) {
+      const montos = balances.meliGananciaMontos || {};
+      if (montos[pid] !== undefined) return Math.round((monto - montos[pid]) * 100) / 100;
+      return (balances.meliProcessedIds || []).map(String).includes(pid) ? 0 : monto;
+    }
+
     async function consultarGananciasMeliApi(silencioso = true) {
       if (!navigator.onLine) return;
       try {
@@ -4250,6 +4259,7 @@
         }
 
         const processedIds = Array.isArray(balances.meliProcessedIds) ? [...balances.meliProcessedIds] : [];
+        const gananciaMontos = { ...(balances.meliGananciaMontos || {}) };
         let sumaGananciaHoy = 0;
 
         // Recorrer de más antiguo a más reciente para aplicar nuevas ganancias en orden cronológico
@@ -4271,10 +4281,24 @@
           }
 
           const pid = String(p.id);
-          if (monto > 0 && pDateStr >= '2026-10-26' && !processedIds.includes(pid)) {
+          if (monto <= 0 || pDateStr < '2026-10-26') return;
+          if (!processedIds.includes(pid)) {
             balances.meli = Math.round(((balances.meli || 0) + monto) * 100) / 100;
             balances.meliBase = Math.round(((balances.meliBase || 0) + monto) * 100) / 100;
             processedIds.push(pid);
+            gananciaMontos[pid] = monto;
+            huboCambio = true;
+            return;
+          }
+          // Ya sumada: si Mercado Pago cambió el monto, se corrige sola con la diferencia (sin renglón en la bitácora,
+          // igual que la ganancia original).
+          const pendiente = meliGananciaPendiente({ meliGananciaMontos: gananciaMontos, meliProcessedIds: processedIds }, pid, monto);
+          if (pendiente) {
+            balances.meli = Math.round(((balances.meli || 0) + pendiente) * 100) / 100;
+            balances.meliBase = Math.round(((balances.meliBase || 0) + pendiente) * 100) / 100;
+          }
+          if (gananciaMontos[pid] !== monto) {
+            gananciaMontos[pid] = monto;
             huboCambio = true;
           }
         });
@@ -4324,6 +4348,8 @@
           balances.meliGananciaDia = sumaGananciaHoy;
           balances.meliGananciaFecha = todayStr;
           balances.meliProcessedIds = processedIds.slice(-200);
+          balances.meliGananciaMontos = Object.fromEntries(balances.meliProcessedIds.map(String)
+            .filter(pid => gananciaMontos[pid] !== undefined).map(pid => [pid, gananciaMontos[pid]]));
           DB.set('balances', balances);
           if (logComision) {
             registrarMovimientoBitacora('Sistema', 'AJUSTE_MELI', logComision.amount, logComision.details, null, logComision.extra);
@@ -11116,8 +11142,14 @@
         </div>`).join('') : '<div class="enc-empty">Ninguno.</div>';
 
       // Ganancias (cashbacks) y pagos no aprobados de Mercado Pago.
-      const procesados = new Set(((DB.get('balances', {}) || {}).meliProcessedIds || []).map(String));
+      const balGan = DB.get('balances', {}) || {};
+      const procesados = new Set((balGan.meliProcessedIds || []).map(String));
       const ganancias = infoMP.filter((x) => x.tipo === 'GANANCIA');
+      const estadoGanancia = (x) => {
+        if (!procesados.has(x.idPago)) return ' · ⏳ aún no sumada a la terminal';
+        const pend = meliGananciaPendiente(balGan, x.idPago, x.monto);
+        return pend ? ` · ⏳ Mercado Pago la ajustó: falta sumar ${pend > 0 ? '+' : '−'}${fmt.format(Math.abs(pend))}` : ' · ✅ ya sumada a la terminal';
+      };
       encmEl('encm-inf-conteo').textContent = `${infoMP.length} movimientos`;
       encmEl('encm-inf-resumen').innerHTML = ganancias.length
         ? `Ganancias del día en Mercado Pago: <b>${fmt.format(suma(ganancias.map((x) => x.monto)))}</b> (${ganancias.length}). No se cruzan con la caja.`
@@ -11125,7 +11157,7 @@
       encmEl('encm-inf-lista').innerHTML = infoMP.length ? infoMP.map((x) => `
         <div class="flex items-center gap-3 py-1.5 border-b" style="border-color:var(--enc-line)">
           <span class="enc-mono text-[0.85em] font-bold" style="color:var(--enc-ink2)">${encEsc(x.hora.slice(0, 5))}</span>
-          <span class="flex-1"><span class="font-bold">${encEsc(x.descripcion || x.why)}</span><span class="block text-[0.8em] font-semibold" style="color:var(--enc-ink2)">${encEsc(x.why)}${x.tipo === 'GANANCIA' ? (procesados.has(x.idPago) ? ' · ✅ ya sumada a la terminal' : ' · ⏳ aún no sumada a la terminal') : ''}</span></span>
+          <span class="flex-1"><span class="font-bold">${encEsc(x.descripcion || x.why)}</span><span class="block text-[0.8em] font-semibold" style="color:var(--enc-ink2)">${encEsc(x.why)}${x.tipo === 'GANANCIA' ? estadoGanancia(x) : ''}</span></span>
           <span class="enc-mono font-bold">${fmt.format(x.monto)}</span>
         </div>`).join('') : '<div class="enc-empty">Ninguno.</div>';
 
@@ -11224,8 +11256,8 @@
         const efecto = r2((x.p ? encmEfectoMP(x.p) : 0) - (x.c ? encmEfectoCaja(x.c) : 0) + yaDescontada);
         sumar(x.paso === 'solo-mp' ? 'faltan' : x.paso === 'solo-caja' ? 'sobran' : x.paso === 'error' ? 'errores' : 'parejas', efecto);
       });
-      const procesados = new Set(((DB.get('balances', {}) || {}).meliProcessedIds || []).map(String));
-      encmState.infoMP.filter((x) => x.tipo === 'GANANCIA' && !procesados.has(x.idPago)).forEach((x) => sumar('ganancias', x.monto));
+      const balGan = DB.get('balances', {}) || {};
+      encmState.infoMP.filter((x) => x.tipo === 'GANANCIA').forEach((x) => sumar('ganancias', meliGananciaPendiente(balGan, x.idPago, x.monto)));
       const items = Object.keys(ENCM_GRUPOS_SALDO).filter((k) => grupos[k]).map((k) => ({ clave: k, label: ENCM_GRUPOS_SALDO[k], monto: grupos[k] }));
       return { items, explicado: r2(items.reduce((s, x) => s + x.monto, 0)) };
     }
@@ -11288,9 +11320,11 @@
         // Las ganancias que aún no sumaba el sistema ya vienen dentro del saldo de la app: se marcan como aplicadas
         // (y suben el Fondo Base, igual que en consultarGananciasMeliApi) para que el proceso automático no las sume otra vez.
         const procesados = (balances.meliProcessedIds || []).map(String);
-        const pendientes = encmState.infoMP.filter((x) => x.tipo === 'GANANCIA' && !procesados.includes(x.idPago));
-        const sumPend = Math.round(pendientes.reduce((t, x) => t + x.monto, 0) * 100) / 100;
-        balances.meliProcessedIds = [...procesados, ...pendientes.map((x) => x.idPago)].slice(-200);
+        const ganancias = encmState.infoMP.filter((x) => x.tipo === 'GANANCIA');
+        const sumPend = Math.round(ganancias.reduce((t, x) => t + meliGananciaPendiente(balances, x.idPago, x.monto), 0) * 100) / 100;
+        balances.meliProcessedIds = [...procesados, ...ganancias.map((x) => x.idPago).filter((pid) => !procesados.includes(pid))].slice(-200);
+        balances.meliGananciaMontos = { ...(balances.meliGananciaMontos || {}) };
+        ganancias.forEach((x) => { balances.meliGananciaMontos[x.idPago] = x.monto; });
         balances.meliBase = Math.round(((balances.meliBase || 0) + sumPend) * 100) / 100;
         const desgloseTxt = items.length ? items.map((x) => `${x.label} ${x.monto > 0 ? '+' : '−'}${fmt.format(Math.abs(x.monto))}`).join('; ') : 'sin movimientos que lo expliquen';
         balances.meli = app;
