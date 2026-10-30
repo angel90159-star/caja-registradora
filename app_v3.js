@@ -220,31 +220,188 @@
       }
     }
 
+    // === SALDOS SIN SOBRESCRITURAS ENTRE EQUIPOS ===
+    // Cada equipo recuerda la última fila de caja_balances que vio en la nube (balancesNube). Al guardar no sube su caché
+    // completa: aplica sobre la fila fresca solo lo que cambió desde entonces, y la escritura solo se acepta si nadie
+    // escribió en medio (mismo updated_at); si alguien lo hizo, se vuelve a leer y se reintenta. Así un equipo con saldos
+    // viejos en memoria ya no puede regresar los ajustes o ganancias que guardó otro equipo.
+    const COLUMNAS_SALDOS = {
+      yastasEfectivo: 'yastas_efectivo', yastasTerminal: 'yastas_terminal', capitalTerminal: 'capital_terminal',
+      capitalEfectivo: 'capital_efectivo', tconecta: 'tconecta', tconectaTerminal: 'tconecta_terminal', banamex: 'banamex',
+      boveda: 'boveda', meli: 'meli', meliBase: 'meli_base', banorte: 'banorte', transferencia: 'transferencia', bbva: 'bbva',
+      capital: 'capital', vales: 'vales', yastasGetnet: 'yastas_getnet'
+    };
+    // Listas que se unen (nunca se reemplazan): lo que agregó cada equipo se conserva.
+    const LISTAS_UNIDAS = ['meliProcessedIds', 'meliComisionIds', 'meliComisionLogs', 'meliRendimientos', 'meliGbmIds'];
+    let balancesNube = null, balancesNubeFecha = null;
+    try {
+      balancesNube = JSON.parse(localStorage.getItem('lc5_balances_nube') || 'null');
+      balancesNubeFecha = localStorage.getItem('lc5_balances_nube_fecha') || null;
+    } catch (e) {}
+    let colaBalances = Promise.resolve();
+    let balancesEnCola = 0, nubeCambioMientrasGuardaba = false;
+
+    const r2Saldo = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
+    const copiaJSON = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+    const mismoValor = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+    function balancesDesdeFila(fila) {
+      const datos = fila.data || {};
+      const r = { ...datos };
+      Object.keys(COLUMNAS_SALDOS).forEach((k) => {
+        r[k] = datos[k] !== undefined ? datos[k] : (parseFloat(fila[COLUMNAS_SALDOS[k]]) || 0);
+      });
+      return r;
+    }
+
+    function filaBalances(val, fecha) {
+      const fila = { id: 'main', data: val, updated_at: fecha };
+      Object.keys(COLUMNAS_SALDOS).forEach((k) => { fila[COLUMNAS_SALDOS[k]] = val[k] || 0; });
+      return fila;
+    }
+
+    function fijarBalancesNube(b, fecha) {
+      balancesNube = copiaJSON(b);
+      balancesNubeFecha = fecha || null;
+      try {
+        localStorage.setItem('lc5_balances_nube', JSON.stringify(balancesNube));
+        if (balancesNubeFecha) localStorage.setItem('lc5_balances_nube_fecha', balancesNubeFecha);
+      } catch (e) {}
+    }
+
+    // Se modifica el mismo objeto de la caché para que quien ya lo tenga en mano vea los valores nuevos.
+    function reemplazarCacheBalances(nuevo) {
+      const cache = dbCache['balances'];
+      if (cache && typeof cache === 'object' && cache !== nuevo) {
+        Object.keys(cache).forEach((k) => { if (!(k in nuevo)) delete cache[k]; });
+        Object.assign(cache, nuevo);
+      } else {
+        dbCache['balances'] = nuevo;
+      }
+      localStorage.setItem('lc5_balances', JSON.stringify(dbCache['balances']));
+    }
+
+    // Fusión de tres vías: a lo que hay en la nube se le suma solo lo que este equipo cambió desde la última vez que la vio.
+    // Saldos: se suma la diferencia. Listas de Meli: se unen. Ganancias de Meli: si la nube ya tiene la misma ganancia,
+    // no se suma otra vez. Lo demás: si este equipo lo cambió gana su valor; si no, el de la nube.
+    function fusionarBalances(local, base, nube) {
+      const r = copiaJSON(nube) || {};
+      const llaves = new Set([...Object.keys(local || {}), ...Object.keys(base || {})]);
+      llaves.forEach((k) => {
+        if (k === 'meliGananciaMontos' || mismoValor(local[k], base[k])) return;
+        if (COLUMNAS_SALDOS[k]) {
+          r[k] = r2Saldo((parseFloat(nube[k]) || 0) + (parseFloat(local[k]) || 0) - (parseFloat(base[k]) || 0));
+        } else if (LISTAS_UNIDAS.includes(k)) {
+          const clave = (x) => (x && typeof x === 'object' ? JSON.stringify(x) : String(x));
+          const antes = new Set((Array.isArray(base[k]) ? base[k] : []).map(clave));
+          const lista = Array.isArray(nube[k]) ? [...nube[k]] : [];
+          const ya = new Set(lista.map(clave));
+          (Array.isArray(local[k]) ? local[k] : []).forEach((x) => {
+            const c = clave(x);
+            if (!antes.has(c) && !ya.has(c)) { lista.push(x); ya.add(c); }
+          });
+          r[k] = lista.slice(-200);
+        } else if (local[k] === undefined) {
+          delete r[k];
+        } else {
+          r[k] = copiaJSON(local[k]);
+        }
+      });
+
+      const montosL = local.meliGananciaMontos || {}, montosB = base.meliGananciaMontos || {};
+      const montos = { ...(nube.meliGananciaMontos || {}) };
+      let correccion = 0;
+      Object.keys(montosL).forEach((pid) => {
+        if (montosL[pid] === montosB[pid]) return;
+        const aporteLocal = meliGananciaPendiente(base, pid, montosL[pid]);
+        const faltaEnNube = Math.max(0, meliGananciaPendiente(nube, pid, montosL[pid]));
+        correccion += faltaEnNube - aporteLocal;
+        if (faltaEnNube > 0 || montos[pid] === undefined) montos[pid] = montosL[pid];
+      });
+      // Rendimientos GBM (clave "id|monto"): si otro equipo ya sumó el mismo, se descuenta lo que este equipo sumó.
+      const gbmBase = new Set((base.meliGbmIds || []).map(String)), gbmNube = new Set((nube.meliGbmIds || []).map(String));
+      (local.meliGbmIds || []).map(String).forEach((clave) => {
+        if (!gbmBase.has(clave) && gbmNube.has(clave)) correccion -= parseFloat(clave.split('|')[1]) || 0;
+      });
+      if (Object.keys(montos).length) {
+        const procesados = new Set((r.meliProcessedIds || []).map(String));
+        r.meliGananciaMontos = Object.fromEntries(Object.entries(montos).filter(([pid]) => procesados.has(String(pid))));
+      }
+      correccion = r2Saldo(correccion);
+      if (correccion) {
+        r.meli = r2Saldo((r.meli || 0) + correccion);
+        r.meliBase = r2Saldo((r.meliBase || 0) + correccion);
+      }
+      return r;
+    }
+
+    // Fila nueva de la nube (carga inicial, tiempo real o relectura): la caché toma la nube, conservando encima lo que
+    // este equipo cambió y aún no sube. Mientras se guarda, se deja para después (la escritura ya trae lo más nuevo).
+    function aplicarBalancesDeNube(fila, conservarLocal = true) {
+      if (balancesEnCola > 0) { nubeCambioMientrasGuardaba = true; return false; }
+      if (balancesNubeFecha && fila.updated_at && new Date(fila.updated_at) < new Date(balancesNubeFecha)) return false;
+      const nube = balancesDesdeFila(fila);
+      const local = DB.get('balances', {}) || {};
+      const nuevo = conservarLocal && balancesNube ? fusionarBalances(local, balancesNube, nube) : { ...local, ...nube };
+      reemplazarCacheBalances(nuevo);
+      fijarBalancesNube(nube, fila.updated_at);
+      return true;
+    }
+
+    async function guardarBalancesEnNube(val) {
+      const enviado = copiaJSON(val);
+      const base = balancesNube ? copiaJSON(balancesNube) : null;
+      for (let intento = 1; intento <= 5; intento++) {
+        const { data: fila, error } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
+        if (error) throw error;
+        const final = fila && base ? fusionarBalances(enviado, base, balancesDesdeFila(fila)) : enviado;
+        const fecha = new Date().toISOString();
+        let consulta;
+        if (fila) {
+          consulta = supabaseClient.from('caja_balances').update(filaBalances(final, fecha)).eq('id', 'main');
+          consulta = fila.updated_at ? consulta.eq('updated_at', fila.updated_at) : consulta.is('updated_at', null);
+        } else {
+          consulta = supabaseClient.from('caja_balances').insert(filaBalances(final, fecha));
+        }
+        const { data: escritas, error: errorEscritura } = await consulta.select('id');
+        if (errorEscritura) {
+          if (!fila && intento < 5) continue; // otro equipo creó la fila al mismo tiempo
+          throw errorEscritura;
+        }
+        if (!escritas || !escritas.length) continue; // otro equipo escribió en medio: releer y volver a fusionar
+        fijarBalancesNube(final, fecha);
+        // La caché recibe lo de otros equipos y conserva lo que este equipo cambió mientras se guardaba.
+        reemplazarCacheBalances(fusionarBalances(DB.get('balances', {}) || {}, enviado, final));
+        return;
+      }
+      throw new Error('caja_balances cambió en otro equipo en cada intento');
+    }
+
+    async function refrescarBalancesDesdeNube() {
+      if (!supabaseClient || !navigator.onLine) return;
+      try {
+        const { data: fila, error } = await supabaseClient.from('caja_balances').select('*').eq('id', 'main').maybeSingle();
+        if (error || !fila) return;
+        if (aplicarBalancesDeNube(fila) && !isUserTyping() && typeof cargarSaldosDigitales === 'function') cargarSaldosDigitales();
+        if (pendingSyncKeys.has('balances')) syncToSupabase('balances', DB.get('balances', {}));
+      } catch (e) {
+        console.warn('[Supabase Sync] Relectura de saldos:', e.message || e);
+      }
+    }
+
     async function syncToSupabase(key, val) {
       if (!supabaseClient) return;
       try {
         if (key === 'balances') {
-          await supabaseClient.from('caja_balances').upsert({
-            id: 'main',
-            yastas_efectivo: val.yastasEfectivo || 0,
-            yastas_terminal: val.yastasTerminal || 0,
-            capital_terminal: val.capitalTerminal || 0,
-            capital_efectivo: val.capitalEfectivo || 0,
-            tconecta: val.tconecta || 0,
-            tconecta_terminal: val.tconectaTerminal || 0,
-            banamex: val.banamex || 0,
-            boveda: val.boveda || 0,
-            meli: val.meli || 0,
-            meli_base: val.meliBase || 0,
-            banorte: val.banorte || 0,
-            transferencia: val.transferencia || 0,
-            bbva: val.bbva || 0,
-            capital: val.capital || 0,
-            vales: val.vales || 0,
-            yastas_getnet: val.yastasGetnet || 0,
-            data: val,
-            updated_at: new Date().toISOString()
-          });
+          balancesEnCola++;
+          try {
+            await (colaBalances = colaBalances.catch(() => {}).then(() => guardarBalancesEnNube(val)));
+          } finally {
+            if (--balancesEnCola === 0 && nubeCambioMientrasGuardaba) {
+              nubeCambioMientrasGuardaba = false;
+              refrescarBalancesDesdeNube();
+            }
+          }
         } else if (key === 'inventory') {
           const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '0.5'];
           const valObj = val && typeof val === 'object' ? val : {};
@@ -337,33 +494,8 @@
           supabaseClient.from('caja_inventory_boveda').select('*')
         ]);
 
-        // 1. Actualizar balances en caché antes de refrescar la interfaz
-        if (balData) {
-          const currentBal = DB.get('balances', {});
-          const remoteData = balData.data || {};
-          const updatedBal = {
-            ...currentBal,
-            ...remoteData,
-            yastasEfectivo: remoteData.yastasEfectivo !== undefined ? remoteData.yastasEfectivo : (parseFloat(balData.yastas_efectivo) || 0),
-            yastasTerminal: remoteData.yastasTerminal !== undefined ? remoteData.yastasTerminal : (parseFloat(balData.yastas_terminal) || 0),
-            capitalTerminal: remoteData.capitalTerminal !== undefined ? remoteData.capitalTerminal : (parseFloat(balData.capital_terminal) || 0),
-            capitalEfectivo: remoteData.capitalEfectivo !== undefined ? remoteData.capitalEfectivo : (parseFloat(balData.capital_efectivo) || 0),
-            tconecta: remoteData.tconecta !== undefined ? remoteData.tconecta : (parseFloat(balData.tconecta) || 0),
-            tconectaTerminal: remoteData.tconectaTerminal !== undefined ? remoteData.tconectaTerminal : (parseFloat(balData.tconecta_terminal) || 0),
-            banamex: remoteData.banamex !== undefined ? remoteData.banamex : (parseFloat(balData.banamex) || 0),
-            boveda: remoteData.boveda !== undefined ? remoteData.boveda : (parseFloat(balData.boveda) || 0),
-            meli: remoteData.meli !== undefined ? remoteData.meli : (parseFloat(balData.meli) || 0),
-            meliBase: remoteData.meliBase !== undefined ? remoteData.meliBase : (parseFloat(balData.meli_base) || 0),
-            banorte: remoteData.banorte !== undefined ? remoteData.banorte : (parseFloat(balData.banorte) || 0),
-            transferencia: remoteData.transferencia !== undefined ? remoteData.transferencia : (parseFloat(balData.transferencia) || 0),
-            bbva: remoteData.bbva !== undefined ? remoteData.bbva : (parseFloat(balData.bbva) || 0),
-            capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(balData.capital) || 0),
-            vales: remoteData.vales !== undefined ? remoteData.vales : (parseFloat(balData.vales) || 0),
-            yastasGetnet: remoteData.yastasGetnet !== undefined ? remoteData.yastasGetnet : (parseFloat(balData.yastas_getnet) || 0)
-          };
-          dbCache['balances'] = updatedBal;
-          localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
-        }
+        // 1. Actualizar balances en caché antes de refrescar la interfaz (solo se conserva lo local si quedó sin subir)
+        if (balData) aplicarBalancesDeNube(balData, pendingSyncKeys.has('balances'));
 
         // 2. Actualizar inventario de piezas en charola
         if (invData && invData.length > 0) {
@@ -621,11 +753,26 @@
       return activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
     }
 
-    function suscribirseARealtimeSupabase() {
+    // Si el canal de tiempo real se cae (error, tiempo agotado o cierre) se vuelve a abrir solo, y al reconectar se
+    // releen los saldos para recuperar lo que otros equipos guardaron mientras no hubo conexión.
+    let canalRealtime = null, reconexionRealtime = null;
+
+    function programarReconexionRealtime() {
+      if (reconexionRealtime) return;
+      reconexionRealtime = setTimeout(() => { reconexionRealtime = null; suscribirseARealtimeSupabase(); }, 5000);
+    }
+
+    async function suscribirseARealtimeSupabase() {
       if (!supabaseClient) return;
       try {
-        supabaseClient
-          .channel('caja_realtime_channel')
+        if (canalRealtime) {
+          const viejo = canalRealtime;
+          canalRealtime = null;
+          await supabaseClient.removeChannel(viejo);
+        }
+        const canal = supabaseClient.channel('caja_realtime_channel');
+        canalRealtime = canal;
+        canal
           .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_state' }, payload => {
             if (payload.new && payload.new.id === 'main') {
               const remoteActive = !!payload.new.session_active;
@@ -657,32 +804,7 @@
             }
           })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_balances' }, payload => {
-            if (payload.new && payload.new.id === 'main') {
-              const currentBal = DB.get('balances', {});
-              const remoteData = payload.new.data || {};
-              const updatedBal = {
-                ...currentBal,
-                ...remoteData,
-                yastasEfectivo: remoteData.yastasEfectivo !== undefined ? remoteData.yastasEfectivo : (parseFloat(payload.new.yastas_efectivo) || 0),
-                yastasTerminal: remoteData.yastasTerminal !== undefined ? remoteData.yastasTerminal : (parseFloat(payload.new.yastas_terminal) || 0),
-                capitalTerminal: remoteData.capitalTerminal !== undefined ? remoteData.capitalTerminal : (parseFloat(payload.new.capital_terminal) || 0),
-                capitalEfectivo: remoteData.capitalEfectivo !== undefined ? remoteData.capitalEfectivo : (parseFloat(payload.new.capital_efectivo) || 0),
-                tconecta: remoteData.tconecta !== undefined ? remoteData.tconecta : (parseFloat(payload.new.tconecta) || 0),
-                tconectaTerminal: remoteData.tconectaTerminal !== undefined ? remoteData.tconectaTerminal : (parseFloat(payload.new.tconecta_terminal) || 0),
-                banamex: remoteData.banamex !== undefined ? remoteData.banamex : (parseFloat(payload.new.banamex) || 0),
-                boveda: remoteData.boveda !== undefined ? remoteData.boveda : (parseFloat(payload.new.boveda) || 0),
-                meli: remoteData.meli !== undefined ? remoteData.meli : (parseFloat(payload.new.meli) || 0),
-                meliBase: remoteData.meliBase !== undefined ? remoteData.meliBase : (parseFloat(payload.new.meli_base) || 0),
-                banorte: remoteData.banorte !== undefined ? remoteData.banorte : (parseFloat(payload.new.banorte) || 0),
-                transferencia: remoteData.transferencia !== undefined ? remoteData.transferencia : (parseFloat(payload.new.transferencia) || 0),
-                bbva: remoteData.bbva !== undefined ? remoteData.bbva : (parseFloat(payload.new.bbva) || 0),
-                capital: remoteData.capital !== undefined ? remoteData.capital : (parseFloat(payload.new.capital) || 0),
-                vales: remoteData.vales !== undefined ? remoteData.vales : (parseFloat(payload.new.vales) || 0),
-                yastasGetnet: remoteData.yastasGetnet !== undefined ? remoteData.yastasGetnet : (parseFloat(payload.new.yastas_getnet) || 0)
-              };
-              dbCache['balances'] = updatedBal;
-              localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
-              
+            if (payload.new && payload.new.id === 'main' && aplicarBalancesDeNube(payload.new)) {
               if (!isUserTyping() && typeof cargarSaldosDigitales === 'function') {
                 cargarSaldosDigitales();
               }
@@ -770,9 +892,14 @@
               }
             }
           })
-          .subscribe();
+          .subscribe((estado) => {
+            if (canal !== canalRealtime) return;
+            if (estado === 'SUBSCRIBED') refrescarBalancesDesdeNube();
+            else if (estado === 'CHANNEL_ERROR' || estado === 'TIMED_OUT' || estado === 'CLOSED') programarReconexionRealtime();
+          });
       } catch (e) {
         console.warn("[Supabase Realtime] Notificación:", e.message || e);
+        programarReconexionRealtime();
       }
     }
 
@@ -864,6 +991,16 @@
       await reintentarSincronizacionPendiente();
       setTimeout(() => { window.location.reload(); }, 1500);
     });
+
+    // Al volver a la ventana, y cada minuto mientras está visible, se releen los saldos de la nube: un equipo que perdió
+    // eventos de tiempo real no se queda con saldos viejos en pantalla.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refrescarBalancesDesdeNube();
+    });
+    window.addEventListener('focus', () => refrescarBalancesDesdeNube());
+    setInterval(() => {
+      if (document.visibilityState === 'visible') refrescarBalancesDesdeNube();
+    }, 60000);
 
     // Restauración desde bfcache (navegación atrás/adelante o pestaña suspendida):
     // el navegador repinta el DOM congelado tal cual estaba al salir -- SIN volver a
@@ -1828,13 +1965,13 @@
       } else if (activeSrv === 'meli') {
         const nowMeli = new Date();
         const todayMeliStr = `${nowMeli.getFullYear()}-${String(nowMeli.getMonth() + 1).padStart(2, '0')}-${String(nowMeli.getDate()).padStart(2, '0')}`;
-        const gananciaDiaVal = (balances.meliGananciaFecha && balances.meliGananciaFecha !== todayMeliStr)
+        const gananciaDiaVal = Math.round((((balances.meliGananciaFecha && balances.meliGananciaFecha !== todayMeliStr)
           ? 0
-          : (balances.meliGananciaDia || 0);
+          : (balances.meliGananciaDia || 0)) + (balances.meliGbmFecha === todayMeliStr ? (balances.meliGbmDia || 0) : 0)) * 100) / 100;
         document.getElementById('dash-total-bar-desc').innerHTML = `<span onclick="consultarGananciasMeliApi(false)" title="Clic para actualizar ganancia en vivo desde Mercado Pago" class="inline-flex items-center gap-1.5 mt-1 px-2.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold text-xs border border-amber-700/30 dark:border-amber-400/50 shadow-sm cursor-pointer hover:bg-amber-50 dark:hover:bg-slate-800 transition">✨ Ganancia del día: <strong class="text-emerald-700 dark:text-emerald-400 font-black">+${fmt.format(gananciaDiaVal)}</strong></span>`;
         if (!window._meliFirstApiFetched && typeof consultarGananciasMeliApi === 'function') {
           window._meliFirstApiFetched = true;
-          setTimeout(() => consultarGananciasMeliApi(true), 200);
+          setTimeout(() => { consultarGananciasMeliApi(true); consultarRendimientosGbm(); }, 200);
         }
       } else {
         document.getElementById('dash-total-bar-desc').innerText = config.desc;
@@ -2221,6 +2358,7 @@
             };
             dbCache['balances'] = updatedBal;
             localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
+            fijarBalancesNube(balancesDesdeFila(balData), balData.updated_at);
           }
         } catch (e) {
           console.warn("[intentarIniciarTurno] Error al rehidratar desde Supabase:", e);
@@ -4381,6 +4519,69 @@
           consultarGananciasMeliApi(true);
         }
       }, 180000); // Cada 3 minutos en segundo plano sin recargar página
+      setInterval(() => {
+        const st = DB.get('state', {});
+        const srv = document.getElementById('op-service');
+        if (st && st.session_active && srv && srv.value === 'meli') consultarRendimientosGbm();
+      }, 5 * 60000); // Rendimientos GBM: cada 5 min solo hasta leer el reporte del día (sin red antes de las 10:00 ni después)
+    }
+
+    // Rendimientos de GBM: Mercado Pago no los da en payments/search, solo en el reporte "Todas las transacciones"
+    // (SETTLEMENT sin método de pago, llega de madrugada). De lunes a viernes desde las 10:00 el proxy pide UN reporte al
+    // día y la caja revisa hasta que esté listo (~2 min); al leerlo deja de consultar hasta el siguiente día hábil
+    // (meliGbmRevisado). Cada rendimiento nuevo sube Terminal y Fondo Base juntos (no mueve el Sobrante), sin renglón en
+    // la bitácora, y queda en meliGbmIds para que ninguna PC lo sume dos veces. Lo anterior al último cuadre de saldo no
+    // se toma: el cuadre ya lo absorbió.
+    const MELI_GBM_DESDE = '2026-10-31';
+    async function consultarRendimientosGbm() {
+      if (!navigator.onLine) return;
+      const ahora = new Date();
+      const fechaLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const hoy = fechaLocal(ahora);
+      if (ahora.getDay() === 0 || ahora.getDay() === 6 || ahora.getHours() < 10) return;
+      const previo = DB.get('balances', {}) || {};
+      if (previo.meliGbmRevisado === hoy || previo.meliGbmFecha === hoy) return; // el reporte de hoy ya se leyó
+      const hace5 = fechaLocal(new Date(ahora.getTime() - 5 * 86400000));
+      const desde = hace5 > MELI_GBM_DESDE ? hace5 : MELI_GBM_DESDE;
+      try {
+        const res = await meliApiFetch('gbm', { desde });
+        if (!res.ok) return;
+        const datos = await res.json();
+        const rendimientos = Array.isArray(datos.rendimientos) ? datos.rendimientos : [];
+        const balances = DB.get('balances', {});
+        const ids = (balances.meliGbmIds || []).map(String);
+        const cuadres = balances.meliRendimientos || [];
+        const corte = cuadres.length ? new Date(cuadres[cuadres.length - 1].ts).getTime() : 0;
+        const nuevos = [];
+        let suma = 0, deHoy = 0, llegoHoy = false;
+        rendimientos.forEach((r) => {
+          const monto = Math.round((parseFloat(r.monto) || 0) * 100) / 100;
+          const fecha = String(r.fecha || '').slice(0, 10);
+          if (monto <= 0 || fecha < MELI_GBM_DESDE) return;
+          if (fecha === hoy) { llegoHoy = true; deHoy += monto; }
+          const clave = `${r.id}|${monto}`;
+          if (ids.includes(clave) || nuevos.includes(clave) || new Date(r.fecha).getTime() <= corte) return;
+          nuevos.push(clave);
+          suma += monto;
+        });
+        suma = Math.round(suma * 100) / 100;
+        const leyoHoy = !!(datos.reporte && !datos.pendiente && fechaLocal(new Date(datos.reporte.generado)) === hoy);
+        if (!nuevos.length && !llegoHoy && !leyoHoy) return;
+        if (leyoHoy) balances.meliGbmRevisado = hoy;
+        if (suma) {
+          balances.meli = Math.round(((balances.meli || 0) + suma) * 100) / 100;
+          balances.meliBase = Math.round(((balances.meliBase || 0) + suma) * 100) / 100;
+        }
+        balances.meliGbmIds = [...ids, ...nuevos].slice(-200);
+        if (llegoHoy) {
+          balances.meliGbmDia = Math.round(deHoy * 100) / 100;
+          balances.meliGbmFecha = hoy;
+        }
+        DB.set('balances', balances);
+        if (typeof cargarSaldosDigitales === 'function') cargarSaldosDigitales();
+      } catch (err) {
+        console.warn('[Meli API] Error al consultar rendimientos GBM:', err);
+      }
     }
 
     // === RETIROS BBVA DEL DÍA ===
@@ -9796,6 +9997,7 @@
             };
             dbCache['balances'] = updatedBal;
             localStorage.setItem('lc5_balances', JSON.stringify(updatedBal));
+            fijarBalancesNube(balancesDesdeFila(balData), balData.updated_at);
           }
         } catch (e) {
           console.warn("[finalizarCierreNocturno] Error al rehidratar desde Supabase previo a cierre:", e);
@@ -11294,13 +11496,26 @@
       if (capturado) {
         if (dif === 0) html += '<div class="enc-callout good mt-3">✅ El saldo del sistema coincide con la app de Mercado Pago. No hay nada que corregir.</div>';
         else {
-          html += sinExp === 0
-            ? `<div class="enc-callout good mt-3">✅ Toda la diferencia (${sg(dif)}) se explica con los movimientos de hoy. Revisa las filas en rojo antes de corregir.</div>`
-            : `<div class="enc-callout ${Math.abs(sinExp) >= 1 ? 'bad' : 'warn'} mt-3">⚠️ Sin explicar: <b>${sg(sinExp)}</b>. Viene de días anteriores o de operaciones que la API no muestra (retiros digitales, movimientos fuera de la tienda). Investígalo antes de corregir.</div>`;
-          html += `<div class="mt-3 flex flex-wrap items-center gap-3"><button type="button" class="enc-btn primary" onclick="encmAplicarCuadre()">🔧 Ajustar saldo del sistema a ${fmt.format(app)} (${sg(dif)})</button><span class="text-[0.8em] font-semibold" style="color:var(--enc-ink2)">Pide PIN y queda en la bitácora como corrección con este desglose.</span></div>`;
+          const { tope, desde } = encmTopeRendimiento(DB.get('balances', {}) || {});
+          const rend = r2(Math.min(Math.max(sinExp, 0), tope)), resto = r2(sinExp - rend);
+          if (sinExp === 0) html += `<div class="enc-callout good mt-3">✅ Toda la diferencia (${sg(dif)}) se explica con los movimientos de hoy. Revisa las filas en rojo antes de corregir.</div>`;
+          if (rend) html += `<div class="enc-callout good mt-3">✅ ${sg(rend)} sin explicar caben en el rendimiento del fondo (hasta ${fmt.format(tope)} desde el ${encEsc(desde)}): se anotan en silencio, suben Terminal y Fondo Base y no mueven el Sobrante.</div>`;
+          if (resto) html += `<div class="enc-callout ${Math.abs(resto) >= 1 ? 'bad' : 'warn'} mt-3">⚠️ Sin explicar: <b>${sg(resto)}</b>. Viene de días anteriores o de operaciones que la API no muestra (retiros digitales, movimientos fuera de la tienda). Investígalo antes de corregir.</div>`;
+          html += `<div class="mt-3 flex flex-wrap items-center gap-3"><button type="button" class="enc-btn primary" onclick="encmAplicarCuadre()">🔧 Ajustar saldo del sistema a ${fmt.format(app)} (${sg(dif)})</button><span class="text-[0.8em] font-semibold" style="color:var(--enc-ink2)">Pide PIN. Ganancias y rendimiento se anotan sin renglón; el resto queda en la bitácora como corrección.</span></div>`;
         }
       }
       res.innerHTML = html;
+    }
+
+    // Rendimiento diario del fondo de Mercado Pago (~$1.70) que no aparece en la API: tope de lo que el cuadre puede anotar
+    // en silencio, $5 por cada día desde el último rendimiento anotado (o desde que la caja lee la API).
+    const MELI_RENDIMIENTO_TOPE_DIA = 5;
+    const MELI_RENDIMIENTO_DESDE = '2026-10-26';
+    function encmTopeRendimiento(balances) {
+      const lista = (balances && balances.meliRendimientos) || [];
+      const desde = lista.length ? lista[lista.length - 1].fecha : MELI_RENDIMIENTO_DESDE;
+      const dias = Math.max(1, Math.round((new Date(`${encHoy()}T12:00:00`) - new Date(`${desde}T12:00:00`)) / 86400000));
+      return { tope: MELI_RENDIMIENTO_TOPE_DIA * dias, desde };
     }
 
     function encmAplicarCuadre() {
@@ -11315,24 +11530,42 @@
         const antes = Math.round((balances.meli || 0) * 100) / 100;
         const cambio = Math.round((app - antes) * 100) / 100;
         if (!cambio) { mostrarToast('El saldo ya coincide; no hay nada que corregir.', 'info'); return; }
+        const r2 = (n) => Math.round(n * 100) / 100;
         const { items, explicado } = encmDesgloseSaldo();
-        const sinExplicar = Math.round((cambio - explicado) * 100) / 100;
+        const sinExplicar = r2(cambio - explicado);
         // Las ganancias que aún no sumaba el sistema ya vienen dentro del saldo de la app: se marcan como aplicadas
         // (y suben el Fondo Base, igual que en consultarGananciasMeliApi) para que el proceso automático no las sume otra vez.
         const procesados = (balances.meliProcessedIds || []).map(String);
         const ganancias = encmState.infoMP.filter((x) => x.tipo === 'GANANCIA');
-        const sumPend = Math.round(ganancias.reduce((t, x) => t + meliGananciaPendiente(balances, x.idPago, x.monto), 0) * 100) / 100;
+        const sumPend = r2(ganancias.reduce((t, x) => t + meliGananciaPendiente(balances, x.idPago, x.monto), 0));
         balances.meliProcessedIds = [...procesados, ...ganancias.map((x) => x.idPago).filter((pid) => !procesados.includes(pid))].slice(-200);
         balances.meliGananciaMontos = { ...(balances.meliGananciaMontos || {}) };
         ganancias.forEach((x) => { balances.meliGananciaMontos[x.idPago] = x.monto; });
-        balances.meliBase = Math.round(((balances.meliBase || 0) + sumPend) * 100) / 100;
-        const desgloseTxt = items.length ? items.map((x) => `${x.label} ${x.monto > 0 ? '+' : '−'}${fmt.format(Math.abs(x.monto))}`).join('; ') : 'sin movimientos que lo expliquen';
+        // Rendimiento del fondo que Mercado Pago no reporta por API: lo positivo sin explicar, hasta el tope, se anota en
+        // silencio (Terminal y Fondo Base suben juntos, el Sobrante no se mueve) y queda solo en balances.meliRendimientos.
+        const { tope } = encmTopeRendimiento(balances);
+        const rendimiento = r2(Math.min(Math.max(sinExplicar, 0), tope));
+        if (rendimiento) {
+          balances.meliRendimientos = [...(balances.meliRendimientos || []),
+            { fecha: encHoy(), monto: rendimiento, operador: opName, saldoApp: app, ts: new Date().toISOString() }].slice(-200);
+        }
+        const silencioso = r2(sumPend + rendimiento);
+        const visible = r2(cambio - silencioso);
+        balances.meliBase = r2((balances.meliBase || 0) + silencioso);
+        const itemsVisibles = items.filter((x) => x.clave !== 'ganancias');
+        const desgloseTxt = itemsVisibles.length ? itemsVisibles.map((x) => `${x.label} ${x.monto > 0 ? '+' : '−'}${fmt.format(Math.abs(x.monto))}`).join('; ') : 'sin movimientos que lo expliquen';
         balances.meli = app;
         DB.set('balances', balances);
-        registrarMovimientoBitacora(opName, 'AJUSTE_MELI', cambio,
-          `Corrección de saldo (Cuadre Encuadre Meli). Anterior: ${fmt.format(antes)} -> Nuevo: ${fmt.format(app)} | Base: ${fmt.format(balances.meliBase || 0)} | Explicado: ${desgloseTxt} | Sin explicar: ${fmt.format(sinExplicar)}`,
-          null, { meliHistorial: { antes, despues: app, base: balances.meliBase || 0, motivo: 'Corrección' }, cuadreMeli: { saldoApp: app, sistema: antes, explicado, sinExplicar, desglose: items.map((x) => ({ concepto: x.clave, monto: x.monto })) } });
-        mostrarToast(`Saldo Meli ajustado a ${fmt.format(app)} por ${opName}. Registrado en bitácora.`, 'success');
+        // Solo la diferencia real (todo lo que no es ganancia ni rendimiento) queda como renglón en la bitácora.
+        if (visible) {
+          const antesVisible = r2(antes + silencioso);
+          registrarMovimientoBitacora(opName, 'AJUSTE_MELI', visible,
+            `Corrección de saldo (Cuadre Encuadre Meli). Anterior: ${fmt.format(antesVisible)} -> Nuevo: ${fmt.format(app)} | Base: ${fmt.format(balances.meliBase || 0)} | Explicado: ${desgloseTxt} | Sin explicar: ${fmt.format(r2(sinExplicar - rendimiento))}`,
+            null, { meliHistorial: { antes: antesVisible, despues: app, base: balances.meliBase || 0, motivo: 'Corrección' }, cuadreMeli: { saldoApp: app, sistema: antes, explicado, sinExplicar, ganancias: sumPend, rendimiento, desglose: items.map((x) => ({ concepto: x.clave, monto: x.monto })) } });
+          mostrarToast(`Saldo Meli ajustado a ${fmt.format(app)} por ${opName}. Registrado en bitácora.`, 'success');
+        } else {
+          mostrarToast(`Saldo Meli cuadrado a ${fmt.format(app)} por ${opName}: ganancias y rendimiento +${fmt.format(silencioso)} anotados sin renglón en la bitácora.`, 'success');
+        }
         encmEl('encm-saldo-app').value = '';
         cargarSaldosDigitales();
         cargarBitacora();
