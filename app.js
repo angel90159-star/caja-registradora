@@ -5694,6 +5694,40 @@
       refrescarPantallas();
     }
 
+    // === DESGLOSE EXACTO DE PIEZAS ===
+    // Busca cuántas piezas de cada denominación suman exactamente `monto`, respetando el orden de preferencia de `lista`
+    // y sin pasar de `disponibles[d]`. Prueba primero la mayor cantidad posible de cada denominación (como antes), pero si
+    // por ese camino no cierra, regresa y prueba con menos. Antes era voraz sin regresar: con 15 monedas de 50¢ y $10
+    // por cubrir se gastaba las de 50¢, quedaba corto por 50¢ y marcaba "fondos insuficientes" teniendo monedas de $10.
+    // Devuelve { denom: piezas } o null si de verdad no se puede.
+    function desglosarExacto(monto, lista, disponibles) {
+      const aCentavos = (x) => Math.round((parseFloat(x) || 0) * 100);
+      const objetivo = aCentavos(monto);
+      if (objetivo <= 0) return null;
+      const items = lista
+        .map((d) => ({ d, v: aCentavos(d), n: Math.max(0, parseInt(disponibles[d]) || 0) }))
+        .filter((x) => x.v > 0 && x.n > 0);
+      const capacidad = new Array(items.length + 1).fill(0);
+      for (let i = items.length - 1; i >= 0; i--) capacidad[i] = capacidad[i + 1] + items[i].v * items[i].n;
+      const elegido = {};
+      let pasos = 0;
+      const buscar = (i, resto) => {
+        if (resto === 0) return true;
+        if (i >= items.length || resto > capacidad[i] || ++pasos > 200000) return false;
+        const it = items[i];
+        for (let k = Math.min(it.n, Math.floor(resto / it.v)); k >= 0; k--) {
+          elegido[it.d] = k;
+          if (buscar(i + 1, resto - k * it.v)) return true;
+        }
+        delete elegido[it.d];
+        return false;
+      };
+      if (!buscar(0, objetivo)) return null;
+      const out = {};
+      Object.keys(elegido).forEach((d) => { if (elegido[d] > 0) out[d] = elegido[d]; });
+      return out;
+    }
+
     // === GESTIÓN DE PIN MODAL ===
     function abrirPINModal(title, callback, meta) {
       // Si quedó abierta otra autorización con PIN fallido, se anota antes de reemplazarla.
@@ -7980,7 +8014,8 @@
           // Ordenar dinámicamente cada grupo por cantidad en stock (descendente)
           highDenoms.sort((a, b) => (inventory[b] || 0) - (inventory[a] || 0));
           midDenoms.sort((a, b) => (inventory[b] || 0) - (inventory[a] || 0));
-          coinDenoms.sort((a, b) => (inventory[b] || 0) - (inventory[a] || 0));
+          // Monedas: de mayor a menor valor (no por cantidad), para no entregar puños de 50¢ cuando hay de $10.
+          coinDenoms.sort((a, b) => b - a);
 
           // Retiro prioriza billetes altos primero
           const searchList = [
@@ -7999,27 +8034,15 @@
           }
 
           function tryMakeWithdrawalWithSafetyFactor(list, factor) {
-            let tempRemaining = montoRet;
-            const tempSuggested = {};
-            
-            for (let d of list) {
-              if (d > tempRemaining) continue;
-              let stock = inventory[d] || 0;
-              if (stock > 0) {
-                const base = baseSafety[d] || 0;
-                let safetyCount = Math.round(base * factor);
-                let safeAvailable = Math.max(0, stock - safetyCount);
-                
-                let needed = Math.floor(tempRemaining / d);
-                let toGive = Math.min(needed, safeAvailable);
-                if (toGive > 0) {
-                  tempSuggested[d] = toGive;
-                  tempRemaining = parseFloat((tempRemaining - toGive * d).toFixed(2));
-                }
-              }
-            }
-            if (Math.abs(tempRemaining) < 0.01) {
-              suggested = tempSuggested;
+            // Piezas que se pueden usar dejando la reserva mínima de cada denominación (según el factor).
+            const disponibles = {};
+            list.forEach(d => {
+              const stock = inventory[d] || 0;
+              disponibles[d] = Math.max(0, stock - Math.round((baseSafety[d] || 0) * factor));
+            });
+            const desglose = desglosarExacto(montoRet, list, disponibles);
+            if (desglose) {
+              suggested = desglose;
               return true;
             }
             return false;
@@ -8281,39 +8304,23 @@
       }
 
       function tryMakeChangeWithSafetyFactor(list, factor) {
-        const tempAvailable = { ...inventory };
-        let tempRemaining = totalEntrada;
-        
         // Reset suggested
         Object.keys(suggested).forEach(k => suggested[k] = 0);
 
-        for (let d of list) {
-          let availablePieces = tempAvailable[d] || 0;
-          const base = baseSafety[d] || 0;
-          let safetyCount = Math.round(base * factor);
-          
-          let safeAvailable = Math.max(0, availablePieces - safetyCount);
-          let needed = Math.floor(tempRemaining / d);
-          let toGive = Math.min(needed, safeAvailable);
+        // Piezas que se pueden usar dejando la reserva mínima de cada denominación (según el factor).
+        const disponibles = {};
+        list.forEach(d => {
+          disponibles[d] = Math.max(0, (inventory[d] || 0) - Math.round((baseSafety[d] || 0) * factor));
+        });
+        const desglose = desglosarExacto(totalEntrada, list, disponibles);
+        if (!desglose) return false;
 
-          if (toGive > 0) {
-            tempRemaining = parseFloat((tempRemaining - toGive * d).toFixed(2));
-            tempAvailable[d] -= toGive;
-            
-            if (d === 1000) suggested[1000] = toGive;
-            else if (d === 500) suggested[500] = toGive;
-            else if (d === 200) suggested[200] = toGive;
-            else if (d === 100) suggested[100] = toGive;
-            else if (d === 50) suggested[50] = toGive;
-            else if (d === 20) suggested[20] = toGive;
-            else if (d === 10) suggested['m10'] = toGive;
-            else if (d === 5) suggested['m5'] = toGive;
-            else if (d === 2) suggested['m2'] = toGive;
-            else if (d === 1) suggested['m1'] = toGive;
-            else if (d === 0.5) suggested['m05'] = toGive;
-          }
-        }
-        return Math.abs(tempRemaining) < 0.01;
+        const llaveMoneda = { 10: 'm10', 5: 'm5', 2: 'm2', 1: 'm1', 0.5: 'm05' };
+        Object.keys(desglose).forEach(dStr => {
+          const d = parseFloat(dStr);
+          suggested[llaveMoneda[d] || d] = desglose[dStr];
+        });
+        return true;
       }
     }
 
