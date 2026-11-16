@@ -389,6 +389,128 @@
       }
     }
 
+    // === PIEZAS (CHAROLA Y BÓVEDA) SIN SOBRESCRITURAS ENTRE EQUIPOS ===
+    // Antes cada equipo subía su lista completa de piezas y el último en guardar ganaba: si no se había enterado de una
+    // salida hecha en otro equipo, la regresaba (16-nov-2026: una salida BBVA de $53,000 reapareció en la charola).
+    // Ahora cada equipo recuerda las últimas piezas que vio en la nube (piezasNube) y solo sube la diferencia. Cada
+    // denominación se escribe solo si en la nube sigue igual a lo que se leyó; si otro equipo la cambió en medio, se
+    // vuelve a leer y se aplica la diferencia sobre el valor nuevo.
+    const DENOMS_PIEZAS = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '0.5'];
+    const TABLA_PIEZAS = { inventory: 'caja_inventory', inventoryBoveda: 'caja_inventory_boveda' };
+    const piezasNube = {}, colaPiezas = {}, piezasEnCola = {}, piezasCambioMientrasGuardaba = {};
+    Object.keys(TABLA_PIEZAS).forEach((k) => {
+      try { piezasNube[k] = JSON.parse(localStorage.getItem(`lc5_${k}_nube`) || 'null'); } catch (e) { piezasNube[k] = null; }
+      colaPiezas[k] = Promise.resolve(); piezasEnCola[k] = 0; piezasCambioMientrasGuardaba[k] = false;
+    });
+    const nPieza = (v) => parseInt(v) || 0;
+
+    function fijarPiezasNube(key, mapa) {
+      piezasNube[key] = {};
+      DENOMS_PIEZAS.forEach((d) => { piezasNube[key][d] = nPieza(mapa && mapa[d]); });
+      try { localStorage.setItem(`lc5_${key}_nube`, JSON.stringify(piezasNube[key])); } catch (e) {}
+    }
+
+    // Apertura y cierre fijan la charola a un conteo físico: ahí se escribe el valor exacto, no una diferencia.
+    function marcarPiezasAbsolutas(key) {
+      try { localStorage.setItem(`lc5_${key}_absoluto`, '1'); } catch (e) {}
+    }
+
+    // Se modifica el mismo objeto de la caché para que quien ya lo tenga en mano vea los valores nuevos.
+    function reemplazarCachePiezas(key, nuevo) {
+      const cache = dbCache[key];
+      if (cache && typeof cache === 'object' && cache !== nuevo) Object.assign(cache, nuevo);
+      else dbCache[key] = nuevo;
+      localStorage.setItem('lc5_' + key, JSON.stringify(dbCache[key]));
+    }
+
+    // Piezas nuevas de la nube (carga inicial o tiempo real): la caché toma la nube y conserva encima lo que este
+    // equipo cambió y aún no sube. Mientras se guarda se deja para después (la escritura ya trae lo más nuevo).
+    function aplicarPiezasDeNube(key, filas, conservarLocal = true) {
+      if (piezasEnCola[key] > 0) { piezasCambioMientrasGuardaba[key] = true; return false; }
+      const local = DB.get(key, {}) || {};
+      const base = piezasNube[key];
+      const nuevo = { ...local };
+      const nubeActual = { ...(base || {}) };
+      filas.forEach((row) => {
+        const d = String(row.denom);
+        const enNube = nPieza(row.count);
+        const pendiente = conservarLocal && base ? nPieza(local[d]) - nPieza(base[d]) : 0;
+        nuevo[d] = enNube + pendiente;
+        nubeActual[d] = enNube;
+      });
+      reemplazarCachePiezas(key, nuevo);
+      fijarPiezasNube(key, nubeActual);
+      return true;
+    }
+
+    async function leerPiezasNube(key) {
+      const { data, error } = await supabaseClient.from(TABLA_PIEZAS[key]).select('denom,count');
+      if (error) throw error;
+      const mapa = {};
+      (data || []).forEach((r) => { mapa[String(r.denom)] = { count: nPieza(r.count), existe: true }; });
+      return mapa;
+    }
+
+    async function guardarPiezasEnNube(key, val) {
+      const tabla = TABLA_PIEZAS[key];
+      const enviado = {};
+      DENOMS_PIEZAS.forEach((d) => { enviado[d] = nPieza(val && val[d]); });
+      let absoluto = false;
+      try { absoluto = localStorage.getItem(`lc5_${key}_absoluto`) === '1'; } catch (e) {}
+      const base = piezasNube[key];
+      if (!base) absoluto = true; // primera vez en este equipo: no hay contra qué calcular la diferencia
+      // Lo que falta por aplicar en cada denominación (en modo absoluto, el valor destino).
+      const pendientes = {};
+      DENOMS_PIEZAS.forEach((d) => {
+        if (absoluto) pendientes[d] = { destino: enviado[d] };
+        else if (enviado[d] !== nPieza(base[d])) pendientes[d] = { delta: enviado[d] - nPieza(base[d]) };
+      });
+      const nubeFinal = { ...(base || {}) };
+      for (let intento = 1; intento <= 6 && Object.keys(pendientes).length; intento++) {
+        const nube = await leerPiezasNube(key);
+        DENOMS_PIEZAS.forEach((d) => { if (nube[d]) nubeFinal[d] = nube[d].count; });
+        for (const d of Object.keys(pendientes)) {
+          const actual = nube[d] ? nube[d].count : 0;
+          const nuevo = pendientes[d].destino !== undefined ? pendientes[d].destino : actual + pendientes[d].delta;
+          if (nube[d] && nuevo === actual) { delete pendientes[d]; continue; }
+          const fecha = new Date().toISOString();
+          let res;
+          if (nube[d]) {
+            res = await supabaseClient.from(tabla).update({ count: nuevo, updated_at: fecha }).eq('denom', d).eq('count', actual).select('denom');
+          } else {
+            res = await supabaseClient.from(tabla).insert({ denom: d, count: nuevo, updated_at: fecha }).select('denom');
+            if (res.error && intento < 6) continue; // otro equipo creó la fila al mismo tiempo: releer
+          }
+          if (res.error) throw res.error;
+          if (res.data && res.data.length) { nubeFinal[d] = nuevo; delete pendientes[d]; }
+          // Sin filas = otro equipo cambió esta denominación en medio: se relee en la siguiente vuelta.
+        }
+      }
+      if (Object.keys(pendientes).length) throw new Error(`${tabla} cambió en otro equipo en cada intento`);
+      try { localStorage.removeItem(`lc5_${key}_absoluto`); } catch (e) {}
+      // La caché toma lo de otros equipos y conserva lo que este equipo cambió mientras se guardaba.
+      const local = DB.get(key, {}) || {};
+      const cache = {};
+      DENOMS_PIEZAS.forEach((d) => { cache[d] = nPieza(nubeFinal[d]) + nPieza(local[d]) - enviado[d]; });
+      fijarPiezasNube(key, nubeFinal);
+      reemplazarCachePiezas(key, cache);
+    }
+
+    async function refrescarPiezasDesdeNube(key) {
+      if (!supabaseClient) return;
+      try {
+        const { data, error } = await supabaseClient.from(TABLA_PIEZAS[key]).select('denom,count');
+        if (error || !data) return;
+        aplicarPiezasDeNube(key, data);
+        if (pendingSyncKeys.has(key)) syncToSupabase(key, DB.get(key, {}));
+      } catch (e) {
+        console.warn('[Supabase Sync] Relectura de piezas:', e.message || e);
+      }
+    }
+
+    // Bitácora: registros que ya se están enviando (evita mandarlos dos veces si se guarda otro mientras tanto).
+    const logsEnVuelo = new WeakSet();
+
     async function syncToSupabase(key, val) {
       if (!supabaseClient) return;
       try {
@@ -402,27 +524,21 @@
               refrescarBalancesDesdeNube();
             }
           }
-        } else if (key === 'inventory') {
-          const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '0.5'];
-          const valObj = val && typeof val === 'object' ? val : {};
-          const rows = denoms.map(denom => ({
-            denom: String(denom),
-            count: parseInt(valObj[denom]) || 0,
-            updated_at: new Date().toISOString()
-          }));
-          await supabaseClient.from('caja_inventory').upsert(rows);
-        } else if (key === 'inventoryBoveda') {
-          const denoms = ['1000', '500', '200', '100', '50', '20', '10', '5', '2', '1', '0.5'];
-          const valObj = val && typeof val === 'object' ? val : {};
-          const rows = denoms.map(denom => ({
-            denom: String(denom),
-            count: parseInt(valObj[denom]) || 0,
-            updated_at: new Date().toISOString()
-          }));
-          await supabaseClient.from('caja_inventory_boveda').upsert(rows);
+        } else if (TABLA_PIEZAS[key]) {
+          piezasEnCola[key]++;
+          try {
+            // Se guarda lo que haya en la caché al momento de escribir (las llamadas en fila no repiten diferencias).
+            await (colaPiezas[key] = colaPiezas[key].catch(() => {}).then(() => guardarPiezasEnNube(key, DB.get(key, val || {}))));
+          } finally {
+            if (--piezasEnCola[key] === 0 && piezasCambioMientrasGuardaba[key]) {
+              piezasCambioMientrasGuardaba[key] = false;
+              refrescarPiezasDesdeNube(key);
+            }
+          }
         } else if (key === 'logs' && Array.isArray(val) && val.length > 0) {
-          const unsyncedLogs = val.filter(l => l && !l._synced);
+          const unsyncedLogs = val.filter(l => l && !l._synced && !logsEnVuelo.has(l));
           if (unsyncedLogs.length > 0) {
+            unsyncedLogs.forEach(l => logsEnVuelo.add(l));
             const rowsToInsert = unsyncedLogs.map(l => ({
               timestamp: l.timestamp || new Date().toISOString(),
               type: l.type || 'OPERACION',
@@ -433,10 +549,21 @@
               pieces: l.pieces || null,
               extra_data: l.redepExtraData || l.extraData || null
             }));
-            await supabaseClient.from('caja_logs').insert(rowsToInsert);
-            // Marcar sincronizado SOLO tras confirmar el envío -- si el insert falla, el catch de abajo
-            // los deja como no sincronizados para que un reintento real los vuelva a enviar.
+            // supabase-js no lanza excepción cuando la nube rechaza el insert: devuelve { error }. Antes no se revisaba
+            // y el registro se marcaba como enviado aunque no hubiera llegado (16-nov-2026: depósito de $2,019 perdido).
+            let errorLogs = null;
+            try {
+              const { error } = await supabaseClient.from('caja_logs').insert(rowsToInsert);
+              errorLogs = error;
+            } catch (e) {
+              errorLogs = e;
+            } finally {
+              unsyncedLogs.forEach(l => logsEnVuelo.delete(l));
+            }
+            if (errorLogs) throw errorLogs;
+            // Marcar sincronizado SOLO tras confirmar el envío; si falla, quedan pendientes para el reintento.
             unsyncedLogs.forEach(l => { l._synced = true; });
+            try { localStorage.setItem('lc5_logs', JSON.stringify(DB.get('logs', []))); } catch (e) {}
           }
         } else if (key === 'cierre_reports' && typeof val === 'object') {
           const reportKeys = Object.keys(val);
@@ -444,8 +571,7 @@
             const lastKey = reportKeys[reportKeys.length - 1];
             const report = val[lastKey];
             if (report && !report._synced) {
-              report._synced = true;
-              await supabaseClient.from('cierre_reports').insert([{
+              const { error: errorReporte } = await supabaseClient.from('cierre_reports').insert([{
                 date_str: report.date || report.dateStr || lastKey,
                 timestamp: report.timestamp || new Date().toISOString(),
                 operator: report.operator || 'ADMIN',
@@ -457,10 +583,12 @@
                 snapshot_balances: report.balances || {},
                 report_json: report
               }]);
+              if (errorReporte) throw errorReporte;
+              report._synced = true;
             }
           }
         } else if (key === 'state' && typeof val === 'object') {
-          await supabaseClient.from('caja_state').upsert({
+          const { error: errorEstado } = await supabaseClient.from('caja_state').upsert({
             id: 'main',
             session_active: !!val.session_active,
             opened_date: val.opened_date || null,
@@ -470,6 +598,7 @@
             precarga_data: val.precarga_data || null,
             updated_at: new Date().toISOString()
           });
+          if (errorEstado) throw errorEstado;
         }
         marcarSincronizado(key);
       } catch (e) {
@@ -480,6 +609,7 @@
 
     async function fetchInitialFromSupabase() {
       if (!supabaseClient) return;
+      setTimeout(() => { try { enviarPinFallidosPendientes(); } catch (e) {} }, 5000); // reintenta intentos de PIN que no alcanzaron a subir
       try {
         // Descargar estado, saldos e inventarios en paralelo para nunca pintar localStorage obsoleto en pantalla
         const [
@@ -498,24 +628,11 @@
         if (balData) aplicarBalancesDeNube(balData, pendingSyncKeys.has('balances'));
 
         // 2. Actualizar inventario de piezas en charola
-        if (invData && invData.length > 0) {
-          const currentInv = DB.get('inventory', {});
-          invData.forEach(row => {
-            currentInv[row.denom] = parseInt(row.count) || 0;
-          });
-          dbCache['inventory'] = currentInv;
-          localStorage.setItem('lc5_inventory', JSON.stringify(currentInv));
-        }
+        // (solo se conserva lo local encima si quedó sin subir; si no, manda la nube)
+        if (invData && invData.length > 0) aplicarPiezasDeNube('inventory', invData, pendingSyncKeys.has('inventory'));
 
         // 3. Actualizar inventario de piezas en bóveda
-        if (bovedaData && bovedaData.length > 0) {
-          const currentBoveda = DB.get('inventoryBoveda', {});
-          bovedaData.forEach(row => {
-            currentBoveda[row.denom] = parseInt(row.count) || 0;
-          });
-          dbCache['inventoryBoveda'] = currentBoveda;
-          localStorage.setItem('lc5_inventoryBoveda', JSON.stringify(currentBoveda));
-        }
+        if (bovedaData && bovedaData.length > 0) aplicarPiezasDeNube('inventoryBoveda', bovedaData, pendingSyncKeys.has('inventoryBoveda'));
 
         // 4. Actualizar estado remoto de caja y pintar pantallas ya con los saldos reales listos
         if (stData) {
@@ -811,12 +928,7 @@
             }
           })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'caja_inventory' }, payload => {
-            if (payload.new && payload.new.denom) {
-              const currentInv = DB.get('inventory', {});
-              currentInv[payload.new.denom] = parseInt(payload.new.count) || 0;
-              dbCache['inventory'] = currentInv;
-              localStorage.setItem('lc5_inventory', JSON.stringify(currentInv));
-            }
+            if (payload.new && payload.new.denom) aplicarPiezasDeNube('inventory', [payload.new]);
           })
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'caja_logs' }, payload => {
             if (payload.new) {
@@ -2399,7 +2511,8 @@
 
       const operatorName = "Turno Activo";
 
-      // Configurar inventario inicial de la charola
+      // Configurar inventario inicial de la charola (conteo físico: se escribe exacto, no como diferencia)
+      marcarPiezasAbsolutas('inventory');
       DB.set('inventory', startingInventory);
       // NOTA: inventoryBoveda NO se resetea — persiste entre turnos
       
@@ -3330,7 +3443,7 @@
         
         abrirPINModal("Confirmación de Re-depósito", (opName) => {
           completarTransaccion(opName, charolaSum);
-        });
+        }, { servicio: 'yastas', tipo: 'redeposito', montos: [totalDeposito, totalRetiros, charolaSum, ...redepositoRetiros] });
         return;
       }
 
@@ -3584,8 +3697,12 @@
       let descMonto = isManualAmount ? 'Valor Electrónico' : fmt.format(totalSum);
       document.getElementById('pin-modal-desc').innerText = `Se va a autorizar por un monto de ${descMonto}. Ingrese su PIN.`;
 
+      const valorInput = (id) => { const el = document.getElementById(id); return el ? (parseFloat(el.value) || 0) : 0; };
       abrirPINModal(`Confirmación de ${actionText}`, (opName) => {
         completarTransaccion(opName, totalSum);
+      }, {
+        servicio: srv, tipo: currentOpType,
+        montos: [totalSum, valorInput('op-cambio-deposito'), valorInput('op-retiro-monto'), valorInput('op-recarga-monto')],
       });
     }
 
@@ -5578,7 +5695,10 @@
     }
 
     // === GESTIÓN DE PIN MODAL ===
-    function abrirPINModal(title, callback) {
+    function abrirPINModal(title, callback, meta) {
+      // Si quedó abierta otra autorización con PIN fallido, se anota antes de reemplazarla.
+      registrarPinFallidoSiAplica();
+      pinIntento = meta ? { ...meta, titulo: title, fallos: 0, hora: null } : null;
       const titleEl = document.getElementById('pin-modal-titulo');
       const descEl = document.getElementById('pin-modal-desc');
       const inputEl = document.getElementById('pin-input');
@@ -5608,6 +5728,54 @@
     function cerrarModalPIN() {
       document.getElementById('modal-pin').classList.add('hidden');
       pinCallback = null;
+      registrarPinFallidoSiAplica();
+    }
+
+    // === INTENTOS ABANDONADOS CON PIN INCORRECTO ===
+    // Solo se anota UNA fila cuando alguien escribió mal el PIN y cerró la ventana sin completar la operación.
+    // Si la firma sale bien (aunque sea al segundo intento) no se guarda nada. Va a una tabla aparte
+    // (caja_pin_fallidos): no toca la bitácora, los saldos ni el cierre. Solo la lee el encuadre Yastás.
+    let pinIntento = null;
+    const PIN_FALLIDOS_PEND_KEY = 'caja_pin_fallidos_pendientes';
+
+    function registrarPinFallidoSiAplica() {
+      const it = pinIntento;
+      pinIntento = null;
+      if (!it || !it.fallos) return;
+      const d = it.hora || new Date();
+      const p = (x) => String(x).padStart(2, '0');
+      const fila = {
+        fecha: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`,
+        hora: `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`,
+        servicio: it.servicio || null,
+        tipo: it.tipo || null,
+        montos: [...new Set((it.montos || []).map((m) => Math.round(Math.abs(parseFloat(m) || 0) * 100) / 100).filter((m) => m > 0))],
+        intentos: it.fallos,
+        titulo: it.titulo || null,
+      };
+      let pend = [];
+      try { pend = JSON.parse(localStorage.getItem(PIN_FALLIDOS_PEND_KEY) || '[]') || []; } catch (e) {}
+      pend.push(fila);
+      try { localStorage.setItem(PIN_FALLIDOS_PEND_KEY, JSON.stringify(pend.slice(-50))); } catch (e) {}
+      enviarPinFallidosPendientes();
+    }
+
+    async function enviarPinFallidosPendientes() {
+      if (!supabaseClient) return;
+      let pend = [];
+      try { pend = JSON.parse(localStorage.getItem(PIN_FALLIDOS_PEND_KEY) || '[]') || []; } catch (e) { return; }
+      if (!pend.length) return;
+      try {
+        const { error } = await supabaseClient.from('caja_pin_fallidos').insert(pend);
+        if (error) throw error;
+        // Solo se quitan los que se enviaron; si entró otro mientras tanto, se queda para la próxima.
+        let actual = [];
+        try { actual = JSON.parse(localStorage.getItem(PIN_FALLIDOS_PEND_KEY) || '[]') || []; } catch (e) {}
+        const enviados = new Set(pend.map((f) => JSON.stringify(f)));
+        localStorage.setItem(PIN_FALLIDOS_PEND_KEY, JSON.stringify(actual.filter((f) => !enviados.has(JSON.stringify(f)))));
+      } catch (e) {
+        console.warn('[PIN fallido] se reintentará más tarde:', e && e.message ? e.message : e);
+      }
     }
 
     function validarPIN() {
@@ -5617,6 +5785,7 @@
       // Permitir el PIN de administración o master (072, 1234)
       if (pin === ADMIN_SETTINGS_PIN || cleanPin === '1234') {
         const callback = pinCallback;
+        pinIntento = null; // firmó bien: no se anota nada
         cerrarModalPIN();
         if (callback) callback("Administrador", cleanPin);
         return;
@@ -5628,9 +5797,11 @@
       const name = Operators[cleanPin] || Operators[paddedPin] || Operators[unpaddedPin] || (cleanPin === ADMIN_PIN || cleanPin === '02' || cleanPin === '2' ? "Miguel" : null);
       if (name) {
         const callback = pinCallback;
+        pinIntento = null; // firmó bien: no se anota nada
         cerrarModalPIN();
         if (callback) callback(name, cleanPin);
       } else {
+        if (pinIntento && cleanPin) { pinIntento.fallos++; pinIntento.hora = new Date(); }
         mostrarToast("Código PIN no válido.", "error");
       }
     }
@@ -10050,6 +10221,8 @@
       mostrarToast(guardarPrecarga ? "Corte de caja firmado. Fondo base precargado con éxito." : "Corte de caja firmado y sesión cerrada exitosamente.", "success");
 
       // Sincronización en segundo plano a Supabase
+      marcarPiezasAbsolutas('inventory');
+      marcarPiezasAbsolutas('inventoryBoveda');
       await DB.set('inventory', {});
       await DB.set('inventoryBoveda', {});
       await DB.set('balances', balances);
@@ -10376,6 +10549,38 @@
       return data ? { monto: parseFloat(data.monto) || 0, veces: data.veces || 0, log_ids: data.log_ids || [] } : { monto: 0, veces: 0, log_ids: [] };
     }
 
+    // Intentos abandonados con PIN incorrecto (tabla caja_pin_fallidos + los que este equipo aún no envía).
+    async function encCargarPinFallidos(fecha) {
+      let filas = [];
+      if (supabaseClient) {
+        try {
+          const { data, error } = await supabaseClient.from('caja_pin_fallidos').select('hora,servicio,tipo,montos,intentos').eq('fecha', fecha);
+          if (!error) filas = data || [];
+        } catch (e) {}
+      }
+      try { (JSON.parse(localStorage.getItem(PIN_FALLIDOS_PEND_KEY) || '[]') || []).forEach((f) => { if (f && f.fecha === fecha) filas.push(f); }); } catch (e) {}
+      return filas.map((f) => ({ hora: String(f.hora || '').slice(0, 8), t: encSeg(f.hora), servicio: f.servicio, tipo: f.tipo, intentos: f.intentos || 1, montos: (f.montos || []).map((m) => parseFloat(m) || 0) }));
+    }
+    // Empata cada "Falta en caja" con el intento fallido más cercano en hora (mismo monto, hasta 60 min).
+    function encPistasPinFallido(pares, intentos) {
+      const out = new Map();
+      if (!intentos || !intentos.length) return out;
+      const cands = [];
+      pares.forEach((par, i) => {
+        if (par.paso !== 'solo-portal' || !par.p) return;
+        const montosP = [par.p.montoTotal, par.p.montoOperacion, par.p.montoTerminal].filter((m) => m > 0);
+        intentos.forEach((it, j) => {
+          const dt = Math.abs(it.t - par.p.t) / 60;
+          if (dt > 60) return;
+          if (it.montos.some((m) => montosP.some((mp) => Math.abs(m - mp) < 0.01))) cands.push({ i, j, dt });
+        });
+      });
+      cands.sort((a, b) => a.dt - b.dt);
+      const usadosP = new Set(), usadosI = new Set();
+      cands.forEach(({ i, j }) => { if (usadosP.has(i) || usadosI.has(j)) return; usadosP.add(i); usadosI.add(j); out.set(pares[i], intentos[j]); });
+      return out;
+    }
+
     async function encCargarAjustesDia(fecha) {
       if (!supabaseClient) return {};
       const { data, error } = await supabaseClient.from('yastas_encuadre_ajustes').select('concepto,monto,operador,aplicado_en').eq('fecha', fecha);
@@ -10630,6 +10835,7 @@
       encState.bbva = [...encCargarCajaDelDia(fechaPrev).map((l) => ({ ...l, fecha: fechaPrev })), ...cajaLogs.map((l) => ({ ...l, fecha }))]
         .filter((l) => (l.category || '').toUpperCase() === 'BBVA' && Math.abs(l.amount) > 0);
       encState.pares = encuadrarYastas(portal, encState.caja, encState.otrosCaja);
+      encState.pistasPin = encPistasPinFallido(encState.pares, await encCargarPinFallidos(fecha));
       encRender();
     }
 
@@ -10814,7 +11020,10 @@
               : `<div class="mt-1"><button type="button" class="enc-btn" style="padding:4px 10px;font-size:.8em" onclick="aplicarAjusteEncuadre('${encEsc(corr.concepto)}')">🔧 Corregir terminal ${txt}</button></div><div class="enc-note">El efectivo esperado también difiere; revísalo en el arqueo.</div>`;
           }
         } else if (paso === 'solo-portal') {
-          res = `<span class="enc-pill bad">❌ Falta en caja</span><div class="enc-note bad">Nadie la registró</div>`;
+          const pista = encState.pistasPin && encState.pistasPin.get(par);
+          res = pista
+            ? `<span class="enc-pill bad">❌ Falta en caja</span><div class="enc-note warn">🔑 Hubo un intento con PIN incorrecto a las ${encEsc(pista.hora.slice(0, 5))}${pista.intentos > 1 ? ` (${pista.intentos} veces)` : ''} y no se completó</div>`
+            : `<span class="enc-pill bad">❌ Falta en caja</span><div class="enc-note bad">Nadie la registró</div>`;
         } else if (paso === 'solo-caja') {
           res = `<span class="enc-pill bad">❌ No está en Yastás</span><div class="enc-note bad">Revisar ticket</div>`;
         } else if (g < 0) {
